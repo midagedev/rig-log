@@ -76,7 +76,8 @@ CLAUDE.md   context for an agent working in this repo
 | Date | Project | What | Outcome |
 |---|---|---|---|
 | 2026-09-11 | ik_llama.cpp | [#2436](https://github.com/ikawrakow/ik_llama.cpp/pull/2436) — a detected allocation failure became a segfault because a `nullptr` graph was dereferenced | open |
-| 2026-09-11 | ik_llama.cpp | [IQ4_KSS expert tensors produce all-NaN logits](docs/ik-server-nan-bug.md) — reproducible CPU-only, cause not established | issue, not a PR |
+| 2026-09-11 | ik_llama.cpp | [#2437](https://github.com/ikawrakow/ik_llama.cpp/pull/2437) — the loader accepted a tensor whose GGUF region is smaller than its type requires, so every short tensor read its tail from the next one | open |
+| 2026-09-11 | — | [A published IQ4_KSS file reserves 4 bytes per row too few](docs/iq4-kss-short-tensors.md), which is where the NaN came from. Not an engine defect; nothing filed upstream | for the publisher |
 
 The method, including the two mistakes that cost the most, is in
 [`docs/upstream-contributions.md`](docs/upstream-contributions.md).
@@ -91,6 +92,19 @@ The method, including the two mistakes that cost the most, is in
   above, with the two traps it had to work around written down.
 - [`assets/placement-sheet.html`](assets/placement-sheet.html) — the source of
   the sheet above; edit and re-screenshot at 1280×720 for the next entry.
+- [`tools/dequant-scan.cpp`](tools/dequant-scan.cpp) — reads one tensor out of
+  a GGUF at `ggml_row_size` stride, dequantizes each row with ggml's own
+  reference path, and reports every non-finite value with the raw block that
+  produced it. This is what turned "the logits are NaN" into "expert 255 of
+  this tensor is read out of the next tensor's bytes".
+
+  ```
+  g++ -O2 -o dequant-scan tools/dequant-scan.cpp -I<ik>/ggml/include \
+      -L<ik>/build/ggml/src -lggml -Wl,-rpath,<ik>/build/ggml/src
+  ./dequant-scan model.gguf blk.13.ffn_up_exps.weight        # all experts
+  ./dequant-scan model.gguf blk.13.ffn_up_exps.weight 255 256 # one expert
+  ```
+
 - [`configs/thermal-guard.sh`](configs/thermal-guard.sh) — a watchdog that
   reads CPU, GPU, coolant temperature and pump RPM every 5 seconds and stops
   the inference load, and only the inference load, after 30 seconds of a

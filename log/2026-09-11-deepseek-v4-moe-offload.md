@@ -121,7 +121,7 @@ For contrast, moving *more* experts onto the GPUs barely registered:
 Eleven expert layers on the GPUs with a draft model beat sixteen without
 one. VRAM spent on the draft model outperformed VRAM spent on experts.
 
-## Three things that wasted time
+## Four things that wasted time
 
 **The draft model failed silently.** With the draft context left at the
 default it inherits the target's 32k, and its KV scheduler tried to reserve a
@@ -131,9 +131,10 @@ zero drafted tokens, and ran at 17.0 tok/s — slower than no speculation at
 all, with no indication that the cause was VRAM. `-cd 8192` fixed it. The
 error message never mentions memory.
 
-**The engine's own quantization produces NaN.** The ik-specific `IQ4_KSS`
-build of this model (149 GB, and by the published KL-divergence ladder the
-better file) aborts with all-NaN logits at the first sampled token. Four
+**A published quantization was malformed, and it looked like an engine bug.**
+The ik-specific `IQ4_KSS` build of this model (149 GB, and by the published
+KL-divergence ladder the better file) aborts with all-NaN logits at the first
+sampled token. Four
 hours were spent on the theory that this was specific to `llama-server`,
 because `llama-cli` appeared to generate from the same file — it did not.
 That control had been run at `--temp 0`, where the sampler takes an argmax of
@@ -141,8 +142,11 @@ the all-NaN row instead of normalizing it, so it never reaches the abort and
 emits tokens that render as nothing. **A control that does not exercise the
 failing path is not a control.** The real shape: NaN comes out of the
 routed-expert matmul, CPU-only, at whichever layer the prompt's experts
-route to. Write-up, with the minimal reproducer:
-[docs/ik-server-nan-bug.md](../docs/ik-server-nan-bug.md).
+route to — and the reason is that the published file reserves four bytes per
+row too few, so the last expert of 127 of its 129 expert tensors is read out
+of the neighbouring tensor's bytes. Write-up, with the minimal reproducer and
+how it was pinned down:
+[docs/iq4-kss-short-tensors.md](../docs/iq4-kss-short-tensors.md).
 
 **Reasoning went into a field most clients ignore.** With
 `--reasoning-format deepseek` the server puts the model's thinking in

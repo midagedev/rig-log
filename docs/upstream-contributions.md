@@ -148,7 +148,8 @@ answers; every push re-triggers review.
 | Date | Project | What | Outcome |
 |---|---|---|---|
 | 2026-09-11 | ik_llama.cpp | [#2436](https://github.com/ikawrakow/ik_llama.cpp/pull/2436) — `llama_build_graph()` returns `nullptr` on a DFlash K/V allocation failure and the result is dereferenced, turning a detected out-of-memory condition into a segfault. Four callers passed the value on unchecked. +18/−0. | open |
-| 2026-09-11 | ik_llama.cpp | IQ4_KSS expert tensors produce all-NaN logits — reproducible CPU-only, cause not established. See [`ik-server-nan-bug.md`](ik-server-nan-bug.md). | issue, not a PR |
+| 2026-09-11 | ik_llama.cpp | [#2437](https://github.com/ikawrakow/ik_llama.cpp/pull/2437) — the loader checked a tensor's shape and type but never that the GGUF reserved as many bytes as the type requires, so a malformed file loaded silently and read across tensor boundaries. +17/−0. | open |
+| 2026-09-11 | — | The all-NaN logits that started that investigation: a published IQ4_KSS file reserves 4 bytes per row too few in 127 of 129 expert tensors. Not a defect in this engine — the quantizer returns the right size at HEAD and at the commit checked. Nothing filed upstream; the publisher was the right recipient. [Write-up](iq4-kss-short-tensors.md). | investigated, not filed |
 
 Findings that were investigated and deliberately not sent are worth a row
 too, once there are any: a negative result that took a day is the same
