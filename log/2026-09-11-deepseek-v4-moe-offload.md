@@ -131,12 +131,17 @@ zero drafted tokens, and ran at 17.0 tok/s — slower than no speculation at
 all, with no indication that the cause was VRAM. `-cd 8192` fixed it. The
 error message never mentions memory.
 
-**The engine's own quantization crashes the server.** The ik-specific
-`IQ4_KSS` build of this model (149 GB, and by the published KL-divergence
-ladder the better file) aborts with all-NaN logits at the first sampled
-token under `llama-server`. It generates correctly under `llama-cli` with the
-identical device placement, and a CPU-only build is also fine, so the file,
-the CUDA kernels, and the `-ot` split are all exonerated. Write-up:
+**The engine's own quantization produces NaN.** The ik-specific `IQ4_KSS`
+build of this model (149 GB, and by the published KL-divergence ladder the
+better file) aborts with all-NaN logits at the first sampled token. Four
+hours were spent on the theory that this was specific to `llama-server`,
+because `llama-cli` appeared to generate from the same file — it did not.
+That control had been run at `--temp 0`, where the sampler takes an argmax of
+the all-NaN row instead of normalizing it, so it never reaches the abort and
+emits tokens that render as nothing. **A control that does not exercise the
+failing path is not a control.** The real shape: NaN comes out of the
+routed-expert matmul, CPU-only, at whichever layer the prompt's experts
+route to. Write-up, with the minimal reproducer:
 [docs/ik-server-nan-bug.md](../docs/ik-server-nan-bug.md).
 
 **Reasoning went into a field most clients ignore.** With

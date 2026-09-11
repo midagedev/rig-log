@@ -1,0 +1,76 @@
+# rig-log — agent context
+
+A build log for one workstation, measured. Start sessions about this machine
+here, not in another repo: the machine's facts, the serving configs, and the
+record of what was sent upstream all live in this tree.
+
+## What this repo is for
+
+Two purposes, and the second is easy to forget:
+
+1. **Measure what this hardware can actually do** — large language models
+   first, then video, images, audio. Every entry carries the exact command
+   line, the measured throughput, and the thing that turned out to be wrong.
+2. **Find and ship upstream contributions.** Running unreleased models on
+   mismatched hardware walks straight into other people's untested paths.
+   When a run fails, the question is not only "how do I get past this" but
+   "is this a bug someone else will hit, and is it reportable?" A crash with
+   a minimal reproducer is worth more than a workaround nobody can check.
+   The method is [`docs/upstream-contributions.md`](docs/upstream-contributions.md);
+   the record is the table in that file.
+
+Both purposes have the same discipline: **a claim in this repo is something
+that was measured on this machine, on a stated date.** If a number is derived
+rather than measured, it says so. If a claim turns out to be wrong, the
+correction goes in and the old claim is struck — a log that quietly edits its
+own history is worth nothing.
+
+## The machine
+
+Facts, contact paths, and the two board gotchas are in
+[`README.md`](README.md). It is the canonical summary; keep it current.
+
+Private operational detail — hostnames, systemd units, BIOS to-dos, the
+dashboard — lives in `~/repo-mid/vps-infra/hosts/ws.md` and
+`hosts/ws-llm-serving.md`, which are **not** public. Nothing from those files
+gets copied here verbatim: this repo names the machine by its hardware, never
+by its tailnet name or address.
+
+Reaching it: `ssh ws`. It serves an OpenAI-compatible API on loopback,
+published over Tailscale. `llm.service` holds both GPUs, so anything that
+needs VRAM starts with stopping it and ends with starting it again and
+confirming the rate came back.
+
+## Tracking
+
+Work items go to the **WKS** project on the self-hosted tracker (`gadak
+--workspace gdk`, project key `WKS`). Findings that outrun an issue go to a
+wiki page in the `GDK` space and get linked from the issue by URL. Do not
+open a `TODO.md` here.
+
+Friction with gadak itself goes to the **GDK** board as its own issue, with
+the command and its real output — routing around it destroys the evidence.
+
+## Layout
+
+```
+log/        one file per experiment, dated. The measured record.
+docs/       longer write-ups: upstream bug dossiers, method, hardware notes
+configs/    the scripts actually running on the machine, copied as-is
+tools/      recording: VHS tapes and the scripts they drive
+assets/     the clips and sheets
+```
+
+## Conventions
+
+- **Prose, not bullets, for findings.** An entry explains what was tried, what
+  the number was, and what it cost. Tables for measurements, sentences for
+  reasoning.
+- **Include the failures.** The runs that lost speed are part of the record;
+  an entry that only shows the winning configuration is an advertisement.
+- **English in this repo** — it is public and the upstream audience reads it.
+  Session conversation stays Korean.
+- **No private addresses, no hostnames, no passwords.** Check before commit;
+  the serving script here has its host generalized on purpose.
+- Assets: the sheet is `assets/placement-sheet.html`, re-screenshot at
+  1280×720. Keep the favicon and title stable across republishes.

@@ -8,6 +8,11 @@ write down the numbers instead of the vibes. Every entry carries the exact
 command line, the measured throughput, and the thing that turned out to be
 wrong.
 
+Running unreleased models on mismatched hardware walks into other people's
+untested paths, so the second half of this log is what got sent back:
+[how a failure here becomes an upstream report](docs/upstream-contributions.md),
+and the record of what was sent.
+
 ![pi running against the workstation's local model](assets/pi-local.gif)
 
 *A 284 B-parameter mixture-of-experts model answering from this machine: most of
@@ -61,9 +66,20 @@ Two notes that cost a day each:
 log/        one file per experiment, dated
 configs/    the scripts that are actually running on the machine
 tools/      recording: VHS tapes and the scripts they drive
-docs/       longer write-ups: upstream bug reports, hardware notes
+docs/       longer write-ups: upstream bug reports, method, hardware notes
 assets/     the clips
+CLAUDE.md   context for an agent working in this repo
 ```
+
+## Upstream
+
+| Date | Project | What | Outcome |
+|---|---|---|---|
+| 2026-09-11 | ik_llama.cpp | [#2436](https://github.com/ikawrakow/ik_llama.cpp/pull/2436) — a detected allocation failure became a segfault because a `nullptr` graph was dereferenced | open |
+| 2026-09-11 | ik_llama.cpp | [IQ4_KSS expert tensors produce all-NaN logits](docs/ik-server-nan-bug.md) — reproducible CPU-only, cause not established | issue, not a PR |
+
+The method, including the two mistakes that cost the most, is in
+[`docs/upstream-contributions.md`](docs/upstream-contributions.md).
 
 ## Reusable pieces
 
