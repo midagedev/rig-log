@@ -1,7 +1,8 @@
 # DeepSeek-V4-Flash across two GPUs and 256 GB of RAM
 
-**2026-09-11.** 284 B parameters, 155 GB on disk, served at **29.1 tok/s** on
-a workstation with 72 GB of VRAM. Routed experts are split by layer across an
+**2026-09-11.** 284 B parameters, 155 GB on disk, served at **25–33 tok/s**
+on a workstation with 72 GB of VRAM — 29 in the middle, and the spread is
+explained below. Routed experts are split by layer across an
 A6000, a 3090, and system RAM; the CPU computes the 32 layers that don't fit.
 
 Everything below was measured on the machine in [the README](../README.md) on
@@ -46,7 +47,7 @@ llama-server \
   -ot "exps=CPU"                        \
   -md dspark-DeepSeek-V4-Flash-0731-Q8_0.gguf -ngld 99 -cd 8192 \
   --spec-type dspark:n_max=2 \
-  --jinja --reasoning-format deepseek
+  --jinja --reasoning-format none
 ```
 
 Placement, as loaded:
