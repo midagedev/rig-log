@@ -1,17 +1,17 @@
 <title>Expert Placement Sheet</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans+Condensed:wght@600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600&display=swap">
 <style>
   :root{
-    --ink:#0d2b3e;
-    --ink-2:#3a6480;
-    --ink-3:#8aa8ba;
-    --paper:#dfe7ec;
-    --paper-2:#eef3f6;
-    --grid:#c3d3dd;
-    --a6000:#0d5c7a;
-    --rtx3090:#2f8ca8;
-    --cpu:#c66a2e;
-    --signal:#a8331f;
+    --ink:#12303f;
+    --ink-2:#41677c;
+    --ink-3:#89a6b5;
+    --paper:#e2e8eb;
+    --paper-2:#f0f4f6;
+    --rule:#c4d2d9;
+    --a6000:#12566f;
+    --rtx3090:#3a8ba3;
+    --cpu:#bd6a34;
+    --mark:#9a3b26;
   }
   *{box-sizing:border-box}
   body{
@@ -23,106 +23,139 @@
   .sheet{
     width:100%;max-width:1280px;aspect-ratio:16/9;
     container-type:size;
-    background:
-      linear-gradient(var(--grid) 1px, transparent 1px) 0 0/100% 5cqh,
-      linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0/3.75cqw 100%,
-      var(--paper-2);
-    border:2px solid var(--ink);
-    padding:4.4cqh 3.4cqw;
-    display:grid;grid-template-rows:auto auto auto;align-content:space-between;
-    gap:4cqh;
+    background:var(--paper-2);
+    border:1px solid var(--ink-2);
+    padding:3.6cqh 3.2cqw;
+    display:grid;grid-template-rows:auto 1fr;gap:3.4cqh;
   }
 
-  .eyebrow{display:flex;justify-content:space-between;align-items:baseline;
-    font-size:2.5cqh;font-weight:600;letter-spacing:0.18em;text-transform:uppercase;
-    color:var(--ink-2);border-bottom:2px solid var(--ink);padding-bottom:1.5cqh}
-  h1{
-    font-family:"IBM Plex Sans Condensed",Arial Narrow,sans-serif;font-weight:700;
-    margin:2.6cqh 0 0;line-height:0.96;font-size:10.6cqh;letter-spacing:-0.015em;
-    text-wrap:balance;
-  }
-  h1 em{font-style:normal;color:var(--signal)}
-  .sub{margin:2.2cqh 0 0;font-size:3.2cqh;line-height:1.42;color:var(--ink-2);max-width:52ch}
-  .sub b{color:var(--ink);font-weight:600}
+  .head{border-bottom:1px solid var(--ink);padding-bottom:2cqh}
+  .meta{display:flex;justify-content:space-between;align-items:baseline;
+    font-size:2.35cqh;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-2)}
+  h1{font-family:"IBM Plex Sans Condensed",Arial Narrow,sans-serif;font-weight:600;
+    margin:1.6cqh 0 0;font-size:5.2cqh;line-height:1.06;letter-spacing:-0.005em;text-wrap:balance}
+  .q{margin:1.3cqh 0 0;font-size:2.75cqh;line-height:1.4;color:var(--ink-2)}
 
-  .lbl{font-size:2.65cqh;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;
-    color:var(--ink-2);margin:0 0 1.8cqh}
+  main{display:grid;grid-template-columns:1.02fr 1fr;gap:3.2cqw;min-height:0}
+  .lbl{font-size:2.3cqh;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-2);
+    margin:0 0 1.5cqh;padding-bottom:0.8cqh;border-bottom:1px solid var(--rule)}
 
-  .map{display:grid;grid-template-columns:repeat(43,1fr);gap:0.42cqw;align-items:end;height:11cqh}
-  .cell{height:100%;border:1px solid rgba(13,43,62,.35)}
+  .setup{display:grid;gap:1.1cqh;font-size:2.7cqh;line-height:1.3}
+  .setup div{display:grid;grid-template-columns:7.5cqw 1fr;gap:1cqw}
+  .setup dt{color:var(--ink-3)}
+  .setup dd{margin:0}
+
+  .map{display:grid;grid-template-columns:repeat(43,1fr);gap:0.4cqw;align-items:end;
+    height:8.5cqh;margin-top:2.6cqh}
+  .cell{height:100%;border:1px solid rgba(18,48,63,.3)}
   .cell.g0{background:var(--a6000)}
   .cell.g1{background:var(--rtx3090)}
-  .cell.cpu{background:var(--cpu);opacity:.5;height:58%}
-  .legend{display:flex;flex-wrap:wrap;gap:1.4cqh 3.4cqw;margin-top:2.4cqh;font-size:2.95cqh}
-  .legend div{display:flex;align-items:center;gap:1cqw}
-  .sw{width:2.4cqh;height:2.4cqh;flex:none;border:1px solid rgba(13,43,62,.4)}
-  .legend b{font-weight:600;font-variant-numeric:tabular-nums}
-  .legend span{color:var(--ink-2)}
+  .cell.cpu{background:var(--cpu);opacity:.5;height:56%}
+  .maplbl{margin:1.1cqh 0 0;font-size:2.3cqh;color:var(--ink-3);line-height:1.35}
+  .legend{display:flex;flex-wrap:wrap;gap:0.9cqh 2.6cqw;margin-top:1.6cqh;font-size:2.55cqh}
+  .legend div{display:flex;align-items:center;gap:0.8cqw}
+  .sw{width:2.2cqh;height:2.2cqh;flex:none;border:1px solid rgba(18,48,63,.35)}
 
-  footer{display:grid;grid-template-columns:repeat(3,1fr);gap:3cqw;
-    border-top:2px solid var(--ink);padding-top:3cqh}
-  .fact b{display:block;font-family:"IBM Plex Sans Condensed",sans-serif;font-weight:700;
-    font-size:7.4cqh;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-0.015em}
-  .fact.hot b{color:var(--signal)}
-  .fact span{display:block;margin-top:1.3cqh;font-size:2.8cqh;line-height:1.35;color:var(--ink-2)}
+  table{width:100%;border-collapse:collapse;font-size:2.6cqh}
+  td{padding:0.85cqh 0;border-bottom:1px solid var(--rule);vertical-align:baseline}
+  td:last-child{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;
+    padding-left:1.2cqw}
+  tr:last-child td{border-bottom:0}
+  tr.kept td{font-weight:600}
+  tr.kept td:last-child{color:var(--mark)}
+  tr.kept td:first-child::before{content:"▸ ";color:var(--mark)}
+
+  .obs{margin:2.2cqh 0 0;display:grid;gap:1cqh;font-size:2.4cqh;line-height:1.34}
+  .obs div{display:grid;grid-template-columns:2.2cqw 1fr;gap:0.6cqw;color:var(--ink-2)}
+  .obs i{font-style:normal;color:var(--ink-3)}
+  .obs b{color:var(--ink);font-weight:600}
 
   @media (max-width:760px){
-    .sheet{aspect-ratio:auto;container-type:normal;padding:22px 18px;gap:22px;border-width:1px}
-    .eyebrow{font-size:11px;padding-bottom:10px;border-bottom-width:1px}
-    h1{font-size:30px;margin-top:14px}
-    .sub{font-size:14px;margin-top:12px}
-    .lbl{font-size:11px;margin-bottom:10px}
-    .map{height:52px;gap:1.5px}
-    .legend{font-size:13px;gap:8px 18px;margin-top:14px}
-    .sw{width:12px;height:12px}
-    footer{grid-template-columns:1fr;gap:16px;padding-top:16px;border-top-width:1px}
-    .fact b{font-size:30px}.fact span{font-size:12px;margin-top:4px}
+    .sheet{aspect-ratio:auto;container-type:normal;padding:20px 16px;gap:18px}
+    .meta{font-size:10.5px;flex-wrap:wrap;gap:4px}
+    h1{font-size:22px;margin-top:10px}.q{font-size:13px;margin-top:8px}
+    main{grid-template-columns:1fr;gap:22px}
+    .lbl{font-size:10.5px;margin-bottom:10px}
+    .setup{font-size:12.5px;gap:6px}.setup div{grid-template-columns:74px 1fr;gap:8px}
+    .map{height:44px;gap:1.5px;margin-top:14px}
+    .maplbl{font-size:11px}.legend{font-size:12px;gap:6px 14px}
+    .sw{width:11px;height:11px}
+    table{font-size:12.5px}td{padding:6px 0}
+    .obs{font-size:12px;gap:8px;margin-top:16px}
+    .obs div{grid-template-columns:14px 1fr}
   }
 </style>
 
 <div class="sheet">
-  <section>
-    <div class="eyebrow"><span>Experiment 001 · 2026-09-11</span><span>github.com/midagedev/rig-log</span></div>
-    <h1>A 284B model at <em>29 tok/s</em><br>on 72 GB of VRAM</h1>
-    <p class="sub">DeepSeek-V4-Flash, 155 GB of 4-bit weights, on one workstation:
-      <b>RTX A6000 + RTX 3090 + 256 GB of DDR4</b>. Its experts are placed layer by layer
-      across all three tiers.</p>
-  </section>
+  <div class="head">
+    <div class="meta"><span>Experiment 001 · 2026-09-11</span><span>github.com/midagedev/rig-log</span></div>
+    <h1>Splitting a 284 B mixture-of-experts model across two GPUs and system RAM</h1>
+    <p class="q">Question: with 72 GB of VRAM and 155 GB of weights, what actually
+      limits single-stream decode — and which knob moves it?</p>
+  </div>
 
-  <section>
-    <p class="lbl">Where each layer's experts live — 43 layers, 256 experts each, 6 fire per token</p>
-    <div class="map">
-      <div class="cell g0"></div><div class="cell g0"></div><div class="cell g0"></div>
-      <div class="cell g0"></div><div class="cell g0"></div><div class="cell g0"></div>
-      <div class="cell g0"></div>
-      <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
-      <div class="cell cpu"></div>
-      <div class="cell g1"></div><div class="cell g1"></div><div class="cell g1"></div>
-      <div class="cell g1"></div>
-      <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
-      <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
-      <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
-      <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
-      <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
-      <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
-      <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
-      <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
-      <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
-      <div class="cell cpu"></div>
-    </div>
-    <div class="legend">
-      <div><i class="sw" style="background:var(--a6000)"></i><span>A6000 48 GB · <b>7 layers</b></span></div>
-      <div><i class="sw" style="background:var(--rtx3090)"></i><span>3090 24 GB · <b>4 layers</b></span></div>
-      <div><i class="sw" style="background:var(--cpu);opacity:.5"></i><span>DDR4 → 32 CPU cores · <b>32 layers</b></span></div>
-    </div>
-  </section>
+  <main>
+    <section>
+      <p class="lbl">Setup</p>
+      <div class="setup">
+        <div><dt>model</dt><dd>DeepSeek-V4-Flash-0731, 4-bit GGUF, 155 GB<br>
+          43 layers · 256 experts each · 6 fire per token</dd></div>
+        <div><dt>engine</dt><dd>ik_llama.cpp <code>3bb386eb</code>, <code>-ot</code> per-tensor placement</dd></div>
+        <div><dt>host</dt><dd>Threadripper PRO 5975WX · 256 GB DDR4-3200, 8 channels<br>
+          RTX A6000 48 GB + RTX 3090 24 GB</dd></div>
+        <div><dt>method</dt><dd>400-token completion, rate read from the server's
+          own timings</dd></div>
+      </div>
 
-  <footer>
-    <div class="fact hot"><b>21 → 29</b><span>tok/s, after adding a draft model
-      and tuning it to 2 tokens ahead</span></div>
-    <div class="fact"><b>97%</b><span>of the weights sit in experts, so a token
-      reads about 13 B of them</span></div>
-    <div class="fact"><b>81 °C</b><span>CPU under sustained load, against a
-      95 °C limit</span></div>
-  </footer>
+      <div class="map">
+        <div class="cell g0"></div><div class="cell g0"></div><div class="cell g0"></div>
+        <div class="cell g0"></div><div class="cell g0"></div><div class="cell g0"></div>
+        <div class="cell g0"></div>
+        <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
+        <div class="cell cpu"></div>
+        <div class="cell g1"></div><div class="cell g1"></div><div class="cell g1"></div>
+        <div class="cell g1"></div>
+        <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
+        <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
+        <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
+        <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
+        <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
+        <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
+        <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
+        <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
+        <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
+        <div class="cell cpu"></div>
+      </div>
+      <p class="maplbl">Where each layer's routed experts were placed, layer 0 to 42</p>
+      <div class="legend">
+        <div><i class="sw" style="background:var(--a6000)"></i><span>A6000 · 7</span></div>
+        <div><i class="sw" style="background:var(--rtx3090)"></i><span>3090 · 4</span></div>
+        <div><i class="sw" style="background:var(--cpu);opacity:.5"></i><span>DDR4 + 32 cores · 32</span></div>
+      </div>
+    </section>
+
+    <section>
+      <p class="lbl">Measured — decode, tok/s</p>
+      <table>
+        <tr><td>FreeToken, expert offload to one GPU</td><td>16.0</td></tr>
+        <tr><td>FreeToken, CPU hybrid</td><td>21.0</td></tr>
+        <tr><td>ik_llama.cpp, experts split as above</td><td>24.6</td></tr>
+        <tr><td>· with 5 more expert layers in VRAM</td><td>25.0</td></tr>
+        <tr><td>· with a draft model, 5 tokens ahead</td><td>19.2</td></tr>
+        <tr class="kept"><td>· with a draft model, 2 tokens ahead</td><td>29.1</td></tr>
+      </table>
+
+      <div class="obs">
+        <div><i>1</i><span>Draft acceptance, not placement, sets the rate.
+          Repeat runs gave <b>25–33 tok/s</b> and tracked acceptance (45–70%).</span></div>
+        <div><i>2</i><span>More experts in VRAM bought <b>0.4 tok/s</b>. VRAM spent on
+          the draft model was worth more than VRAM spent on experts.</span></div>
+        <div><i>3</i><span>Prefill got <b>worse</b> with speculation: 259 → 227 tok/s.
+          It only helps the token-at-a-time path.</span></div>
+        <div><i>4</i><span>Three dead ends: an engine-specific quantization that NaNs
+          under the server but not the CLI, KV compression crashing on long prompts,
+          and a draft model that failed silently until its context was capped.</span></div>
+      </div>
+    </section>
+  </main>
 </div>
