@@ -120,6 +120,28 @@ Same type, same engine, correct sizes. So it is neither the type nor the
 tool, which is what the earlier quantizer reading already suggested and this
 measures from the outside.
 
+## The publisher, and who else had hit it
+
+The file's repository already had one open discussion, opened eight days
+before this investigation: another user reporting all-NaN logits on the same
+two files, with controls on three GPU configurations and on `-no-fmoe`, and
+ending on the question of whether it was a fork regression. The publisher's
+one-line answer named the commit they were on. The thread then stopped.
+
+That question is the one this machine could answer, so the findings went
+there rather than into a new discussion:
+[KeinNiemand/DeepSeek-V4-Flash-0731-IK_GGUF, discussion 1](https://huggingface.co/KeinNiemand/DeepSeek-V4-Flash-0731-IK_GGUF/discussions/1).
+It is not a fork regression, the whole published ladder is affected, sha256
+matches so a re-download does not help, and the `--temp 0` trap is worth
+knowing for anyone whose control run looked like it worked.
+
+One thing is still open, and it is the reason the report asks a question
+instead of assigning blame: the commit the publisher named returns the full
+row size in both quantizer entry points, so the files do not match that code
+path. Either the build differed from what they recall, or there is a write
+path that has not been found — and the metadata says Windows, which is not a
+platform this machine can check.
+
 ## What was sent upstream
 
 The reader, not the writer, is the part this machine can improve:
