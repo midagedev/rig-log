@@ -143,12 +143,46 @@ line numbers, pull request numbers — not opinions. Offer the follow-up
 instead of arguing scope. Do not push a commit to answer what a sentence
 answers; every push re-triggers review.
 
+## What a refusal taught, since one happened
+
+[#2437](https://github.com/ikawrakow/ik_llama.cpp/pull/2437) was declined and
+closed. It was correct, seventeen lines, no false positives on six good files.
+It failed on value, not on quality, and the failure is instructive enough to
+change the steps above.
+
+**Their code being wrong beats other people's input being wrong.** That is the
+line the two submissions fell on either side of. A crash in the target's own
+code is theirs to want fixed. A check that defends against a third party's
+malformed output costs them permanent maintenance and pays someone else. The
+maintainer's words were that it is "a very minor improvement to the user
+experience", and on his side of the ledger that is right.
+
+**No prior art of the same shape is a stop sign, not a green light.** The
+crash fix had merged siblings to point at. The loader check had none, and that
+absence was read as novelty. In a mature repository it more often means the
+class has already been decided against.
+
+**Ask in a paragraph before building.** For a class you are not sure is wanted,
+an issue costs a paragraph and a refusal costs nothing. Here the patch, the
+build, the false-positive run across six files and the body were all written
+before the question was asked.
+
+**Lead with what it saves the maintainer, not with what it fixes.** The real
+argument for that check was that without it the symptom is NaN logits rather
+than a bad file, so the reports arrive in his tracker — one user was already
+composing exactly that report. That belonged in the first paragraph; it was in
+the last line.
+
+So step 0 gains a question: would the maintainer pay for these lines forever?
+If the answer needs a paragraph of persuasion, it is an issue, not a pull
+request.
+
 ## The record
 
 | Date | Project | What | Outcome |
 |---|---|---|---|
 | 2026-09-11 | ik_llama.cpp | [#2436](https://github.com/ikawrakow/ik_llama.cpp/pull/2436) — `llama_build_graph()` returns `nullptr` on a DFlash K/V allocation failure and the result is dereferenced, turning a detected out-of-memory condition into a segfault. Four callers passed the value on unchecked. +18/−0. | open |
-| 2026-09-11 | ik_llama.cpp | [#2437](https://github.com/ikawrakow/ik_llama.cpp/pull/2437) — the loader checked a tensor's shape and type but never that the GGUF reserved as many bytes as the type requires, so a malformed file loaded silently and read across tensor boundaries. +17/−0. | open |
+| 2026-09-11 | ik_llama.cpp | [#2437](https://github.com/ikawrakow/ik_llama.cpp/pull/2437) — the loader checked a tensor's shape and type but never that the GGUF reserved as many bytes as the type requires, so a malformed file loaded silently and read across tensor boundaries. +17/−0. | closed, declined |
 | 2026-09-11 | — | The all-NaN logits that started that investigation: a published IQ4_KSS file reserves 4 bytes per row too few in 127 of 129 expert tensors. Not a defect in this engine — the quantizer returns the right size at HEAD and at the commit checked. Nothing filed upstream; the publisher was the right recipient. [Write-up](iq4-kss-short-tensors.md). | investigated, not filed |
 
 Findings that were investigated and deliberately not sent are worth a row
