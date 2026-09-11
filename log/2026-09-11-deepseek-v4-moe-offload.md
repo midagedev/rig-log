@@ -8,6 +8,8 @@ A6000, a 3090, and system RAM; the CPU computes the 32 layers that don't fit.
 Everything below was measured on the machine in [the README](../README.md) on
 this date. Where a number is derived rather than measured, it says so.
 
+![Where the experts live, and what each engine measured](../assets/placement-sheet.png)
+
 ## The model
 
 `deepseek-ai/DeepSeek-V4-Flash-0731`, quantized to GGUF by Unsloth

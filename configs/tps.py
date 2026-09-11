@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """Stream a completion from the local server and report the measured decode rate.
 
+The server is http://127.0.0.1:8000 unless RIG_URL says otherwise, or a base
+URL is passed as the first argument. Over a private network, point it at
+whatever address that network gives the machine.
+
 Tokens are printed as they arrive, so the terminal shows the real pace rather
 than a progress bar. The rate at the end comes from the server's own timings
 block; the client-side wall clock is printed next to it as a cross-check.
 """
-import json, sys, time, urllib.request
+import json, os, sys, time, urllib.request
 
-BASE = (sys.argv[1] if len(sys.argv) > 1 else "") or "https://ws.mogera-goblin.ts.net:8443"
+BASE = (sys.argv[1] if len(sys.argv) > 1 else "") or os.environ.get("RIG_URL") or "http://127.0.0.1:8000"
 PROMPT = sys.argv[2] if len(sys.argv) > 2 else (
     "Write a complete, production-quality Rust implementation of a thread-safe "
     "LRU cache: the struct, the public API, the eviction logic, and unit tests. "

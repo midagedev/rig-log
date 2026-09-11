@@ -1,0 +1,226 @@
+<title>Expert Placement Sheet</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600;700&display=swap">
+<style>
+  :root{
+    --ink:#0d2b3e;          /* blueprint ink */
+    --ink-2:#3a6480;        /* secondary ink */
+    --ink-3:#7c9cb0;        /* faint ink */
+    --paper:#dfe7ec;        /* blueprint paper */
+    --paper-2:#eef3f6;      /* lighter field */
+    --grid:#b9cbd6;
+    --a6000:#0d5c7a;        /* device colours: cool, ordered by speed */
+    --rtx3090:#2f8ca8;
+    --cpu:#c66a2e;          /* the slow tier: the one warm colour on the sheet */
+    --signal:#a8331f;       /* the headline figure only */
+  }
+  *{box-sizing:border-box}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+    margin:0;padding-block:24px;padding-left:16px;padding-right:16px;
+    display:flex;justify-content:center;
+  }
+  .sheet{
+    width:100%;max-width:1280px;aspect-ratio:16/9;
+    container-type:size;
+    background:
+      linear-gradient(var(--grid) 1px, transparent 1px) 0 0/100% 3.2cqh,
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0/2.4cqw 100%,
+      var(--paper-2);
+    border:1px solid var(--ink-2);
+    box-shadow:0 1px 0 #fff inset;
+    padding:3.2cqh 2.6cqw;
+    display:grid;
+    grid-template-rows:auto auto auto auto;align-content:space-between;
+    gap:2.6cqh;
+    position:relative;
+  }
+  /* corner registration marks — drawing-sheet convention */
+  .sheet::before,.sheet::after{
+    content:"";position:absolute;width:2.2cqw;height:2.2cqw;border:1px solid var(--ink-2);
+  }
+  .sheet::before{top:1cqh;left:0.9cqw;border-right:0;border-bottom:0}
+  .sheet::after{bottom:1cqh;right:0.9cqw;border-left:0;border-top:0}
+
+  header{display:flex;align-items:flex-end;justify-content:space-between;gap:2cqw;
+    border-bottom:1px solid var(--ink-2);padding-bottom:1.6cqh}
+  h1{
+    font-family:"IBM Plex Sans Condensed",Arial Narrow,sans-serif;
+    font-weight:700;margin:0;line-height:0.98;font-size:5.4cqh;letter-spacing:-0.01em;
+    text-wrap:balance;
+  }
+  h1 em{font-style:normal;color:var(--signal)}
+  .sub{margin:0.9cqh 0 0;font-size:2.05cqh;color:var(--ink-2);line-height:1.45}
+  .stamp{text-align:right;flex:none;font-size:1.75cqh;color:var(--ink-2);line-height:1.6;
+    letter-spacing:0.04em;text-transform:uppercase}
+  .stamp b{display:block;color:var(--ink);font-size:2.1cqh;letter-spacing:0.02em}
+
+  main{display:grid;grid-template-columns:1.15fr 1fr;gap:2.6cqw;min-height:0}
+  .lbl{font-size:1.6cqh;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-2);
+    margin:0 0 1.1cqh}
+
+  /* ---- layer map ---- */
+  .map{display:grid;grid-template-columns:repeat(43,1fr);gap:0.28cqw;align-items:end;height:15cqh}
+  .cell{height:100%;border:1px solid rgba(13,43,62,.28)}
+  .cell.g0{background:var(--a6000)}
+  .cell.g1{background:var(--rtx3090)}
+  .cell.cpu{background:var(--cpu);opacity:.55;height:62%}
+  .ruler{display:grid;grid-template-columns:repeat(43,1fr);gap:0.28cqw;margin-top:0.7cqh;
+    font-size:1.35cqh;color:var(--ink-3)}
+  .ruler span{text-align:center}
+  .legend{display:flex;flex-wrap:wrap;gap:0 1.6cqw;margin-top:1.8cqh;font-size:1.75cqh}
+  .legend div{display:flex;align-items:baseline;gap:0.5cqw}
+  .sw{width:1.1cqw;height:1.1cqw;flex:none;transform:translateY(0.12cqh);border:1px solid rgba(13,43,62,.35)}
+  .legend b{font-weight:600;font-variant-numeric:tabular-nums}
+  .legend small{color:var(--ink-2);font-size:1.55cqh}
+
+  /* ---- ladder chart ---- */
+  .rows{display:grid;gap:1.15cqh}
+  .row{display:grid;grid-template-columns:11.5cqw 1fr 7cqw;align-items:center;gap:0.9cqw;
+    font-size:1.8cqh}
+  .row span:first-child{color:var(--ink-2);text-align:right;line-height:1.2}
+  .bar{height:2.3cqh;background:var(--ink-3);border:1px solid rgba(13,43,62,.35)}
+  .row.best .bar{background:var(--signal);border-color:var(--signal)}
+  .row.best span:first-child{color:var(--ink)}
+  .val{font-variant-numeric:tabular-nums;font-weight:600}
+  .row.best .val{color:var(--signal)}
+
+  .note{margin:1.9cqh 0 0;font-size:1.7cqh;color:var(--ink-2);line-height:1.5;max-width:44ch}
+  .note b{color:var(--ink);font-weight:600}
+
+  .cmd{border:1px solid var(--ink-2);background:var(--paper);padding:1.5cqh 1.4cqw}
+  .cmd p{margin:0 0 0.9cqh;font-size:1.5cqh;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-2)}
+  .cmd pre{margin:0;font-size:1.62cqh;line-height:1.55;color:var(--ink);overflow-x:auto}
+  .cmd b{color:var(--a6000);font-weight:600}
+  .cmd i{color:var(--rtx3090);font-style:normal;font-weight:600}
+  .cmd u{color:var(--cpu);text-decoration:none;font-weight:600}
+  .cmd s{color:var(--signal);text-decoration:none;font-weight:600}
+
+  footer{display:grid;grid-template-columns:repeat(4,1fr);gap:1.6cqw;
+    border-top:1px solid var(--ink-2);padding-top:1.7cqh}
+  .fact{line-height:1.35}
+  .fact b{display:block;font-family:"IBM Plex Sans Condensed",sans-serif;font-weight:700;
+    font-size:3.1cqh;font-variant-numeric:tabular-nums;letter-spacing:-0.01em}
+  .fact span{font-size:1.6cqh;color:var(--ink-2);letter-spacing:0.03em;text-transform:uppercase}
+
+  @media (max-width:720px){
+    .cmd{padding:12px 12px}.cmd p{font-size:10px}.cmd pre{font-size:10.5px;line-height:1.5}
+    .sheet{aspect-ratio:auto;container-type:normal;padding:20px 16px;gap:18px}
+    h1{font-size:26px}.sub{font-size:13px}.stamp{font-size:11px}.stamp b{font-size:13px}
+    main{grid-template-columns:1fr;gap:22px}
+    .lbl{font-size:11px;margin-bottom:8px}
+    .map{height:64px;gap:1px}.ruler{display:none}
+    .legend{font-size:12px;gap:0 14px;margin-top:12px}.legend small{font-size:11px}
+    .sw{width:10px;height:10px;transform:none}
+    .row{grid-template-columns:96px 1fr 54px;font-size:12px;gap:8px}
+    .bar{height:14px}
+    .note{font-size:12px;margin-top:14px}
+    footer{grid-template-columns:repeat(2,1fr);gap:14px}
+    .fact b{font-size:20px}.fact span{font-size:10px}
+    .sheet::before,.sheet::after{display:none}
+  }
+</style>
+
+<div class="sheet">
+  <header>
+    <div>
+      <h1>284 billion parameters at <em>29 tok/s</em><br>on 72&nbsp;GB of VRAM</h1>
+      <p class="sub">DeepSeek-V4-Flash-0731, 4-bit GGUF, 155&nbsp;GB. Routed experts placed layer by layer
+        across an A6000, a 3090, and 256&nbsp;GB of DDR4. ik_llama.cpp, one stream,
+        25–33&nbsp;tok/s across runs — best 33.4.</p>
+    </div>
+    <div class="stamp">
+      <b>rig-log 001</b>
+      2026-09-11<br>
+      TR PRO 5975WX · 32C<br>
+      8×32 GB DDR4-3200
+    </div>
+  </header>
+
+  <main>
+    <section>
+      <p class="lbl">Expert placement — 43 layers, 256 experts each, 6 fire per token</p>
+      <div class="map">
+        <div class="cell g0"></div><div class="cell g0"></div><div class="cell g0"></div>
+        <div class="cell g0"></div><div class="cell g0"></div><div class="cell g0"></div>
+        <div class="cell g0"></div>
+        <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
+        <div class="cell cpu"></div>
+        <div class="cell g1"></div><div class="cell g1"></div><div class="cell g1"></div>
+        <div class="cell g1"></div>
+        <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
+        <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
+        <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
+        <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
+        <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
+        <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
+        <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
+        <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
+        <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
+        <div class="cell cpu"></div>
+      </div>
+      <div class="ruler">
+        <span>0</span><span></span><span></span><span></span><span></span><span></span><span></span>
+        <span></span><span></span><span></span><span></span>
+        <span>11</span><span></span><span></span><span></span>
+        <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+        <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+        <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+        <span></span><span></span><span></span><span></span><span></span><span></span><span>42</span>
+      </div>
+      <div class="legend">
+        <div><i class="sw" style="background:var(--a6000)"></i><span>A6000 48 GB — <b>7 layers</b> <small>40.1 GB used</small></span></div>
+        <div><i class="sw" style="background:var(--rtx3090)"></i><span>3090 24 GB — <b>4 layers</b> <small>17.8 GB used</small></span></div>
+        <div><i class="sw" style="background:var(--cpu);opacity:.55"></i><span>DDR4 → CPU — <b>32 layers</b> <small>97 GB resident</small></span></div>
+      </div>
+      <p class="note">97% of the weights live in the experts, and a token only touches 6 of 256
+        per layer. That is why the slow tier is survivable: <b>115.8 GB/s</b> of measured
+        8-channel bandwidth, feeding 32 layers the GPUs had no room for.</p>
+    </section>
+
+    <section>
+      <p class="lbl">Single-stream decode, 400-token completion</p>
+      <div class="rows">
+        <div class="row">
+          <span>FreeToken<br>expert offload</span>
+          <div class="bar" style="width:55%"></div><span class="val">16.0</span>
+        </div>
+        <div class="row">
+          <span>FreeToken<br>CPU hybrid</span>
+          <div class="bar" style="width:72%"></div><span class="val">21.0</span>
+        </div>
+        <div class="row">
+          <span>ik_llama.cpp<br>experts split</span>
+          <div class="bar" style="width:85%"></div><span class="val">24.6</span>
+        </div>
+        <div class="row best">
+          <span>+ DSpark draft<br>depth 2</span>
+          <div class="bar" style="width:100%"></div><span class="val">29.1</span>
+        </div>
+        <div class="row"><span></span><div style="font-size:1.55cqh;color:var(--ink-3);line-height:1.4">
+          same config, best of eight runs: <b style="color:var(--signal)">33.4</b> — the spread follows draft acceptance, 45–70%
+        </div><span></span></div>
+      </div>
+      <p class="note">The win was not more VRAM for experts — that bought
+        <b>0.4 tok/s</b>. It was speculative decoding at the right depth:
+        <b>1&nbsp;→&nbsp;27.8</b>, <b>2&nbsp;→&nbsp;29.1</b>, <b>3&nbsp;→&nbsp;26.8</b>,
+        <b>5&nbsp;→&nbsp;19.2</b>. Verifying two drafted tokens costs the same DDR4 read
+        as verifying one.</p>
+    </section>
+  </main>
+
+  <section class="cmd">
+    <p>The placement, as written — first match wins, so the catch-all goes last</p>
+<pre>llama-server -m DeepSeek-V4-Flash-0731-UD-Q4_K_XL-00001-of-00005.gguf -c 32768 -ngl 99 -ts 2,1 -mla 3 -t 32 \
+  <b>-ot "blk\.[0-6]\.ffn_.*_exps=CUDA0"</b>  <i>-ot "blk\.1[1-4]\.ffn_.*_exps=CUDA1"</i>  <u>-ot "exps=CPU"</u> \
+  <s>-md dspark-DeepSeek-V4-Flash-0731-Q8_0.gguf -ngld 99 -cd 8192 --spec-type dspark:n_max=2</s></pre>
+  </section>
+
+  <footer>
+    <div class="fact"><b>23.5</b><span>tok/s sustained, 1500 tok</span></div>
+    <div class="fact"><b>259</b><span>tok/s prefill, 2810 tok</span></div>
+    <div class="fact"><b>81 °C</b><span>CPU under load, limit 95</span></div>
+    <div class="fact"><b>13 B</b><span>active params per token</span></div>
+  </footer>
+</div>

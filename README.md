@@ -14,6 +14,8 @@ wrong.
 its experts live in system RAM, and it streams at 25–33 tok/s.
 [Full write-up.](log/2026-09-11-deepseek-v4-moe-offload.md)*
 
+[![Where the experts live, and what each engine measured](assets/placement-sheet.png)](assets/placement-sheet.png)
+
 ## The machine
 
 | | |
@@ -71,6 +73,8 @@ assets/     the clips
   decode rate from the server's own timings, not a stopwatch.
 - [`tools/pi-local.tape`](tools/pi-local.tape) — the VHS tape for the clip
   above, with the two traps it had to work around written down.
+- [`assets/placement-sheet.html`](assets/placement-sheet.html) — the source of
+  the sheet above; edit and re-screenshot at 1280×720 for the next entry.
 - [`configs/thermal-guard.sh`](configs/thermal-guard.sh) — a watchdog that
   reads CPU, GPU, coolant temperature and pump RPM every 5 seconds and stops
   the inference load, and only the inference load, after 30 seconds of a
