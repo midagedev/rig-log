@@ -105,6 +105,18 @@ The method, including the two mistakes that cost the most, is in
   ./dequant-scan model.gguf blk.13.ffn_up_exps.weight 255 256 # one expert
   ```
 
+- [`tools/gguf-region-scan.py`](tools/gguf-region-scan.py) — reports any tensor
+  whose GGUF region is smaller than its type needs. It reads only the
+  tensor-info block, so a published file costs one range request instead of a
+  download. This is what showed the short-tensor defect covers a publisher's
+  whole quantization ladder, and that a second publisher's file of the same
+  type does not have it.
+
+  ```
+  ./tools/gguf-region-scan.py model.gguf
+  ./tools/gguf-region-scan.py https://huggingface.co/<repo>/resolve/main/model.gguf
+  ```
+
 - [`configs/thermal-guard.sh`](configs/thermal-guard.sh) — a watchdog that
   reads CPU, GPU, coolant temperature and pump RPM every 5 seconds and stops
   the inference load, and only the inference load, after 30 seconds of a

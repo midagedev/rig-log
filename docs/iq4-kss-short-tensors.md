@@ -89,6 +89,37 @@ correct at `origin/main` tip and at the older commit checked. The file's
 `quantize.imatrix.file` metadata points at a Windows build that cannot be
 identified from here.
 
+## How far it goes, and who it does not reach
+
+The maintainer's first question on the pull request was how the file was
+produced, which is not something this machine can answer — the file was
+downloaded, not made here. What it can answer is the shape of the mistake,
+and that turned out to be checkable on other files without downloading any
+of them: a GGUF's tensor-info block sits in the first few MB, so
+`curl -r 0-5999999` and a walk over the offsets gives every tensor's
+reserved region.
+
+Three files from the same publisher, reserved region divided by row count:
+
+| File | Short | Reserved / needed, bytes per row | Correct |
+|---|---|---|---|
+| IQ4_KSS | iq4_ks ×36, iq4_kss ×91 | 2176/2180, 2048/2052, 1024/1028 | iq4_k ×2, iq6_k ×43 |
+| IQ3_K | iq4_kss ×36 | 2048/2052 | iq3_k ×91, iq4_k ×2, iq6_k ×44 |
+| IQ2_KL | iq2_kl ×91, iq3_ks ×36, iq4_ks ×2 | 1376/1378, 1632/1634, 1088/1092 | iq6_k ×168 |
+
+Every reserved figure is `nblocks * ggml_type_size(type)`, and every
+shortfall is the per-row header `ggml_row_size()` adds on top of the blocks —
+4 bytes for `iq4_kss` and `iq4_ks`, 2 for `iq2_kl` and `iq3_ks`. In each
+file every type that carries such a header is short and every type without
+one is correct. The whole published ladder is affected, not one file.
+
+The control is another publisher's ik quantization of the same model, made
+on a different machine: `Downtown-Case/DeepSeek-V4-Flash-0731-128GB-RAM-IK-GGUF`
+reserves the full 1634 bytes per row for all 34 of its `iq3_ks` tensors.
+Same type, same engine, correct sizes. So it is neither the type nor the
+tool, which is what the earlier quantizer reading already suggested and this
+measures from the outside.
+
 ## What was sent upstream
 
 The reader, not the writer, is the part this machine can improve:
