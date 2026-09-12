@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="ko"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ws · V4.1-Flash 실험 대시보드</title>
+<script>var netdataTheme='slate'; var netdataNoBootstrap=true;</script>
+<style>
+ body{margin:0;padding:12px 16px;background:#272b30;color:#ddd;font:14px -apple-system,system-ui,sans-serif}
+ h1{font-size:18px;margin:0 0 4px} .sub{color:#999;font-size:12px;margin-bottom:12px}
+ h2{font-size:13px;color:#9fb;letter-spacing:.06em;text-transform:uppercase;margin:18px 0 6px;border-bottom:1px solid #3a3f45;padding-bottom:4px}
+ h2 .note{text-transform:none;letter-spacing:0;color:#8a8f95;font-size:12px;margin-left:8px}
+ .gauges{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+ .g{background:#1f2327;border-radius:8px;padding:6px 4px 0;text-align:center}
+ .g .lbl{font-size:12px;color:#bbb;margin-bottom:2px}
+ .charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:10px}
+ .c{background:#1f2327;border-radius:8px;padding:6px 8px}
+ .c .lbl{font-size:12px;color:#bbb;margin-bottom:2px}
+ .warn{color:#f9a}
+ /* run log */
+ #runs{background:#1f2327;border-radius:8px;padding:10px 12px;overflow-x:auto}
+ table{border-collapse:collapse;width:100%;font-size:12px;white-space:nowrap}
+ th{text-align:right;color:#8a8f95;font-weight:600;padding:4px 8px;border-bottom:1px solid #3a3f45;position:sticky;top:0;background:#1f2327}
+ th.l,td.l{text-align:left}
+ td{text-align:right;padding:4px 8px;border-bottom:1px solid #2c3035;font-variant-numeric:tabular-nums}
+ tr:hover td{background:#252a2f}
+ .best{color:#9f9;font-weight:600}
+ .bad{color:#f9a}
+ .dim{color:#777}
+ .ot{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#9bd;max-width:340px;overflow:hidden;text-overflow:ellipsis;display:inline-block;vertical-align:bottom}
+ .empty{color:#777;padding:8px 0}
+ .legend{color:#8a8f95;font-size:11px;margin-top:8px;line-height:1.6}
+ .legend b{color:#bbb;font-weight:600}
+</style></head><body>
+
+<h1>ws · DeepSeek-V4.1-Flash — 347 GB across VRAM, RAM and NVMe</h1>
+<div class="sub">
+ Threadripper 5975WX 32c · A6000 48G (GPU0) + 3090 24G (GPU1) · 256G DDR4-3200 8ch ·
+ 모델 <b>/models</b> = Phison E18 (nvme0n1) · 부스트 OFF, 펌프 100% — CPU 80°C 넘으면 <span class="warn">중단</span>
+</div>
+
+<h2>실험 로그 <span class="note">bench-serve.sh 가 기록. 같은 프롬프트를 두 번 돌리면 두 번째는 engram 행이 캐시에 남아 major fault 0 — cold 와 warm 의 차이가 곧 engram 비용이다.</span></h2>
+<div id="runs"><div class="empty">rig-runs.jsonl 을 읽는 중…</div></div>
+<div class="legend">
+ <b>decode</b> 토큰/초 (서버 자체 timings) ·
+ <b>maj/tok</b> 토큰당 major page fault — 산술상 engram 행은 48개, 그 근처면 예측대로다 ·
+ <b>KB/tok</b> 토큰당 드라이브 읽기 ·
+ <b>off-mem</b> 파일 크기 − VmRSS. <b>84.6</b> 근처면 engram 두 테이블이 디스크에 남아 있다는 뜻 ·
+ <b>VRAM</b> GPU0/GPU1 MiB — GPU0 가 49140 에 붙으면 cold 성능이 무너진다
+</div>
+
+<h2>세 계층 (지금) <span class="note">이 모델의 전부: 무엇이 어디에 있는가</span></h2>
+<div class="gauges">
+ <div class="g"><div class="lbl">GPU0 A6000 VRAM</div><div data-netdata="nvidia_smi.gpu0_mem_usage" data-dimensions="gpu0_fb_memory_used" data-chart-library="gauge" data-title="" data-units="MiB" data-gauge-max-value="49140" data-gauge-min-value="0" data-width="100%" data-height="120px" data-after="-30" data-points="1" data-colors="#6cf" data-gauge-adjust="width"></div></div>
+ <div class="g"><div class="lbl">GPU1 3090 VRAM</div><div data-netdata="nvidia_smi.gpu1_mem_usage" data-dimensions="gpu1_fb_memory_used" data-chart-library="gauge" data-title="" data-units="MiB" data-gauge-max-value="24576" data-gauge-min-value="0" data-width="100%" data-height="120px" data-after="-30" data-points="1" data-colors="#9c6" data-gauge-adjust="width"></div></div>
+ <div class="g"><div class="lbl">RAM 여유 (MiB)</div><div data-netdata="mem.available" data-chart-library="gauge" data-title="" data-units="MiB" data-gauge-max-value="257559" data-gauge-min-value="0" data-width="100%" data-height="120px" data-after="-30" data-points="1" data-colors="#fc6" data-gauge-adjust="width"></div></div>
+ <div class="g"><div class="lbl">/models 여유 (GiB)</div><div data-netdata="disk_space._models" data-dimensions="avail" data-chart-library="gauge" data-title="" data-units="GiB" data-gauge-max-value="3700" data-gauge-min-value="0" data-width="100%" data-height="120px" data-after="-30" data-points="1" data-colors="#4c4" data-gauge-adjust="width"></div></div>
+</div>
+
+<h2>디코드 병목 <span class="note">토큰당 3.1 GB 를 DDR4 에서 읽는 것이 예산의 80% — 나머지는 반올림이다</span></h2>
+<div class="charts">
+ <div class="c"><div class="lbl">llm major page faults/s — <b>engram 이 드라이브에서 올라오는 소리</b>. 디코드 중 0 이면 캐시에 다 있다는 뜻(= RAM 을 두고 expert 와 경쟁 중)</div><div data-netdata="app.llm_mem_page_faults" data-dimensions="major" data-chart-library="dygraph" data-title="" data-width="100%" data-height="170px" data-after="-600" data-colors="#f96"></div></div>
+ <div class="c"><div class="lbl">nvme0n1 읽기 IOPS — engram 행은 작고 개수가 많다. 대역폭이 아니라 이쪽이 비용</div><div data-netdata="disk_ops.nvme0n1" data-dimensions="reads" data-chart-library="dygraph" data-title="" data-width="100%" data-height="170px" data-after="-600" data-colors="#6cf"></div></div>
+ <div class="c"><div class="lbl">llm CPU % (100% = 코어 1개, 32 스레드면 3200% 가 천장) — expert gather 가 여기</div><div data-netdata="app.llm_cpu_utilization" data-chart-library="dygraph" data-title="" data-width="100%" data-height="170px" data-after="-600"></div></div>
+ <div class="c"><div class="lbl">llm RSS (MiB) — 로드 후 ~215 GB. 파일 347 GB 와의 차이가 디스크에 남은 engram</div><div data-netdata="app.llm_mem_usage" data-chart-library="dygraph" data-title="" data-width="100%" data-height="170px" data-after="-1800"></div></div>
+ <div class="c"><div class="lbl">nvme0n1 처리량 (KiB/s) — 로딩은 GB/s, 디코드 중엔 MB/s 여야 정상</div><div data-netdata="disk.nvme0n1" data-chart-library="dygraph" data-title="" data-width="100%" data-height="170px" data-after="-600"></div></div>
+ <div class="c"><div class="lbl">nvme0n1 사용률 % — 100% 에 붙으면 engram 이 큐에 밀리는 중</div><div data-netdata="disk_util.nvme0n1" data-chart-library="dygraph" data-title="" data-width="100%" data-height="170px" data-after="-600" data-colors="#c9f"></div></div>
+</div>
+
+<h2>GPU <span class="note">expert 층이 올라간 만큼 DDR4 읽기가 줄어든다 — 층당 +0.3 tok/s 실측</span></h2>
+<div class="charts">
+ <div class="c"><div class="lbl">VRAM 사용 (MiB) — GPU0 / 상한 49140</div><div data-netdata="nvidia_smi.gpu0_mem_usage" data-chart-library="dygraph" data-title="" data-width="100%" data-height="160px" data-after="-1800"></div></div>
+ <div class="c"><div class="lbl">VRAM 사용 (MiB) — GPU1 / 상한 24576</div><div data-netdata="nvidia_smi.gpu1_mem_usage" data-chart-library="dygraph" data-title="" data-width="100%" data-height="160px" data-after="-1800"></div></div>
+ <div class="c"><div class="lbl">GPU0 사용률 % — 디코드는 메모리 대기라 낮게 나오는 게 정상</div><div data-netdata="nvidia_smi.gpu0_gpu_utilization" data-chart-library="dygraph" data-title="" data-width="100%" data-height="160px" data-after="-600"></div></div>
+ <div class="c"><div class="lbl">GPU1 사용률 %</div><div data-netdata="nvidia_smi.gpu1_gpu_utilization" data-chart-library="dygraph" data-title="" data-width="100%" data-height="160px" data-after="-600" data-colors="#9c6"></div></div>
+ <div class="c"><div class="lbl">GPU0 PCIe (KiB/s) — 층 배치가 잘못되면 여기가 튄다</div><div data-netdata="nvidia_smi.gpu0_pci_bandwidth" data-chart-library="dygraph" data-title="" data-width="100%" data-height="160px" data-after="-600"></div></div>
+ <div class="c"><div class="lbl">GPU1 PCIe (KiB/s)</div><div data-netdata="nvidia_smi.gpu1_pci_bandwidth" data-chart-library="dygraph" data-title="" data-width="100%" data-height="160px" data-after="-600"></div></div>
+</div>
+
+<h2>메모리 압력 <span class="note">experts 197 GB + engram 84.6 GB 가 251 GB 를 놓고 겨룬다 — 여기가 붉어지면 실험이 아니라 스래싱이다</span></h2>
+<div class="charts">
+ <div class="c"><div class="lbl">RAM (MiB)</div><div data-netdata="system.ram" data-chart-library="dygraph" data-title="" data-width="100%" data-height="160px" data-after="-1800"></div></div>
+ <div class="c"><div class="lbl">시스템 전체 page faults/s — major 가 곧 디스크에서 올라온 페이지</div><div data-netdata="mem.pgfaults" data-dimensions="major" data-chart-library="dygraph" data-title="" data-width="100%" data-height="160px" data-after="-600" data-colors="#f96"></div></div>
+ <div class="c"><div class="lbl">I/O 정체 (some pressure %) — 프로세스가 I/O 를 기다린 시간 비율</div><div data-netdata="system.io_some_pressure" data-chart-library="dygraph" data-title="" data-width="100%" data-height="160px" data-after="-600"></div></div>
+ <div class="c"><div class="lbl">CPU 전체 %</div><div data-netdata="system.cpu" data-chart-library="dygraph" data-title="" data-width="100%" data-height="160px" data-after="-600"></div></div>
+</div>
+
+<h2>온도 <span class="note">nvme-pci-2300 = Phison(/models), 2c00 = Samsung(root). 모델 작업에서 보는 건 2300 쪽이다</span></h2>
+<div class="gauges">
+ <div class="g"><div class="lbl">CPU Tctl</div><div data-netdata="sensors.k10temp-pci-00c3_temperature" data-dimensions="k10temp-pci-00c3_temp1" data-chart-library="gauge" data-title="" data-units="°C" data-gauge-max-value="95" data-gauge-min-value="20" data-width="100%" data-height="120px" data-after="-30" data-points="1" data-colors="#f96" data-gauge-adjust="width"></div></div>
+ <div class="g"><div class="lbl">GPU0 A6000</div><div data-netdata="nvidia_smi.gpu0_temperature" data-chart-library="gauge" data-title="" data-units="°C" data-gauge-max-value="95" data-gauge-min-value="20" data-width="100%" data-height="120px" data-after="-30" data-points="1" data-colors="#6cf" data-gauge-adjust="width"></div></div>
+ <div class="g"><div class="lbl">GPU1 3090</div><div data-netdata="nvidia_smi.gpu1_temperature" data-chart-library="gauge" data-title="" data-units="°C" data-gauge-max-value="95" data-gauge-min-value="20" data-width="100%" data-height="120px" data-after="-30" data-points="1" data-colors="#9c6" data-gauge-adjust="width"></div></div>
+ <div class="g"><div class="lbl">NVMe Phison (/models)</div><div data-netdata="sensors.nvme-pci-2300_temperature" data-chart-library="gauge" data-title="" data-units="°C" data-gauge-max-value="85" data-gauge-min-value="20" data-width="100%" data-height="120px" data-after="-30" data-points="1" data-colors="#ccc" data-gauge-adjust="width"></div></div>
+</div>
+<div class="charts" style="margin-top:10px">
+ <div class="c"><div class="lbl">CPU 온도 추이 (30분)</div><div data-netdata="sensors.k10temp-pci-00c3_temperature" data-chart-library="dygraph" data-title="" data-width="100%" data-height="160px" data-after="-1800" data-dygraph-valuerange="[20, 100]"></div></div>
+ <div class="c"><div class="lbl">GPU 온도 추이 (30분) — GPU0</div><div data-netdata="nvidia_smi.gpu0_temperature" data-chart-library="dygraph" data-title="" data-width="100%" data-height="160px" data-after="-1800" data-dygraph-valuerange="[20, 100]" data-colors="#6cf"></div></div>
+ <div class="c"><div class="lbl">NVMe 온도 추이 — Phison(/models)</div><div data-netdata="sensors.nvme-pci-2300_temperature" data-chart-library="dygraph" data-title="" data-width="100%" data-height="160px" data-after="-1800" data-dygraph-valuerange="[20, 90]"></div></div>
+</div>
+
+<h2>주변 작업 <span class="note">벤치 중에 이 셋이 조용하지 않으면 그 측정값은 무효다</span></h2>
+<div class="charts">
+ <div class="c"><div class="lbl">download(hf) CPU % — fp8 원본 510 GB 받는 중이면 여기가 산다</div><div data-netdata="app.download_cpu_utilization" data-chart-library="dygraph" data-title="" data-width="100%" data-height="160px" data-after="-1800"></div></div>
+ <div class="c"><div class="lbl">build(ninja/nvcc) CPU %</div><div data-netdata="app.build_cpu_utilization" data-chart-library="dygraph" data-title="" data-width="100%" data-height="160px" data-after="-1800"></div></div>
+ <div class="c"><div class="lbl">기타(other) CPU % — 크면 잡히지 않은 프로세스가 있다</div><div data-netdata="app.other_cpu_utilization" data-chart-library="dygraph" data-title="" data-width="100%" data-height="160px" data-after="-1800"></div></div>
+ <div class="c"><div class="lbl">NIC enp37s0f1 (kbit/s) — 이름이 36→37 로 바뀐 적 있음(PCI 재번호). 끊기면 ixgbe Tx hang 의심</div><div data-netdata="net.enp37s0f1" data-chart-library="dygraph" data-title="" data-width="100%" data-height="160px" data-after="-900"></div></div>
+</div>
+
+<div class="sub" style="margin-top:14px">
+ 전체 차트: <a href="/" style="color:#9cf">netdata 기본 대시보드</a> ·
+ 실험 계획: rig-log <code>docs/v41-experiment-plan.md</code> ·
+ 레버 조사: <code>docs/raising-tokens-per-second.md</code>
+</div>
+
+<script>
+// The run log. bench-serve.sh appends one JSON object per run to this file,
+// which netdata serves from its own web root -- no extra service to keep up.
+(function () {
+  var el = document.getElementById('runs');
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+  function shortOt(ot) {
+    if (!ot) return '<span class="dim">—</span>';
+    // count expert layers per device rather than printing the whole regex
+    var parts = [];
+    (ot.match(/blk\\\.\[([^\]]+)\][^=]*=(CUDA\d)/g) || []).forEach(function (m) {
+      var d = m.match(/=(CUDA\d)/)[1], r = m.match(/\[([^\]]+)\]/)[1];
+      var lo = parseInt(r[0], 10), hi = parseInt(r[r.length - 1], 10);
+      parts.push(d + ':' + (hi - lo + 1));
+    });
+    return parts.length ? esc(parts.join(' ')) : '<span class="ot">' + esc(ot.slice(0, 44)) + '</span>';
+  }
+
+  function render(rows) {
+    if (!rows.length) {
+      el.innerHTML = '<div class="empty">아직 기록된 실행이 없다. ' +
+                     '<code>bench-serve.sh &lt;label&gt;</code> 를 돌리면 여기 쌓인다.</div>';
+      return;
+    }
+    var best = Math.max.apply(null, rows.map(function (r) { return r.decode || 0; }));
+    var h = '<table><thead><tr>' +
+      '<th class="l">시각</th><th class="l">실험</th>' +
+      '<th>decode</th><th>prefill</th><th>tok</th><th>str</th>' +
+      '<th>maj/tok</th><th>KB/tok</th><th>RSS GB</th><th>off-mem</th>' +
+      '<th>VRAM0</th><th>VRAM1</th><th class="l">expert층</th>' +
+      '</tr></thead><tbody>';
+    rows.slice().reverse().forEach(function (r) {
+      var v = r.vram_mib || [];
+      var full = v[0] >= 47000;                   // GPU0 within ~2 GB of its limit
+      var offOk = Math.abs((r.offmem_gb || 0) - 84.6) < 25;
+      h += '<tr>' +
+        '<td class="l dim">' + esc((r.t || '').replace('T', ' ').slice(5, 16)) + '</td>' +
+        '<td class="l">' + esc(r.label) + '</td>' +
+        '<td class="' + (r.decode === best ? 'best' : '') + '">' + (r.decode != null ? r.decode.toFixed(2) : '') + '</td>' +
+        '<td>' + (r.prefill != null ? r.prefill.toFixed(1) : '') + '</td>' +
+        '<td class="dim">' + esc(r.tokens) + '</td>' +
+        '<td class="dim">' + esc(r.streams) + '</td>' +
+        '<td>' + esc(r.majflt_tok) + '</td>' +
+        '<td>' + esc(r.drive_kb_tok) + '</td>' +
+        '<td class="dim">' + esc(r.rss_gb) + '</td>' +
+        '<td class="' + (offOk ? 'best' : 'bad') + '">' + esc(r.offmem_gb) + '</td>' +
+        '<td class="' + (full ? 'bad' : 'dim') + '">' + esc(v[0]) + '</td>' +
+        '<td class="dim">' + esc(v[1]) + '</td>' +
+        '<td class="l">' + shortOt(r.ot) + '</td>' +
+        '</tr>';
+    });
+    el.innerHTML = h + '</tbody></table>';
+  }
+
+  function load() {
+    fetch('rig-runs.jsonl?_=' + Date.now())
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.text(); })
+      .then(function (t) {
+        render(t.split('\n').filter(Boolean).map(function (l) {
+          try { return JSON.parse(l); } catch (e) { return null; }
+        }).filter(Boolean));
+      })
+      .catch(function (e) {
+        el.innerHTML = '<div class="empty">rig-runs.jsonl 을 읽지 못했다 (' + esc(e.message) + ').</div>';
+      });
+  }
+  load();
+  setInterval(load, 15000);
+})();
+</script>
+<script type="text/javascript" src="dashboard.js?v20260912"></script>
+</body></html>

@@ -38,7 +38,10 @@ read -r MIN0 MAJ0 <<<"$(faults)"
 read -r RD0 SEC0 <<<"$(diskrd)"
 
 PROMPT='Explain, in one paragraph, why a mixture-of-experts model can have far more parameters than it reads per token.'
-BODY=$(printf '{"prompt":%s,"n_predict":%d,"temperature":0,"seed":42,"cache_prompt":false}' \
+# ignore_eos: a benchmark decides how many tokens it measures. Letting the
+# model stop where it likes gave a 19-token sample on the first run, which is
+# too few to separate steady-state cost from the cold-cache warmup in it.
+BODY=$(printf '{"prompt":%s,"n_predict":%d,"temperature":0,"seed":42,"cache_prompt":false,"ignore_eos":true}' \
        "$(printf '%s' "$PROMPT" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')" "$NPRED")
 
 T0=$(date +%s.%N)
@@ -53,7 +56,7 @@ T1=$(date +%s.%N)
 read -r MIN1 MAJ1 <<<"$(faults)"
 read -r RD1 SEC1 <<<"$(diskrd)"
 
-python3 - "$tmp" "$LABEL" "$NPAR" "$T0" "$T1" \
+BENCH_PID="$PID" python3 - "$tmp" "$LABEL" "$NPAR" "$T0" "$T1" \
          "$MIN0" "$MAJ0" "$MIN1" "$MAJ1" "$RD0" "$SEC0" "$RD1" "$SEC1" \
          "$(field VmRSS)" "$(field RssAnon)" "$(field RssFile)" "$MODEL" <<'PY'
 import glob, json, os, sys
@@ -103,4 +106,41 @@ print("  major faults    %8d      %.1f per token" % (maj, maj / dec_n))
 print("  drive reads     %8d      %.1f per token" % (rd, rd / dec_n))
 print("  drive bytes     %8.1f MB   %.1f KB per token"
       % (sec * 512 / 1e6, sec * 512 / dec_n / 1e3))
+
+# Append the run so the dashboard can show it next to the live charts. A run
+# that is only printed to a terminal is a run nobody can compare against.
+import datetime, subprocess
+cmdline = open("/proc/%s/cmdline" % os.environ["BENCH_PID"], "rb").read().decode().split("\0")
+def flagval(f):
+    return cmdline[cmdline.index(f)+1] if f in cmdline else None
+try:
+    vram = subprocess.run(["nvidia-smi", "--query-gpu=memory.used",
+                           "--format=csv,noheader,nounits"],
+                          capture_output=True, text=True, timeout=10).stdout.split()
+    vram = [int(x) for x in vram if x.isdigit()]
+except Exception:
+    vram = []
+rec = {
+    "t":        datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+    "label":    label,
+    "decode":   round(dec_n/(dec_ms/1000), 2),
+    "prefill":  round(pre_n/(pre_ms/1000), 2),
+    "tokens":   dec_n,
+    "streams":  npar,
+    "rss_gb":   round(kb(vmrss)/1e6, 1),
+    "offmem_gb": round(total/1e9 - kb(vmrss)/1e6, 1),
+    "majflt_tok": round(maj/dec_n, 1),
+    "drive_kb_tok": round(sec*512/dec_n/1e3, 1),
+    "vram_mib": vram,
+    "ot":       flagval("-ot"),
+    "ctx":      flagval("-c"),
+    "lazy":     flagval("--lazy-mode"),
+}
+path = os.environ.get("BENCH_LOG", "/usr/share/netdata/web/rig-runs.jsonl")
+try:
+    with open(path, "a") as fh:
+        fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    print("  --\n  recorded to %s" % path)
+except OSError as e:
+    print("  --\n  not recorded: %s" % e)
 PY
