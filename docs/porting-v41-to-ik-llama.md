@@ -56,9 +56,11 @@ the output layer. Mainline needed a separate commit for exactly this
 (`f0159e2`, "implement the DeepSeek V4.1 sparse attention"), which is the
 signal that reading the metadata diff alone would have missed.
 
-So the port is three pieces, not one.
+So the port is ~~three~~ four pieces, not one. The tensor delta above lists
+`output_hc_*` as dropped and says nothing about what replaces it; the first
+build that got as far as a graph found out (below).
 
-## The three pieces
+## The four pieces
 
 **Registration and hparams.** `LLM_ARCH_DEEPSEEK41`, the nine engram keys,
 the tensor list, and the loader-side validation mainline does on the hash
@@ -89,6 +91,21 @@ mainline's `f37da57` is about — and it means ik's `llama-quantize` needs the
 same exemption before any of the low-bit quants this port is meant to unlock
 can be produced from the fp8 original. That is a separate piece of work and
 it is not claimed here.
+
+**The hyper-connection lag — the piece the table missed.** *Added 2026-09-13,
+after the first build reached the graph and segfaulted in `ggml_mul_mat`
+with a null weight.* The delta table records that V4.1 ships no
+`output_hc_{base,fn,scale}`, and the first three pieces treated that as a
+tensor to skip. It is a structural change. In V4 each sublayer computes the
+mix coefficients it collapses the four stream copies with, and a learned head
+collapses them once more at the output. In V4.1 the coefficients lag by one
+sublayer: attention collapses with the mix the previous FFN produced, the FFN
+with the mix attention produced, layer 0 with a one-hot on the first copy —
+and the last FFN's mix, which nothing has consumed, collapses the copies at
+the output. That is why the head is absent: its job is already done.
+Mainline's `deepseek41.cpp` states this in its header comment; the tensor
+diff only shows the shadow. Reading the file told us *what* was missing, not
+*why*, and the why was the fourth piece.
 
 ## The two gaps that are not in the model file
 
@@ -148,8 +165,26 @@ loader has to tolerate it, but this machine is running text.
 
 ## The correctness gate
 
-mainline on port 8001 is the oracle. ik at `-ngl 0` runs beside it against the
-same file and shares page cache, so neither `--no-mmap` nor `-rtr` may be used
-while comparing. Fixed prompt, greedy, compare the first 50 tokens. Before
-engram is implemented the two must diverge — if they agree, the gate is
-measuring nothing — and after, they must match.
+~~mainline on port 8001 is the oracle. ik at `-ngl 0` runs beside it against
+the same file and shares page cache, so neither `--no-mmap` nor `-rtr` may be
+used while comparing. Fixed prompt, greedy, compare the first 50 tokens.~~
+
+*Revised 2026-09-13 before the first run.* A greedy token comparison is a
+weak gate: two builds can agree on fifty tokens of a common prompt with a
+broken layer, and disagree at the first tie because of kernel rounding. The
+gate is wikitext-2 perplexity instead, both builds CPU-only against the same
+Q3_K_M file, and it has a FAIL-first requirement: the port must first
+produce a number that is wrong, so the gate is known to measure something.
+It did. The run is in
+[`log/2026-09-13-deepseek-v41-on-ik-llama.md`](../log/2026-09-13-deepseek-v41-on-ik-llama.md).
+
+| build | wikitext-2 PPL, 4 chunks, n_ctx 2048 |
+| --- | --- |
+| mainline `llama.cpp` (oracle) | 2.2438 ± 0.0631 |
+| ik, after the hyper-connection fix, before the q fix | 244.72 ± 12.03 |
+| ik, after the q fix | 2.2258 ± 0.0622 |
+
+Four chunks is a smoke gate, not a benchmark. The per-chunk numbers track
+mainline within 0.02 at every chunk (1.72/1.73, 1.75/1.76, 1.82/1.84,
+2.23/2.24); the full test set, `-ngl` above zero, and a batch of one are still
+to be run.
