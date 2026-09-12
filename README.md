@@ -94,6 +94,20 @@ The method, including the two mistakes that cost the most, is in
   displaced llama.cpp, and which three things are worth building above the
   engine rather than inside it.
 
+- [`docs/raising-tokens-per-second.md`](docs/raising-tokens-per-second.md) —
+  where the time goes on a 347 GB MoE model, measured from the tensor headers:
+  the dense part is 4 GB and the routed experts are 259 GB, so 3.1 GB per token
+  comes out of DDR4 at 56% of the bandwidth the same memory gives a sequential
+  read. Then every lever against that number — `-ser`, expert pruning, lower-bit
+  quants, huge pages, speculation — with the arithmetic for each, what `-rtr`
+  costs on a model this size, and why `-ot` cannot place individual experts.
+
+- [`configs/hf-fetch/`](configs/hf-fetch) — a HuggingFace mirror that verifies:
+  a manifest of every file's published sha256, workers that divide the work by
+  taking locks rather than by hand-split argument lists, and a gate that hashes
+  before declaring the download done. Written after two downloaders on one file
+  produced 39 GB of interleaved garbage with a plausible file size.
+
 - [`docs/wrx80e-bios-setup.md`](docs/wrx80e-bios-setup.md) — the firmware side
   of running this board as an unattended LLM host: CPU power limit (PPT/cTDP,
   hidden in AMD CBS), above-4G mapping for two GPUs, auto power-on, the onboard
