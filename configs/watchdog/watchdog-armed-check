@@ -1,0 +1,48 @@
+#!/bin/sh
+# Assert that the OS actually holds the BMC watchdog.
+#
+# The failure this guards against is specific and has already happened once.
+# The BIOS arms a watchdog at POST with timer use "OS Load" and action Hard
+# Reset, on a 600-second countdown, expecting the OS to take it over. systemd
+# takes it over by opening /dev/watchdog at startup — but the ipmi_watchdog
+# module is loaded by systemd-modules-load.service, which runs *after* PID 1
+# has already tried. If that ordering comes out wrong on some boot, nobody
+# holds the timer, and ten minutes later the machine is hard-reset. Forever,
+# every boot, with no shutdown record, which is exactly the loop of
+# 2026-09-12.
+#
+# So: after boot, the timer must be running and it must be ours.
+# Exit 0 if it is, 1 otherwise, and say which part failed.
+set -eu
+
+command -v ipmitool >/dev/null || { echo "ipmitool not installed" >&2; exit 1; }
+
+OUT=$(ipmitool mc watchdog get 2>/dev/null) || {
+    echo "could not read the watchdog timer from the BMC" >&2
+    exit 1
+}
+
+USE=$(echo "$OUT"   | sed -n 's/^Watchdog Timer Use:[[:space:]]*//p')
+STATE=$(echo "$OUT" | sed -n 's/^Watchdog Timer Is:[[:space:]]*//p')
+ACTION=$(echo "$OUT"| sed -n 's/^Watchdog Timer Action:[[:space:]]*//p')
+LEFT=$(echo "$OUT"  | sed -n 's/^Present Countdown:[[:space:]]*//p')
+
+fail=""
+case "$USE" in
+    *SMS/OS*) ;;
+    *OS\ Load*) fail="$fail timer is still the firmware's OS Load use — the OS never claimed it;" ;;
+    *) fail="$fail unexpected timer use '$USE';" ;;
+esac
+case "$STATE" in
+    *Started*|*Running*) ;;
+    *) fail="$fail timer is '$STATE', not running;" ;;
+esac
+
+if [ -n "$fail" ]; then
+    echo "FAIL:$fail action would be '$ACTION'" >&2
+    echo "     /dev/watchdog $([ -c /dev/watchdog ] && echo exists || echo 'is MISSING')" >&2
+    echo "     ipmi_watchdog $(lsmod | grep -q '^ipmi_watchdog' && echo loaded || echo 'NOT loaded')" >&2
+    exit 1
+fi
+
+echo "watchdog held by the OS: use=$USE state=$STATE action=$ACTION remaining=$LEFT"

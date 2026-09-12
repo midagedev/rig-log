@@ -147,15 +147,91 @@ systemd petting contentedly. Catching those needs a probe that pets only while
 some higher-level thing is true, which is a much easier way to build a machine
 that reboots itself for no reason. Not done here.
 
+## The takeover was not actually installed, only performed
+
+An hour after the above, a check of the running system found something the
+section above would have been read as covering, and did not:
+
+```
+$ journalctl -b _PID=1 | grep -i watchdog
+$
+```
+
+Nothing. PID 1 had never said anything about a watchdog on this boot. The timer
+being held as `SMS/OS` was entirely the product of the module being loaded and
+the configuration being re-read *by hand* that afternoon. The three config
+files were on disk and would apply to some future boot; they had not yet been
+through one.
+
+The reason that matters is an ordering problem, and it is the same species as
+the one that cost four boots of `llm.service` earlier the same day. PID 1 reads
+`RuntimeWatchdogSec` and opens `/dev/watchdog` at startup. `/etc/modules-load.d`
+is processed by `systemd-modules-load.service`, which is a unit, and units run
+after PID 1 has started. If the device is not there at the moment PID 1 looks,
+systemd does not retry — it carries on without a watchdog and logs nothing at
+the default level. Nobody claims the firmware's timer, and ten minutes after
+POST the BMC hard-resets the machine. Every boot. Which is the incident this
+entry is about, restored in full.
+
+`lsinitramfs` confirmed the driver was not available early:
+
+```
+$ lsinitramfs /boot/initrd.img-$(uname -r) | grep -c ipmi_watchdog
+0
+```
+
+So `ipmi_si`, `ipmi_devintf` and `ipmi_watchdog` were added to
+[`/etc/initramfs-tools/modules`](../configs/watchdog/ipmi_watchdog-initramfs-modules)
+and the initramfs regenerated. The device now exists before PID 1 is running at
+all, which is the only ordering that does not depend on winning a race.
+
+## A check that asserts it, rather than a note saying to look
+
+[`configs/watchdog/watchdog-armed-check`](../configs/watchdog/watchdog-armed-check)
+runs at boot and exits non-zero unless the timer is both running and ours. It
+is the same shape as [`configs/netplan-iface-check`](../configs/netplan-iface-check),
+for the same reason: the failure is silent, and a silent failure needs
+something that is not silent.
+
+Confirmed to fail on the state the machine was in this afternoon, by feeding it
+that exact recorded output:
+
+```
+FAIL: timer is still the firmware's OS Load use — the OS never claimed it; action would be 'Hard Reset (0x01)'
+     /dev/watchdog exists
+     ipmi_watchdog loaded
+EXIT=1
+```
+
+and to pass on the state it is in now:
+
+```
+watchdog held by the OS: use=SMS/OS (0x44) state=Started/Running action=Hard Reset (0x01) remaining=95.0 sec
+EXIT=0
+```
+
+Note what the failing case prints: the device exists and the module is loaded,
+and the timer is still the firmware's. Those two facts are the ones a person
+would check by hand and conclude from, and they are not sufficient. That is
+worth having the check say out loud.
+
+## The BMC clock, which is not drift
+
+The BMC is eight hours ahead of the host — exactly eight, not approximately:
+
+```
+host  09/12/2026 18:31:15
+BMC   09/13/2026 02:31:15 AM KST
+```
+
+An exact offset is a timezone setting, not a clock running fast, and
+`ipmitool sel time set` will not move it (`Specified time could not be parsed`,
+in the C locale as well). It belongs in the BMC's own network/NTP settings
+page. Left alone for now; SEL timestamps are at least reliably convertible.
+
 ## Still open
 
-- Whether the driver loads and the timer is re-armed **early enough on a cold
-  boot** has not been verified. PID 1 reads `RuntimeWatchdogSec` at startup and
-  opens `/dev/watchdog` then; if `ipmi_watchdog` is not yet loaded at that
-  moment, arming may not happen until something triggers a reload. The firmware's
-  own 600-second `OS Load` timer covers the gap only if the takeover happens
-  within ten minutes of POST. This needs a reboot and a check that asserts the
-  timer is running, in the same spirit as
-  [`configs/netplan-iface-check`](../configs/netplan-iface-check).
-- The BMC clock is eight hours ahead of the host.
+- The cold-boot verification itself. The initramfs change and the check unit
+  are installed but no boot has happened since. Until one has, the arming
+  argued for above is reasoning, not a measurement, and this entry says so.
 - The BMC still has its default credentials.

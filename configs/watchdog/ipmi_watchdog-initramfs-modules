@@ -1,0 +1,10 @@
+# appended to /etc/initramfs-tools/modules
+#
+# PID 1 opens /dev/watchdog at startup to honour RuntimeWatchdogSec, which is
+# earlier than systemd-modules-load.service runs. If ipmi_watchdog is not
+# already there at that moment, nobody takes over the firmware 600-second
+# OS Load timer and the BMC hard-resets the machine ten minutes into every
+# boot -- the loop of 2026-09-12. Loading it from the initramfs closes that.
+ipmi_si
+ipmi_devintf
+ipmi_watchdog

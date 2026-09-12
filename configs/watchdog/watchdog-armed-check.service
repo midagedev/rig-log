@@ -1,0 +1,20 @@
+# /etc/systemd/system/watchdog-armed-check.service
+#
+# Runs after boot to assert the OS holds the BMC watchdog. If it does not, the
+# machine is ten minutes from a hard reset and this unit is the only thing that
+# will say so — the reset itself leaves no record.
+#
+# No After=multi-user.target here, deliberately: a unit that is WantedBy a
+# target must not also be ordered after it. That mistake elsewhere on this
+# machine silently deleted llm.service's start job for four boots.
+[Unit]
+Description=Assert the OS holds the BMC watchdog timer
+After=systemd-modules-load.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/watchdog-armed-check
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

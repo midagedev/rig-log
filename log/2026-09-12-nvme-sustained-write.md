@@ -108,6 +108,15 @@ So: a sustained-write test needs a stopping rule tied to the drive's behaviour,
 not to a number that seemed big. Write until the rate has been flat for several
 minutes *after* a transition, or until it is clear the drive has none.
 
+## A note for whoever re-measures this
+
+The Phison figures above were taken on a drive that had been in the machine for
+about an hour. By the end of the session it had absorbed roughly 3.4 TB across
+these runs — close to one full drive-write. A later re-measurement that fails to
+reproduce 5.85 GB/s should suspect that before suspecting the method: a drive
+that has been written across once behaves differently from one out of the box,
+and TRIM plus an idle period recovers most but not necessarily all of it.
+
 ## What it means here
 
 The model library is 587 GB and lives on the root disk. Moving it to the
