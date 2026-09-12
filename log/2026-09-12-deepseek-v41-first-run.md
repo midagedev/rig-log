@@ -179,6 +179,25 @@ Doubling context costs 45% of prefill and buys nothing in decode. `-ctk q8_0
 -ctv q8_0` does not recover it: what does not fit is the compute buffer, not
 the cache.
 
+## What a busy machine costs, measured
+
+The benchmark protocol says to pause the 510 GB download before measuring.
+Resuming it while the server ran put a number on why:
+
+| | decode | major faults/token |
+|---|---:|---:|
+| first run after resuming the download | 7.55 tok/s | 91.3 |
+| settled, download running | 17.5 – 18.4 tok/s | 60 – 162 |
+| download paused | **20.2 – 20.4 tok/s** | 0 |
+
+A download writing to the same NVMe evicts expert pages from the page cache
+and competes for the IOPS engram needs, and it costs about **10% of steady
+throughput** — with a much worse transient while the cache re-warms. The
+7.55 tok/s reading is not a property of the model; it is what this machine
+reports when asked to serve and to pull 100 MB/s at the same time.
+
+Worth having as an operational number rather than only as a benchmarking rule.
+
 ## Where this leaves it
 
 **20 tok/s decode, 343 tok/s prefill, 16k context, on mainline llama.cpp.**
