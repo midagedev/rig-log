@@ -243,11 +243,15 @@ after it — that closes the loop `multi-user.target` → `llm.service` (which i
 job, and the job it chose was the one that starts the model server. Removing
 the stray `After=` is the fix.
 
-**Not yet verified by a boot.** The `After=` is removed and the server runs
-again, but it was started by hand; a cycle only exists while systemd builds a
-transaction for `multi-user.target`, so the claim that this fixes the autostart
-is a prediction until a boot journal shows `ordering cycle` zero times and
-`llm.service` active without anyone touching it. That check is pending.
+Verified on the boot at 16:57: no `ordering cycle` in the journal, and
+`llm.service` active from 16:57:22 with `NRestarts=0`, started by nothing but
+systemd. A cycle only exists while a transaction for `multi-user.target` is
+built, so a boot was the only thing that could settle it.
+
+(One grep said otherwise first. `journalctl | grep -c 'ordering cycle'`
+returned 1, and the match was the text of the SSH command doing the grep,
+logged by `tailscaled` on its way in. Counting your own question as an answer
+is easy to do over SSH.)
 
 Note what that failure looks like from outside: a service that is enabled, has
 no failed state, logs nothing, and does not run. `systemctl status` says
@@ -290,10 +294,19 @@ to a volatile *mechanism* instead of the *invariant* it cared about.
 | boost off | one sysfs file existing |
 | start after the guard | a target that was also waiting on it |
 
-And a fifth that cost nothing only because someone got it right years ago: the
-new SSD also renumbered the NVMe devices, and root moved from `nvme1n1p2` to
-`nvme0n1p2` across a single reboot. It mounted anyway, because `/etc/fstab` and
-the kernel command line name it by UUID.
+And a fifth that cost nothing only because someone got it right years ago. With
+two NVMe controllers present, which one becomes `nvme0` is decided by which
+finishes probing first, and probing is asynchronous. Measured across two boots
+forty minutes apart, with no hardware touched in between:
+
+| boot | `nvme0n1` | root filesystem at |
+|---|---|---|
+| 16:46 | the 2 TB Samsung | `nvme0n1p2` |
+| 16:57 | the 4 TB Phison | `nvme1n1p2` |
+
+Root mounted both times, because `/etc/fstab` and the kernel command line name
+it by UUID. Nothing about `nvme0` was ever a fact about a disk — which is worth
+holding on to before typing a destructive command with one in it.
 
 ## Serving, after all of it
 
