@@ -105,6 +105,44 @@ a multibyte Korean character comes back as a 500, "incomplete UTF-8
 string". Both are reproducible with the command lines above and are
 filed as follow-ups, not fixed here.
 
+## The draft model: extracted, not yet wired
+
+V4.1-Flash ships a speculative-decoding draft under three names, which is
+worth untangling once. DeepSeek calls the mechanism **DSpark**
+(semi-autoregressive drafting with confidence-scheduled verification; the
+checkpoint's inference code has `dspark_block_size`,
+`dspark_target_layer_ids`). The tensors carry the V3-era prefix **`mtp.*`**
+(three blocks, `mtp.0`–`mtp.2`), but their contents are DSpark — `mtp.2`
+has `markov_head.embed/head` and `confidence_head.proj` — so mainline's
+`--mtp` export, which expects V3-style next-token heads, cannot read them.
+ik_llama.cpp implements this family under its **DFlash** companion
+architecture, and the GGUF it wants is `arch = dflash`.
+
+The Q3_K_M upload has none of these tensors (1046 tensors, exactly the 40
+body blocks), so the draft had to come from the fp8 original. Mainline's
+converter refuses `--dspark` for anything but `DeepseekV4ForCausalLM`
+(`convert_hf_to_gguf.py:269-274`); a working copy widened the gate with a
+`DeepseekV41DSparkModel` that inherits the V4.1 dequantizer — the fp8 block
+is [32,32] on V4.1 against [128,128] on V4, and getting that wrong produces
+garbage without an error. Result: one file, 7.97 GB, 78 tensors, the draft
+experts as MXFP4, at
+`DeepSeek-V4.1-Flash-Fp8-128x742M-MXFP4_MOE.gguf` in a `DSpark` directory
+beside the model. The block-size check was a round trip on
+`mtp.0.attn.wq_a.weight`: fp8 dequantized directly from safetensors against
+the GGUF's Q8_0, relative RMS error 5.4e-3; the same comparison with the
+[128,128] scale layout forced gives 0.144, which is what the silent
+failure would have looked like.
+
+That is data, not a working draft. Three things stand between the file
+and a tok/s number. ik's DSpark loader requires `output_hc_{base,fn,scale}`
+(`llama-load-tensors.cpp:2814-2817`), which V4.1 does not have — the
+output hyper-connection head is exactly what the lag removed. The draft
+graph (`build_dflash_dsv4`) is written to V4's rules and needs the same two
+changes the body needed, the one-sublayer lag and the low-rank-only q norm;
+a draft that gets them wrong drafts the wrong tokens and lowers throughput
+instead of raising it. And the body's GPU path is still unvalidated, so
+there is no ik baseline to measure a draft against. In that order.
+
 ## Costs and what is not claimed
 
 Every test costs a four-minute model load: 256 GB mapped from a file that
