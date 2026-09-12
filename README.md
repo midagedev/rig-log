@@ -130,6 +130,12 @@ The method, including the two mistakes that cost the most, is in
   decode rate from the server's own timings, not a stopwatch.
 - [`tools/pi-local.tape`](tools/pi-local.tape) — the VHS tape for the clip
   above, with the two traps it had to work around written down.
+- [`tools/v41-demo.py`](tools/v41-demo.py) + [`tools/v41-korean.tape`](tools/v41-korean.tape)
+  — the V4.1 recording: answer on the left, the machine on the right. Runs on
+  the workstation so the panel reads `/proc` next to the server. Carries what
+  three bad measurements taught it: count Korean as two columns and ANSI as
+  none, do not let a render throttle skip the finish check, and measure rate
+  over the tokens that carried text rather than wall time that kept running.
 - [`assets/placement-sheet.html`](assets/placement-sheet.html) — the source of
   the sheet above; edit and re-screenshot at 1280×720 for the next entry.
 - [`tools/dequant-scan.cpp`](tools/dequant-scan.cpp) — reads one tensor out of
