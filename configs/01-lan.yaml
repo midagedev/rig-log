@@ -1,0 +1,48 @@
+# /etc/netplan/01-lan.yaml — both X550 ports, matched by MAC.
+#
+# The MACs below are redacted; on the machine they are the two real port
+# addresses, which differ only in the last octet. Everything else is as-is.
+#
+# This file replaces 50-cloud-init.yaml, which named enp36s0f1 directly and
+# carried critical: true. Two separate faults came out of that pair:
+#
+#   - critical: true told networkd to keep a running configuration, so when the
+#     machine moved to a different network on 2026-09-11 it held its old lease
+#     and never asked for a new one. Root is local here; there is nothing to
+#     protect by holding a stale lease.
+#   - Adding an NVMe drive on 2026-09-12 took bus 0x23 and pushed the X550 from
+#     0x24 to 0x25, so enp36s0f1 became enp37s0f1 and the stanza went silently
+#     inert. A bus-derived name is not a stable identifier; a MAC address is.
+#
+# Both ports are declared so either one can carry the cable.
+#
+# optional: true keeps systemd-networkd-wait-online from blocking boot for 120
+# seconds on whichever port has no cable. Nothing here needs network-online:
+# the LLM server binds loopback and tailscaled does its own retrying.
+#
+# cloud-init owns network config by default and would regenerate the old file
+# on the next boot, so it is turned off in
+# /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg with:
+#     network: {config: disabled}
+#
+# Install at mode 600 — netplan warns about world-readable config.
+# See log/2026-09-12-offline-after-a-move-and-an-ssd.md.
+network:
+  version: 2
+  ethernets:
+    lan-f0:
+      match:
+        macaddress: "xx:xx:xx:xx:xx:86"
+      dhcp4: true
+      dhcp-identifier: "mac"
+      optional: true
+      nameservers:
+        addresses: [168.126.63.1, 168.126.63.2]
+    lan-f1:
+      match:
+        macaddress: "xx:xx:xx:xx:xx:87"
+      dhcp4: true
+      dhcp-identifier: "mac"
+      optional: true
+      nameservers:
+        addresses: [168.126.63.1, 168.126.63.2]

@@ -1,0 +1,18 @@
+# /etc/systemd/system/netplan-iface-check.service
+#
+# Runs configs/netplan-iface-check at every boot. A netplan stanza naming an
+# absent interface produces no error of its own — see
+# log/2026-09-12-offline-after-a-move-and-an-ssd.md — so this unit is the alarm:
+# when it fails, `systemctl --failed` names it and the journal says which
+# interface is missing.
+[Unit]
+Description=Warn when netplan declares an interface that does not exist
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/netplan-iface-check
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

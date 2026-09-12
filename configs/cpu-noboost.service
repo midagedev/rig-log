@@ -1,0 +1,8 @@
+[Unit]
+Description=Disable CPU boost (Kraken X3 does not cover sWRX8 IHS)
+After=multi-user.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cpu-noboost
+[Install]
+WantedBy=multi-user.target

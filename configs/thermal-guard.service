@@ -1,0 +1,16 @@
+[Unit]
+Description=Thermal and pump guard: stop LLM load before the hardware is at risk
+# No After= here. This unit is WantedBy=multi-user.target; also ordering it
+# After that target made multi-user.target -> llm.service -> thermal-guard
+# -> multi-user.target a cycle, and systemd broke it by deleting the
+# llm.service start job. The LLM server then silently never autostarted.
+# See log/2026-09-12-offline-after-a-move-and-an-ssd.md.
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/thermal-guard.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

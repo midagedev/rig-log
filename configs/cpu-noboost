@@ -1,0 +1,53 @@
+#!/bin/sh
+# Assert that CPU boost is off, by whatever means this kernel offers.
+#
+# The unit this replaces did `echo 0 > /sys/devices/system/cpu/cpufreq/boost`
+# and failed outright when that node was absent. After the 2026-09-11 BIOS
+# reset it was absent — because the firmware now disables Core Performance
+# Boost itself, so there is nothing for the driver to expose and nothing to
+# toggle. The goal was met and the unit reported failure, which is worse than
+# useless: a permanent red line in `systemctl --failed` hides real failures.
+#
+# So assert the outcome. Turn boost off if a knob exists, then verify it is
+# actually off and say how. Fail only if boost is on and cannot be turned off,
+# which is the only case a human needs to hear about.
+#
+# This board's cooler does not cover the sWRX8 IHS; boost staying off is a
+# thermal contract, not a preference. See docs/wrx80e-bios-setup.md.
+set -eu
+
+GLOBAL=/sys/devices/system/cpu/cpufreq/boost
+CPB=/sys/devices/system/cpu/cpu0/cpufreq/cpb
+
+# Turn it off wherever it can be turned off.
+# These writes fail with EIO when the firmware, not the driver, owns the
+# setting. That is a fine outcome, so discard the noise and let the
+# verification below decide.
+if [ -w "$GLOBAL" ]; then
+    echo 0 > "$GLOBAL" 2>/dev/null || true
+fi
+for f in /sys/devices/system/cpu/cpu*/cpufreq/cpb; do
+    [ -w "$f" ] && { echo 0 > "$f" 2>/dev/null || true; }
+done
+
+# Now verify, cheapest evidence first.
+if [ -r "$GLOBAL" ] && [ "$(cat "$GLOBAL")" = "0" ]; then
+    echo "boost off: $GLOBAL reads 0"
+    exit 0
+fi
+if [ -r "$CPB" ] && [ "$(cat "$CPB")" = "0" ]; then
+    echo "boost off: cpb reads 0 (firmware or driver)"
+    exit 0
+fi
+
+# No boost knob at all: the firmware may be capping instead. If the scaling
+# ceiling equals the BIOS limit, nothing is boosting above base clock.
+LIMIT=/sys/devices/system/cpu/cpu0/cpufreq/bios_limit
+MAXF=/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq
+if [ -r "$LIMIT" ] && [ -r "$MAXF" ] && [ "$(cat "$LIMIT")" = "$(cat "$MAXF")" ]; then
+    echo "boost off: scaling_max_freq == bios_limit ($(cat "$LIMIT") kHz)"
+    exit 0
+fi
+
+echo "CPU boost could not be confirmed off — check cpufreq by hand" >&2
+exit 1

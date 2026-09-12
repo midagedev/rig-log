@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+"""Check that every interface declared in netplan actually exists.
+
+A netplan stanza is silently inert when the hardware it names is not present:
+the link is never brought up, DHCP never runs, and nothing logs an error. The
+machine simply has no network, which is indistinguishable at the console from
+a dead NIC. That is what happened on 2026-09-11 — a BIOS change renumbered the
+PCI bus from 0x24 to 0x25, the predictable name enp36s0f1 became enp37s0f1,
+and the config went on describing an interface that no longer existed.
+
+Matching on `macaddress` instead of a bus-derived name is what closes that
+class. This check is the alarm for the next variant of it.
+
+Exit 0 when every declared interface resolves to a present link, 1 otherwise.
+"""
+import fnmatch
+import glob
+import os
+import sys
+
+import yaml
+
+SYS = "/sys/class/net"
+
+
+def present():
+    """Map lowercased MAC -> interface name, for every link on the system."""
+    macs = {}
+    for name in os.listdir(SYS):
+        try:
+            with open(os.path.join(SYS, name, "address")) as fh:
+                macs[fh.read().strip().lower()] = name
+        except OSError:
+            continue
+    return macs
+
+
+def declared():
+    """Yield (source file, stanza key, stanza) for every physical device."""
+    for path in sorted(glob.glob("/etc/netplan/*.yaml")):
+        with open(path) as fh:
+            doc = yaml.safe_load(fh) or {}
+        net = doc.get("network") or {}
+        for section in ("ethernets", "wifis", "bonds", "bridges", "vlans"):
+            for key, stanza in (net.get(section) or {}).items():
+                yield path, key, stanza or {}
+
+
+def main():
+    macs = present()
+    names = set(macs.values())
+    failures = []
+    checked = 0
+
+    for path, key, stanza in declared():
+        match = stanza.get("match") or {}
+        mac = match.get("macaddress")
+        if mac:
+            checked += 1
+            if mac.lower() not in macs:
+                failures.append(f"{path}: {key} matches MAC {mac}, no such link")
+            else:
+                print(f"ok   {key}: MAC {mac} -> {macs[mac.lower()]}")
+            continue
+        if match.get("name"):
+            checked += 1
+            pattern = match["name"]
+            if not any(fnmatch.fnmatch(n, pattern) for n in names):
+                failures.append(f"{path}: {key} matches name {pattern}, no such link")
+            else:
+                print(f"ok   {key}: name {pattern} matches a present link")
+            continue
+        # No match block: the stanza key is itself the interface name.
+        checked += 1
+        if key not in names:
+            failures.append(f"{path}: {key} names a link that does not exist")
+        else:
+            print(f"ok   {key}: present")
+
+    if not checked:
+        print("no physical interfaces declared in /etc/netplan", file=sys.stderr)
+        return 1
+
+    for line in failures:
+        print(f"FAIL {line}", file=sys.stderr)
+    print(f"{checked - len(failures)}/{checked} declared interfaces present")
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

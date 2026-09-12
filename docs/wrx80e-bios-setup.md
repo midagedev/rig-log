@@ -62,7 +62,23 @@ form of the `cpufreq/boost=0` the machine was setting from Linux.
 
 The Linux counterpart to this is `pci=realloc=off` on the kernel command line,
 which this board needs or the 10 GbE ports drop — kept in the private host
-notes, not here.
+notes, not here. It lives in GRUB's config on disk, so changing BIOS settings
+does not threaten it, and it is worth not suspecting first: on 2026-09-11 it
+was the standing explanation for an outage it had nothing to do with.
+
+The hazard that is real when opening this machine is **PCI renumbering**.
+Adding a device changes what sits in front of what: a 4 TB NVMe drive installed
+on 2026-09-12 took bus `0x23`, and the 10 GbE controller behind it moved from
+`0x24` to `0x25`. Every name derived from that address moves with it. `enp36s0f1` became
+`enp37s0f1`, the netplan file went on naming the old one, and the machine came
+up with no network and nothing logged, because a netplan stanza naming an
+absent interface is silently inert rather than an error. **Match interfaces on
+MAC address, never on a bus-derived name.** The config and the check that
+asserts it are in
+[`configs/01-lan.yaml`](../configs/01-lan.yaml) and
+[`configs/netplan-iface-check`](../configs/netplan-iface-check); the full
+account is in
+[the log entry](../log/2026-09-12-offline-after-a-move-and-an-ssd.md).
 
 ## Power and unattended behaviour (APM, p.34)
 
