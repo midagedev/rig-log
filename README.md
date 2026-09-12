@@ -108,6 +108,14 @@ The method, including the two mistakes that cost the most, is in
   before declaring the download done. Written after two downloaders on one file
   produced 39 GB of interleaved garbage with a plausible file size.
 
+- [`docs/v41-experiment-plan.md`](docs/v41-experiment-plan.md) — the runs that
+  would confirm or break the projections above, written before the first one:
+  what each measures, what result would falsify the model of where the time
+  goes, and which levers are blocked on what. With
+  [`configs/bench-serve.sh`](configs/bench-serve.sh), which records resident
+  set, major faults and drive reads alongside throughput, because tok/s alone
+  cannot say whether a slow run lost its expert pages or its engram rows.
+
 - [`docs/wrx80e-bios-setup.md`](docs/wrx80e-bios-setup.md) — the firmware side
   of running this board as an unattended LLM host: CPU power limit (PPT/cTDP,
   hidden in AMD CBS), above-4G mapping for two GPUs, auto power-on, the onboard
