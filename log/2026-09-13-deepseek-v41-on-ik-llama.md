@@ -41,8 +41,10 @@ Build 7 decoded. Forty-eight tokens at temperature 0 from a raw prompt:
 
 Grammatical, factually fine, and repeating — which is what an instruct
 model does with a raw prompt and greedy sampling, so it says the graph is
-not broken and nothing more. That is exactly the case the correctness gate
-exists for.
+not broken and nothing more. It is worth being explicit: this text came out
+of the graph that scores 244 in the next section. A decode that reads fine
+is not evidence of a correct graph, and that is exactly the case the
+correctness gate exists for.
 
 ## The gate
 
@@ -54,7 +56,7 @@ anything.
 | build | chunk 1 | chunk 2 | chunk 3 | chunk 4 | final |
 | --- | --- | --- | --- | --- | --- |
 | mainline `llama.cpp` | 1.7334 | 1.7571 | 1.8354 | 2.2438 | 2.2438 ± 0.0631 |
-| ik build 7 (hyper-connection fixed) | 246.06 | 267.78 | 271.80 | 244.72 | 244.72 ± 12.03 |
+| ik build 7 graph (hyper-connection fixed; build 8 binary, log fix only) | 246.06 | 267.78 | 271.80 | 244.72 | 244.72 ± 12.03 |
 | ik build 9 | 1.7229 | 1.7499 | 1.8242 | 2.2258 | 2.2258 ± 0.0622 |
 
 Build 7 failed by two orders of magnitude, so the gate was measuring. The
@@ -75,11 +77,40 @@ context on a GPU the server already owns is an out-of-memory error even at
 `-ngl 0`. `CUDA_VISIBLE_DEVICES=""` is the fix. The perplexity run with the
 suspected fix finished first.
 
+## The decode path, against the oracle
+
+Perplexity runs the graph in batches; a server runs it one token at a
+time, through a path (`n_tokens == 1`, the row gather for the shared
+top-k) that perplexity never touches. So the last check was the deployed
+shape: ik's `llama-server` at `-ngl 0` on a spare port, mainline's on its
+usual one, the same raw prompt string to `/completion` on both, greedy.
+
+| prompt | ik | mainline |
+| --- | --- | --- |
+| BOS + user + assistant + `</think>` | "The capital of South Korea is Seoul. It is a sprawling, vibrant metropolis that blends ancient palaces and temples with cutting-edge technology and modern skyscrapers, while serving as the country's political" | same for the first twelve tokens, then "…cutting-edge skyscrapers and technology, serving as the country's political, economic" |
+| no BOS, with `</think>` | "…It is a bustling metropolis that serves as the country's political, economic, and cultural center…" | "…It is a bustling metropolis known for its blend of ancient temples and modern skyscrapers…" |
+
+Agreement on the opening tokens and drift after the first near-tie is what
+two different Q3_K kernels look like, and it is the same drift the
+perplexity numbers show. The second ubatch-size run (`-b 512 -ub 512`, so
+the engram history crosses ubatch boundaries) came in at 2.2320 ± 0.062
+against mainline's 2.2537 ± 0.064 under the same setting.
+
+Two things that are not the graph came out of the same session, and both
+belong to ik's server rather than to this port. With `--jinja`, ik renders
+the V4.1 chat template without `</think>` when `reasoning_effort` is
+`none`, so a chat request that mainline answers directly goes through ik
+as a thinking request; and a `/completion` whose `n_predict` lands inside
+a multibyte Korean character comes back as a 500, "incomplete UTF-8
+string". Both are reproducible with the command lines above and are
+filed as follow-ups, not fixed here.
+
 ## Costs and what is not claimed
 
 Every test costs a four-minute model load: 256 GB mapped from a file that
-is already in page cache, because ik's loader touches every tensor. Ten
-builds is ten of those, and most of the wall clock of this entry.
+is already in page cache, because ik's loader touches every tensor. This
+entry is ten builds and about fifteen of those loads, and the loads are most
+of its wall clock.
 
 Not claimed: `-ngl` above zero (the CUDA path is unexercised; `ggml_fill`,
 which the one-hot mix uses, has a CPU kernel and no CUDA one, so it will
