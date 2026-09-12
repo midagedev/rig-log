@@ -84,6 +84,12 @@ The method, including the two mistakes that cost the most, is in
 
 ## Reusable pieces
 
+- [`docs/wrx80e-bios-setup.md`](docs/wrx80e-bios-setup.md) — the firmware side
+  of running this board as an unattended LLM host: CPU power limit (PPT/cTDP,
+  hidden in AMD CBS), above-4G mapping for two GPUs, auto power-on, the onboard
+  ASMB9-iKVM remote console, and where the fan curves actually are. Menu paths
+  and manual page numbers included.
+
 - [`configs/llm-serve.sh`](configs/llm-serve.sh) — the serving command from
   the first entry, as a systemd `ExecStart`.
 - [`configs/tps.py`](configs/tps.py) — streams a completion and reports the
