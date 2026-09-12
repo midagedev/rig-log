@@ -13,10 +13,18 @@ untested paths, so the second half of this log is what got sent back:
 [how a failure here becomes an upstream report](docs/upstream-contributions.md),
 and the record of what was sent.
 
+![DeepSeek-V4.1-Flash answering in Korean while the memory tiers update beside it](assets/v41-korean.gif)
+
+*DeepSeek-V4.1-Flash answering from this machine. The file is 347 GB; 84.6 GB
+of it — two conditional-memory tables of 384 million rows each — is never read
+into memory at all, and is served a few dozen rows at a time off an NVMe while
+the model streams at about 20 tok/s. The right panel is live `/proc`, not a
+caption. [Full write-up.](log/2026-09-12-deepseek-v41-first-run.md)*
+
 ![pi running against the workstation's local model](assets/pi-local.gif)
 
-*A 284 B-parameter mixture-of-experts model answering from this machine: most of
-its experts live in system RAM, and it streams at 25–33 tok/s.
+*The previous model, for scale: 284 B parameters with most of its experts in
+system RAM, at 25–33 tok/s.
 [Full write-up.](log/2026-09-11-deepseek-v4-moe-offload.md)*
 
 [![Where the experts live, and what each engine measured](assets/placement-sheet.png)](assets/placement-sheet.png)

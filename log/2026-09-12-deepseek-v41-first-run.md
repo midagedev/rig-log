@@ -198,6 +198,45 @@ reports when asked to serve and to pull 100 MB/s at the same time.
 
 Worth having as an operational number rather than only as a benchmarking rule.
 
+## Moving engram to the other drive, which did nothing
+
+If a download on the model drive costs 10%, the obvious fix is to put engram
+somewhere else. The measured case for it looked good before the run: the
+engram shards are almost pure engram — shard 02 is 42.3 GB holding a 42.2 GB
+tensor, shard 05 is 44.9 GB holding another — so they move as a unit, and the
+Samsung is *better* at the access pattern engram uses, at 18,038 random 4K
+read IOPS at queue depth 1 against the Phison's 15,836.
+
+Both shards were copied to the root filesystem, sha256-verified, and
+symlinked back into place. Then:
+
+| | engram on the Phison | engram on the Samsung |
+|---|---:|---:|
+| quiet, varied prompts | 19.36 tok/s | 19.17 tok/s |
+| with the download running | 18.07 tok/s | 18.12 tok/s |
+
+**Nothing, either way.** Which means the hypothesis was wrong about what the
+contention *was*. It is not the drive: a 100 MB/s download fills the page
+cache, and what gets evicted is expert weight, which lives on the Phison no
+matter where engram sits. The cost is memory pressure wearing a disk costume.
+
+Reverted. A model split across two filesystems is more fragile than one, the
+root disk is the latency-sensitive one, and there was no gain to pay for it.
+
+Reverting it destroyed a 44.9 GB shard, and the way it happened is the same
+failure this machine lost 89 GB to earlier the same day. The first revert
+script was still working on shard 05 when a second one was started to "finish
+the job" — two processes, one file, no lock. One moved its temporary copy into
+place while the other deleted the source out from under it, and the symlink,
+the copy and the temporary file all went at once. The shard had to be pulled
+again.
+
+The downloader written that morning has `flock` on every file precisely to
+stop this. The revert script was a handful of `cp` and `mv` lines and did not,
+because it did not look like the kind of thing that needed one. That is the
+whole lesson: the guard belongs on the file, not on the programs a person
+judges to be risky.
+
 ## Where this leaves it
 
 **20 tok/s decode, 343 tok/s prefill, 16k context, on mainline llama.cpp.**
@@ -213,6 +252,33 @@ Everything larger needs ik_llama, which cannot load this architecture yet:
 `-ser` projects 24 tok/s, low-bit expert quants project 29. That turns the
 architecture port from an optimization into the only remaining lever, which
 is not where it sat this morning.
+
+## The recording
+
+![DeepSeek-V4.1-Flash answering in Korean, with the memory tiers live beside it](../assets/v41-korean.gif)
+
+Left pane the model, right pane the machine, both live:
+[`tools/v41-demo.py`](../tools/v41-demo.py) and
+[`tools/v41-korean.tape`](../tools/v41-korean.tape). It reads `/proc` next to
+the server, so the panel is the same resident-set and fault counters used
+above rather than a caption asserting them.
+
+Four bugs had to come out of it before the frame was honest, and they are
+worth naming because each one produced a plausible-looking picture. The panel
+first drew the tiers as a tree, which claims the three add up to 347.3 GB;
+they do not, because VRAM weight is counted in the file and shadowed in the
+resident set both. Display width was computed with ANSI escapes included, so
+every coloured line came up fifteen columns short and the right panel bled
+into the answer. Three border rules were off by one or two against the body.
+And the throughput readout said 4.5 tok/s for a model doing 18 — from
+counting empty stream chunks as tokens, dividing by wall time that kept
+running after generation stopped, and a render throttle whose `continue`
+skipped the `finish_reason` check so the loop never broke.
+
+Reasoning is off in the recording. Measured: this model thinks for
+3,500–4,700 characters before writing a word, and `reasoning_effort` barely
+moves it because the template only special-cases `max`. A recording short
+enough to post never reaches the answer.
 
 ## Still open
 

@@ -36,8 +36,9 @@ dashboard — lives in `~/repo-mid/vps-infra/hosts/ws.md` and
 gets copied here verbatim: this repo names the machine by its hardware, never
 by its tailnet name or address.
 
-Reaching it: `ssh ws`. It serves an OpenAI-compatible API on loopback,
-published over Tailscale. `llm.service` holds both GPUs, so anything that
+Reaching it: over Tailscale; the node name is in the private host notes, not
+here — two lines above is the rule this would otherwise break. It serves an
+OpenAI-compatible API on loopback, published over the tailnet. `llm.service` holds both GPUs, so anything that
 needs VRAM starts with stopping it and ends with starting it again and
 confirming the rate came back.
 
