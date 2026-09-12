@@ -52,6 +52,7 @@ Two notes that cost a day each:
 | 2026-09-12 | [Two ways to be off the network, one on top of the other](log/2026-09-12-offline-after-a-move-and-an-ssd.md) | a held lease and a renumbered PCI bus, each enough on its own |
 | 2026-09-12 | [The machine was resetting every ten minutes and nothing on it knew](log/2026-09-12-bmc-watchdog-reset-loop.md) | a BIOS-armed BMC watchdog nobody disarmed, now taken over by systemd |
 | 2026-09-12 | [Two NVMe drives, and the benchmark that kept measuring the cache](log/2026-09-12-nvme-sustained-write.md) | write floors differ 2.5x; a test that stops before the cliff reports the cache |
+| 2026-09-12 | [A 347 GB model with 84 GB of it left on the drive](log/2026-09-12-deepseek-v41-first-run.md) | DeepSeek-V4.1-Flash at 20 tok/s on mainline llama.cpp, engram never loaded, and a prefill flag set wrong the whole time |
 
 ## Queued
 
@@ -60,7 +61,8 @@ Two notes that cost a day each:
 - **Image generation** — batch throughput at high resolution, and whether
   offloading the text encoder to the CPU is free.
 - **Audio** — music and speech generation, latency rather than throughput.
-- **Back to LLMs** — DeepSeek V4.1 Flash once any engine can load it, and a
+- **Back to LLMs** — V4.1 Flash now runs (above); next is concurrency, an
+  ik_llama architecture port to unlock `-ser` and low-bit expert quants, and a
   second 32 GB card to see how far the CPU can be pushed out of the loop.
 
 ## Layout

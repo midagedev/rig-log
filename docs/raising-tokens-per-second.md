@@ -1,15 +1,36 @@
 # Where the time goes on a 347 GB model, and what would move it
 
-**2026-09-12.** Before running DeepSeek-V4.1-Flash on this machine, this is
-what the file itself says about how fast it can go, which levers exist, and
-what each one is worth. Almost nothing here is a measurement of V4.1 — the
-model has not been run yet. The budget is measured, the calibration comes from
-a different model measured on this machine yesterday, and every tok/s figure
-below is arithmetic built on those two. Each section says which it is.
+**2026-09-12.** What the file says about how fast this model can go, which
+levers exist, and what each one is worth. Written before the first run and
+then corrected by it: the sections marked *projected* were arithmetic on a
+constant borrowed from a different model, and where a run has since replaced
+that arithmetic the measured figure is given alongside and the projection is
+left visible rather than quietly edited.
 
-The companion piece is
+The companion pieces are
 [running a model larger than memory](running-a-model-larger-than-memory.md),
-which covers why this model needs the NVMe at all.
+which covers why this model needs the NVMe at all, and
+[the experiment plan](v41-experiment-plan.md), which is what the runs were
+supposed to settle.
+
+## Which engine does what, because this is easy to get wrong
+
+Splitting a model across two GPUs and system RAM is **mainline llama.cpp**, not
+an ik_llama feature. Everything measured here runs on
+`vcruz305/llama.cpp`, a fork of mainline carrying sixteen commits, all of them
+DeepSeek-V4.1 architecture — engram gate scales, sparse attention, the DSV4
+compressed-stream helpers. None of them touch placement. The flags doing the
+work are upstream:
+
+```
+common/arg.cpp:2750   {"-ot", "--override-tensor"}, "<pattern>=<buffer type>,..."
+common/arg.cpp:2763   {"-ncmoe", "--n-cpu-moe"}, "N"
+```
+
+What ik_llama adds is not the ability to do this but the speed and the quants
+on top of it — and that happens to be where the two largest levers below live,
+which is the whole argument for porting the architecture to it. Every lever in
+this document is tagged with the engine it needs.
 
 ## The budget, which is measured
 
@@ -44,50 +65,83 @@ The engram tables are 84.6 GB in two tensors, `blk.1.engram_embd` and
 are read as a few dozen individual rows per token, so they cost I/O operations
 rather than bandwidth, and they are the reason the NVMe is in this at all.
 
-## The calibration, which is borrowed
+## The calibration: borrowed, then measured
 
-There is no measurement of how fast this machine streams expert weights for
-*this* model. There is one for the previous model, taken on 2026-09-11:
-DeepSeek-V4-Flash at **24.6 tok/s** with no speculation, 32 of its 43 expert
-layers in system RAM, about 3.54 GB of active expert weight per token.
+Before the first run there was no figure for how fast this machine streams
+expert weights for *this* model, only one for the previous model, taken on
+2026-09-11: DeepSeek-V4-Flash at **24.6 tok/s** with no speculation, 32 of its
+43 expert layers in system RAM, 2.63 GB of active expert weight per token from
+RAM. That gave `2.63 GB ÷ 40.7 ms = 64.8 GB/s`, and applying it to the V4.1
+budget projected **16–18 tok/s**.
 
-That gives an effective figure for the path that matters:
+The first run replaced it. With six expert layers on the GPUs and the engram
+rows already in the page cache — so the DDR4 path and nothing else:
 
 ```
-2.63 GB/token from RAM ÷ 40.7 ms/token = 64.8 GB/s
+49.65 ms/token, less 6.6 ms of GPU work = 43.1 ms on DDR4
+3.44 GB/token ÷ 43.1 ms = 79.8 GB/s
 ```
 
 against the **115.8 GB/s** this machine measures in a STREAM-style read
-([README](../README.md)). So llama.cpp's gather over 200 GB of mmap'd expert
-weight achieves **56% of the bandwidth the same memory delivers to a
-sequential read**. That 56% is itself one of the largest opportunities on this
-page, and nobody here has established where the other 44% goes.
+([README](../README.md)). So the gather over ~200 GB of mmap'd expert weight
+achieves **69% of what the same memory gives a sequential read**, not the 56%
+the previous model implied. The borrowed constant was pessimistic by a fifth,
+and every projection below that uses it is correspondingly low.
 
-Applying 64.8 GB/s to the V4.1 budget: VRAM holds the 4 GB of dense tensors,
-a KV cache, and about **9.6 layers' worth of routed experts**; the other ~30
-layers are read from DDR4 at 3.08 GB per token, which is **47.4 ms**. Add GPU
-work and engram reads and the projection is **16–18 tok/s**.
+The remaining 31% is still the largest unexplained quantity here, and it is
+what `-thp` would test.
 
-For comparison, the guess that prompted this document was 20 tok/s. It is at
-the optimistic edge rather than wrong.
+### What the runs actually returned
+
+| configuration | steady state | notes |
+|---|---:|---|
+| 6 expert layers (4+2), engram cached | 20.14 tok/s | the DDR4 ceiling, not a real workload |
+| 8 expert layers (6+2), varied prompts | **~20.1 tok/s** | four prompts, settled |
+| 8 expert layers (6+2), first run after load | 9.28 tok/s | GPU0 at 46.2 of 49.1 GB |
+
+The projection said 17.4 and the machine returns about 20. The guess that
+prompted this document was 20 tok/s, which turned out to be better than the
+arithmetic.
+
+**Measuring this correctly took two corrections.** The first run let the model
+stop where it liked and got a 19-token sample, in which one-time cache warming
+dominated everything. The second repeated an identical prompt at temperature
+0 — which generates identical tokens, touches identical engram rows, and finds
+them all in the page cache the second time: 20.14 tok/s at **zero** major
+faults, a number the model cannot produce on work it has not already done.
+Both are in [`configs/bench-serve.sh`](../configs/bench-serve.sh) now as
+comments, because both looked like results.
+
+The honest protocol is a different prompt per run, and it exposed something
+neither cold nor warm showed: major faults fall from 38.6 to 9.4 per token
+across four *different* prompts. Engram has locality. Common n-grams recur
+across unrelated English text, so the hot rows of a 384-million-row table
+converge into the page cache and stay there. The working set is far smaller
+than the table.
 
 ## Levers that reduce bytes per token
 
 This is the category that matters, because bytes per token from DDR4 is
 roughly 80% of the budget and tok/s scales almost linearly against it.
 
-Each row is arithmetic on the measured budget above, at the borrowed
-64.8 GB/s, assuming 6 GB of KV cache and 4 ms of engram time:
+Each row is arithmetic on the measured budget above, at the *borrowed*
+64.8 GB/s, assuming 6 GB of KV cache and 4 ms of engram time. Since the
+measured figure is 79.8 GB/s, read every projection as a floor — the baseline
+row projects 17.4 and the machine returns 20.1, about 16% high.
 
-| change | store | expert layers on GPU | GB/token from RAM | projected |
-|---|---:|---:|---:|---:|
-| baseline, Q3_K_M, 6 of 384 | 258.8 GB | 9.6 | 3.08 | **17.4 tok/s** |
-| `-ser` 5 active experts | 258.8 GB | 9.6 | 2.56 | 20.2 tok/s |
-| `-ser` 4 active experts | 258.8 GB | 9.6 | 2.05 | 24.0 tok/s |
-| `-ser` 3 active experts | 258.8 GB | 9.6 | 1.54 | 29.6 tok/s |
-| REAP 256E (a published variant) | 172.5 GB | 14.4 | 2.59 | 20.0 tok/s |
-| experts at ~3.0 bpw | 203.8 GB | 12.2 | 2.22 | 22.6 tok/s |
-| experts at ~2.4 bpw | 163.0 GB | 15.2 | 1.58 | 29.1 tok/s |
+| change | engine | store | layers on GPU | GB/tok from RAM | projected |
+|---|---|---:|---:|---:|---:|
+| baseline, Q3_K_M, 6 of 384 | **mainline** | 258.8 GB | 9.6 | 3.08 | 17.4 → **20.1 measured** |
+| `-ser` 5 active experts | ik only | 258.8 GB | 9.6 | 2.56 | 20.2 tok/s |
+| `-ser` 4 active experts | ik only | 258.8 GB | 9.6 | 2.05 | 24.0 tok/s |
+| `-ser` 3 active experts | ik only | 258.8 GB | 9.6 | 1.54 | 29.6 tok/s |
+| REAP 256E (a published variant) | either | 172.5 GB | 14.4 | 2.59 | 20.0 tok/s |
+| experts at ~3.0 bpw | ik quants | 203.8 GB | 12.2 | 2.22 | 22.6 tok/s |
+| experts at ~2.4 bpw | ik quants | 163.0 GB | 15.2 | 1.58 | 29.1 tok/s |
+
+Only the first row runs today. Everything with a larger number needs the ik
+architecture port, which is what makes that port the critical path rather than
+the conversion work.
 
 **`-ser`, smart expert reduction, is the cheapest thing on this list** — an
 ik_llama flag that changes how many experts run, with no new file. ik's own
@@ -110,7 +164,7 @@ fits more layers in VRAM — the two effects compound. It requires ik_llama to
 support this architecture, which it does not yet, and it requires quantizing
 510 GB of original weights, which is why those are downloading now.
 
-## Levers that raise the 56%
+## Levers that raise the 69%
 
 These do not change what is read, only how fast it arrives. None of them is
 quantified for this workload and one of them may be large.
@@ -128,7 +182,7 @@ always [madvise] never
 which means huge pages are only handed out to a process that asks — so the
 flag is not redundant with the system setting, it is the thing that activates
 it. This is the most interesting unmeasured item on the page, because it is a
-plausible explanation for part of the missing 44% and it costs one flag.
+plausible explanation for part of the missing 31% and it costs one flag.
 
 **`-rtr`, run-time repack, conflicts with this model.** It repacks tensors
 into layouts the CPU kernels prefer, and reportedly helps. It also disables
@@ -154,6 +208,71 @@ mmap'd engram rows — 110 bytes each — would each drag in 64 KB of read-ahead
 (`RA 128` sectors on both drives). The v41 branch sets `POSIX_MADV_RANDOM` on
 lazy ranges (`src/llama-mmap.cpp:506`), which suppresses it. One fewer thing
 to fix.
+
+## Prefill, which was being measured wrong
+
+The first runs reported prefill at 39–46 tok/s, which is not a prefill figure
+at all: the benchmark's prompt was 24 tokens, far below the point where batch
+throughput means anything, and in a MoE it is worse than that. A 24-token
+batch routes to up to 144 distinct experts per layer against a single token's
+6, so a short prefill reads an order of magnitude more weight per token than a
+decode step does. Dividing by 24 produces a number that describes fixed
+overhead.
+
+Measured properly, prefill rises with prompt length and settles:
+
+| prompt | prefill |
+|---:|---:|
+| 18 tokens | 30.2 tok/s |
+| 133 | 46.6 tok/s |
+| 535 | 117.5 tok/s |
+| 2135 | 150.0 tok/s |
+| 4281 | 160.6 tok/s |
+
+That was still low, and two settings were holding it down. **`-np 4` costs
+prefill**: it splits the context into four slots and turns off the unified KV
+cache, and removing it took the 4288-token figure from 160 to 214 tok/s.
+**`-ub 512` costs much more.** Prompt processing is compute-bound and batched,
+so a larger micro-batch amortizes each expert tensor read across more tokens:
+
+| configuration | prefill @ 4288 tok | decode |
+|---|---:|---:|
+| 8 expert layers (6+2), `-ub 512` | 214.0 tok/s | 16.35 tok/s |
+| **6 expert layers (4+2), `-ub 2048`** | **344.2 tok/s** | 16.47 tok/s |
+| 4 expert layers (CUDA0 only), `-ub 3072` | 245.2 tok/s | 15.75 tok/s |
+| 4 expert layers (CUDA0 only), `-ub 4096` | 282.8 tok/s | 14.98 tok/s |
+
+**61% more prefill for no decode cost**, which is a better return than
+anything in the lever table above and needed no new engine, file, or flag that
+did not already exist.
+
+The ceiling is set by the smaller card. `-ub 3072` fails like this:
+
+```
+ggml_backend_cuda_buffer_type_alloc_buffer: allocating 13864.60 MiB on device 1:
+  cudaMalloc failed: out of memory
+graph_reserve: failed to allocate compute buffers
+```
+
+The prefill compute buffer scales with micro-batch and lands on CUDA1, the
+24 GB card, so micro-batch and expert layers compete for the same memory.
+Freeing GPU1 entirely — no experts on it at all — allowed `-ub 4096` and made
+prefill *worse* (282.8), because its layers then do attention with their
+experts across the bus. Two expert layers on the small card and a 2048
+micro-batch is the balance point on this pair of GPUs.
+
+Context length is the other side of the same trade, and it is a clean one:
+
+| | decode, short context | prefill @ 4288 tok |
+|---|---:|---:|
+| `-c 32768 -ub 1024` | 19.89 tok/s | 187.8 tok/s |
+| `-c 16384 -ub 2048` | 19.97 tok/s | **343.4 tok/s** |
+
+Doubling the context costs **45% of prefill and buys nothing in decode**.
+Quantizing the KV cache does not recover it — `-c 32768 -ub 2048 -ctk q8_0
+-ctv q8_0` still fails to allocate, because what does not fit is the compute
+buffer, not the cache. So the serving config takes 16k, and a 32k session is
+a deliberate choice to halve prompt throughput rather than a free default.
 
 ## Levers that amortize the read
 
@@ -208,21 +327,30 @@ itself.
 
 ## The order to try things in
 
-1. **Run it.** Everything above is built on one borrowed measurement. The
-   first real number replaces the 64.8 GB/s assumption and re-ranks this list.
-2. **Confirm the premise.** Resident set 84.6 GB below the file size means the
-   engram tables stayed on the drive. If not, force `--lazy-mode on`.
-3. **Sweep `-ser`** on ik — free, large, and the quality cost is measurable
-   with perplexity in the same session.
-4. **`-thp`** — one flag, and it tests the huge-page theory for the missing
-   44% of bandwidth.
-5. **Push the `-ot` split** from the deliberately conservative starting point
-   toward the ~9.6 layers the arithmetic allows.
-6. Only then the expensive ones: MTP conversion, low-bit requantization, the
-   ik architecture port.
+1. ~~**Run it.**~~ Done. 20.1 tok/s steady state on mainline, and the
+   measured 79.8 GB/s replaces the borrowed 64.8.
+2. ~~**Confirm the premise.**~~ Done, and it holds: resident set 215 GB
+   against a 347 GB file. The engram tables are on the drive, costing
+   3.3 ms per token — 6.3% of the budget, and cheaper than expected because
+   the hot rows cache.
+3. ~~**Push the `-ot` split.**~~ Done, and it is nearly exhausted: 8 layers
+   fit at 32k context and the ninth does not. The measured slope is
+   **+0.27 tok/s per layer**, about half the predicted +0.5, so the
+   remaining headroom is worth under 1 tok/s even if it could be found.
+4. **Recover the VRAM the KV cache is holding.** `-ctk q8_0 -ctv q8_0`, or a
+   smaller `-c`, is the only way left to fit more expert layers on mainline.
+   Given the measured slope this is worth about +0.5 tok/s, which is honest
+   rather than exciting.
+5. **Concurrency.** Untested here and the largest number available without
+   changing engines — the previous model gained 1.6× aggregate at four
+   streams.
+6. **The ik architecture port**, which unblocks `-ser`, `-thp`, `-rtr` and the
+   low-bit quants in one move. Every projection above 20 tok/s is behind it.
+7. Then MTP conversion and requantization.
 
-Steps 3 and 4 need ik_llama to load this model, which it cannot yet. Steps 1,
-2 and 5 do not.
+Steps 4 and 5 run on mainline today. Everything past them needs the port,
+which the measured slope has now turned from an optimization into the only
+remaining lever of any size.
 
 ## Sources
 

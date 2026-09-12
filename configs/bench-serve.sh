@@ -37,7 +37,27 @@ diskrd() { awk -v d="$DEV" '$3==d{print $4, $6}' /proc/diskstats; }  # reads, se
 read -r MIN0 MAJ0 <<<"$(faults)"
 read -r RD0 SEC0 <<<"$(diskrd)"
 
-PROMPT='Explain, in one paragraph, why a mixture-of-experts model can have far more parameters than it reads per token.'
+# Which prompt to use. This matters more than it looks: engram is a hash-indexed
+# lookup over token history, so the SAME prompt at temperature 0 generates the
+# same tokens, touches the same rows, and finds them all in the page cache the
+# second time. Repeating one prompt measured 20.14 tok/s with zero major faults
+# -- a number the model can never produce on work it has not already done.
+#
+# So each run takes a different prompt. Rotate the index to measure steady
+# state; hold it fixed only when deliberately measuring the cached ceiling.
+PROMPTS=(
+ 'Explain, in one paragraph, why a mixture-of-experts model can have far more parameters than it reads per token.'
+ 'Describe how a write-ahead log lets a database survive a crash without losing committed transactions.'
+ 'What makes reproducing a distributed systems bug harder than reproducing a single-process one? Be concrete.'
+ 'Walk through what happens, step by step, when a process touches a page that has been swapped out.'
+ 'Compare optimistic and pessimistic concurrency control, and say when each one wins.'
+ 'Explain why floating point addition is not associative, and give an example where it matters.'
+ 'How does a modern branch predictor work, and what kinds of code defeat it?'
+ 'Describe the tradeoffs between column-oriented and row-oriented storage for analytic queries.'
+)
+IDX=${BENCH_PROMPT:-0}
+PROMPT=${PROMPTS[$(( IDX % ${#PROMPTS[@]} ))]}
+
 # ignore_eos: a benchmark decides how many tokens it measures. Letting the
 # model stop where it likes gave a 19-token sample on the first run, which is
 # too few to separate steady-state cost from the cold-cache warmup in it.
@@ -135,6 +155,7 @@ rec = {
     "ot":       flagval("-ot"),
     "ctx":      flagval("-c"),
     "lazy":     flagval("--lazy-mode"),
+    "prompt_idx": int(os.environ.get("BENCH_PROMPT", "0")),
 }
 path = os.environ.get("BENCH_LOG", "/usr/share/netdata/web/rig-runs.jsonl")
 try:
