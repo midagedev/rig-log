@@ -22,7 +22,7 @@ all. Both are resolved below.
 | Auto power-on after outage | Advanced → APM Configuration → Restore AC Power Loss | p.34 |
 | Wake-on-LAN | Advanced → APM Configuration → Power On By PCI-E | p.34 |
 | BMC / remote KVM | Server Mgmt → BMC Support, BMC network configuration | p.67, 69 |
-| Auto-reset a hung OS | Server Mgmt → OS Watchdog Timer | p.68 |
+| Boot watchdog (**not** a hung-OS check — see below) | Server Mgmt → OS Watchdog Timer | p.68 |
 | Fan curves | Monitor menu / `F6` Qfan Control (not documented in the manual) | — |
 | Read-only fan/temp/voltage | Tool → IPMI Hardware Monitor | p.63 |
 
@@ -101,7 +101,32 @@ is powered off, which is exactly what a headless box in another room needs.
   only one cable is connected, the DHCP setting must be on the channel that
   owns that port, so setting both is safest.
 - **OS Watchdog Timer → `Enabled`**, **OS Wtd Timer Policy → `Reset`**
-  (p.68): if the OS stops responding, the BMC resets the box on its own.
+  (p.68), *but only with the OS side in place* — see the correction below.
+
+  > **Corrected 2026-09-12.** This entry used to read "if the OS stops
+  > responding, the BMC resets the box on its own." That is wrong, and
+  > believing it cost an afternoon. `OS Watchdog Timer` arms a **boot**
+  > watchdog: IPMI timer use `OS Load`, a 600-second countdown started at POST,
+  > which the operating system is expected to take over or switch off once it
+  > has finished booting. It is not a liveness check on a running system —
+  > nothing about it notices whether the OS is still responding. With the
+  > setting enabled and no OS-side counterpart, a perfectly healthy machine is
+  > hard-reset ten minutes after every boot, forever, leaving no shutdown
+  > record because a hard reset does not get to write one. That is what
+  > happened here, four times, after this guide's own BIOS reset.
+  >
+  > Keep it enabled **only** if the OS claims the timer. On Ubuntu that means
+  > loading `ipmi_watchdog` and setting `RuntimeWatchdogSec` so systemd pets
+  > it — the files are in [`configs/watchdog/`](../configs/watchdog), and the
+  > whole account is in
+  > [the log entry](../log/2026-09-12-bmc-watchdog-reset-loop.md). Doing that
+  > gets the thing the old sentence promised: a genuine runtime watchdog that
+  > resets a wedged kernel. Without it, set this to `Disabled`.
+
+Set the BMC's clock while in there, or at least know it may be wrong: on this
+board it was found eight hours off from the host, which makes the BMC event log
+— the one instrument that names a watchdog reset — hard to line up against the
+system journal exactly when that matters most.
 
 After first boot: reach the BMC at `https://<its IP>`, default login
 `admin` / `admin`, and **change that password immediately** — an unconfigured

@@ -31,7 +31,7 @@ its experts live in system RAM, and it streams at 25–33 tok/s.
 | GPU 0 | NVIDIA RTX A6000, 48 GB |
 | GPU 1 | NVIDIA GeForce RTX 3090, 24 GB |
 | Board | ASUS Pro WS WRX80E-SAGE SE WIFI |
-| Storage | Samsung 980 PRO 2 TB NVMe |
+| Storage | Samsung 980 PRO 2 TB NVMe (root) + Phison E18 4 TB NVMe (`/models`, added 2026-09-12) |
 | Cooling | NZXT Kraken X-series AIO, pump pinned at 100%, CPU boost disabled |
 | OS | Ubuntu 24.04, kernel parameter `pci=realloc=off` (see below) |
 
@@ -50,6 +50,8 @@ Two notes that cost a day each:
 |---|---|---|
 | 2026-09-11 | [DeepSeek-V4-Flash across two GPUs and 256 GB of RAM](log/2026-09-11-deepseek-v4-moe-offload.md) | 284 B parameters at 29 tok/s on 72 GB of VRAM |
 | 2026-09-12 | [Two ways to be off the network, one on top of the other](log/2026-09-12-offline-after-a-move-and-an-ssd.md) | a held lease and a renumbered PCI bus, each enough on its own |
+| 2026-09-12 | [The machine was resetting every ten minutes and nothing on it knew](log/2026-09-12-bmc-watchdog-reset-loop.md) | a BIOS-armed BMC watchdog nobody disarmed, now taken over by systemd |
+| 2026-09-12 | [Two NVMe drives, and the benchmark that kept measuring the cache](log/2026-09-12-nvme-sustained-write.md) | write floors differ 2.5x; a test that stops before the cliff reports the cache |
 
 ## Queued
 
