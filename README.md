@@ -87,6 +87,13 @@ The method, including the two mistakes that cost the most, is in
 
 ## Reusable pieces
 
+- [`docs/running-a-model-larger-than-memory.md`](docs/running-a-model-larger-than-memory.md)
+  — what to run a 510 GB model on when there is 72 GB of VRAM: the measured
+  shape of DeepSeek-V4.1's 196 B-parameter Engram tables, why the hardware
+  rules out most engines before preference does, why no Rust rewrite has
+  displaced llama.cpp, and which three things are worth building above the
+  engine rather than inside it.
+
 - [`docs/wrx80e-bios-setup.md`](docs/wrx80e-bios-setup.md) — the firmware side
   of running this board as an unattended LLM host: CPU power limit (PPT/cTDP,
   hidden in AMD CBS), above-4G mapping for two GPUs, auto power-on, the onboard
