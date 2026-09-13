@@ -162,14 +162,26 @@ ran where the scheduler placed it and did not need a CUDA kernel for this
 graph. GPU memory in use was 28.8 GB and 15.4 GB.
 
 One throughput number exists now, and it is labelled: ik's `llama-server`
-on the same placement, default ik flags (no `-fmoe`, `-mla`, `-fa`, `-rtr`),
-three 200-token greedy completions on a spare port, **14.0 / 14.3 / 14.1
-tok/s**, with a 100 GB repack writing on the model drive at the same time
-(load average 28). Mainline measured 17–19 on the same file earlier in the
-day under a comparable load. That gap is not yet a finding about the port;
-ik's speed features were all off, and the machine was not quiet. The
-comparison that matters — ik with its flags on, mainline, same prompt, quiet
-box — is the next entry's first table.
+on the same placement, three 200-token greedy completions on a spare port,
+**14.0 / 14.3 / 14.1 tok/s**, with a 100 GB repack writing on the model
+drive at the same time (load average 28). Mainline measured 17–19 on the
+same file earlier in the day under a comparable load.
+
+This entry first explained that gap by saying ~~ik's speed features were all
+off~~. That was wrong, and it was wrong in the direction that flattered the
+port. The server's own init line for the same run reads `fused_moe = 1` and
+`flash_attn = 1`: both are on by default in ik and neither needs a flag.
+`-mla` does not apply at all — `is_mla_model()` in `src/llama-model.h:656`
+covers DEEPSEEK2, GLM_DSA, MISTRAL4 and BAILINGMOE3 and not the dsv4 family,
+because V4.1 carries its own compressed-KV streams instead. What was
+genuinely off is `-ser`, which buys speed by dropping experts, and `-rtr`,
+which repacks tensors at load and gives up mmap; neither is free, and `-rtr`
+against a 347 GB file with two never-resident tables is its own experiment.
+
+So the gap was measured with ik's default accelerations already on, and the
+one remaining excuse is the contended machine rather than the flags. The
+comparison that closes it — both engines, same prompt, quiet box — is the
+next entry's first table.
 
 Not claimed: a batch of one against the oracle,
 session save and restore of the compressed streams (written as empty with a
