@@ -384,6 +384,12 @@ So the escape hatch does cost 10 % where the weights are small enough to pin,
 which is what the patch is for; it is committed on the fork as 3ded8071 with
 the V4.1 number in its message, and the V4.1 candidate is closed.
 
+The thread count was the other candidate the profile pointed at (43 % of
+samples in the OpenMP barrier, 32 threads on 32 cores with the CUDA driver
+and the HTTP thread competing). Same no-draft server at `-t 30`: 14.27 /
+13.36 / 13.21 tok/s on the three prompts; at `-t 28`: 13.20 / 13.26 / 13.02;
+at `-t 32`: 13.63 / 13.10 / 13.64. All inside the band. Closed.
+
 The engine lever on the CPU side is the small-model kernel bench, run by a
 delegate on the same box: on a dense Qwen2.5-7B Q3_K_M at 32 threads ik
 decodes 32.0 tok/s against mainline's 30.4 and prefills at 217 against 104;
