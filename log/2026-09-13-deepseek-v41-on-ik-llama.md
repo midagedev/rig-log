@@ -161,6 +161,16 @@ produces the same numbers as the CPU path; `ggml_fill` for the one-hot mix
 ran where the scheduler placed it and did not need a CUDA kernel for this
 graph. GPU memory in use was 28.8 GB and 15.4 GB.
 
+One throughput number exists now, and it is labelled: ik's `llama-server`
+on the same placement, default ik flags (no `-fmoe`, `-mla`, `-fa`, `-rtr`),
+three 200-token greedy completions on a spare port, **14.0 / 14.3 / 14.1
+tok/s**, with a 100 GB repack writing on the model drive at the same time
+(load average 28). Mainline measured 17–19 on the same file earlier in the
+day under a comparable load. That gap is not yet a finding about the port;
+ik's speed features were all off, and the machine was not quiet. The
+comparison that matters — ik with its flags on, mainline, same prompt, quiet
+box — is the next entry's first table.
+
 Not claimed: a batch of one against the oracle,
 session save and restore of the compressed streams (written as empty with a
 TODO), the MTP graph (asserted off), `-rtr` and the prefetch exemption for
