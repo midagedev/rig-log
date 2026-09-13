@@ -1,0 +1,20 @@
+{"name": "merge-sorted", "prompt": "<｜User｜>Write a Python function that merges two sorted lists into one sorted list, with a short docstring.<｜Assistant｜></think>", "max_tokens": 200}
+{"name": "tcp-handshake", "prompt": "<｜User｜>Explain how TCP's three-way handshake works, step by step.<｜Assistant｜></think>", "max_tokens": 200}
+{"name": "translate-ko", "prompt": "<｜User｜>Translate into Korean: The meeting has been moved to Thursday because the projector is broken.<｜Assistant｜></think>", "max_tokens": 200}
+{"name": "train-speed", "prompt": "<｜User｜>Solve and show your work: a train travels 180 km in 2.5 hours. What is its average speed in m/s?<｜Assistant｜></think>", "max_tokens": 200}
+{"name": "reverse-list", "prompt": "<｜User｜>Write a C function that reverses a singly linked list in place.<｜Assistant｜></think>", "max_tokens": 200}
+{"name": "french-revolution", "prompt": "<｜User｜>Summarize the causes of the French Revolution in one paragraph.<｜Assistant｜></think>", "max_tokens": 200}
+{"name": "linux-commands", "prompt": "<｜User｜>List ten common Linux commands and what each one does.<｜Assistant｜></think>", "max_tokens": 200}
+{"name": "haiku-rain", "prompt": "<｜User｜>Write a haiku sequence of three poems about autumn rain.<｜Assistant｜></think>", "max_tokens": 200}
+{"name": "extract-dates", "prompt": "<｜User｜>Extract every date from this text as ISO 8601: 'We met on March 3rd 2021, again on 12/05/2022, and finally on the first of June, 2023.'<｜Assistant｜></think>", "max_tokens": 200}
+{"name": "process-thread", "prompt": "<｜User｜>What is the difference between a process and a thread? Answer for a beginner.<｜Assistant｜></think>", "max_tokens": 200}
+{"name": "sql-top5", "prompt": "<｜User｜>Write a SQL query that returns the top five customers by total order value, given tables customers(id, name) and orders(id, customer_id, amount).<｜Assistant｜></think>", "max_tokens": 200}
+{"name": "korean-seasons", "prompt": "<｜User｜>한국의 사계절을 초등학생에게 설명하는 짧은 글을 써 줘.<｜Assistant｜></think>", "max_tokens": 200}
+{"name": "sqrt2", "prompt": "<｜User｜>Prove that the square root of 2 is irrational.<｜Assistant｜></think>", "max_tokens": 200}
+{"name": "bash-largest", "prompt": "<｜User｜>Write a bash script that finds the ten largest files under the current directory.<｜Assistant｜></think>", "max_tokens": 200}
+{"name": "water-cycle", "prompt": "<｜User｜>Describe the water cycle, naming each stage.<｜Assistant｜></think>", "max_tokens": 200}
+{"name": "tomato-sauce", "prompt": "<｜User｜>Give a recipe for a simple tomato pasta sauce with quantities.<｜Assistant｜></think>", "max_tokens": 200}
+{"name": "js-debounce", "prompt": "<｜User｜>Write a JavaScript debounce function and explain when to use it.<｜Assistant｜></think>", "max_tokens": 200}
+{"name": "rest-graphql", "prompt": "<｜User｜>Compare REST and GraphQL in a short table-like list of pros and cons.<｜Assistant｜></think>", "max_tokens": 200}
+{"name": "lighthouse", "prompt": "<｜User｜>Continue this story for two paragraphs: The lighthouse keeper found a letter that had not been there the night before.<｜Assistant｜></think>", "max_tokens": 200}
+{"name": "json-yaml", "prompt": "<｜User｜>Convert this JSON to YAML: {\"name\": \"rig\", \"gpus\": [\"3090\", \"4090\"], \"ram_gb\": 251, \"serve\": {\"port\": 8001, \"threads\": 32}}<｜Assistant｜></think>", "max_tokens": 200}
