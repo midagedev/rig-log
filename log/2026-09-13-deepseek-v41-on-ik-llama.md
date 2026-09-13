@@ -206,6 +206,22 @@ and `flash_attn` on. Where the 20 % goes is not measured here; the
 candidates are the dsv4 graph path that ik's fused kernels were not written
 for, the reader layers' top-k reuse, and `-rtr`, which was not tried.
 
+Where the 20 % is not, measured an hour later in a second window with
+serving stopped: fused MoE is not it (`-no-fmoe` decodes 13.2 / 13.8 / 13.6
+against the default's 13.0 / 13.5 / 13.4), and the profile is not it
+either. Twelve seconds of `perf record` on each server mid-decode give the
+same picture to within a point: 29 % in the Q3_K dot product, 18–19 % in
+the Q4_K one, 43 % in OpenMP barrier spin, 32 threads above 5 % on both.
+ik's kernels are its own (`mul_mat_qY_K_q8_K_T<DequantizerQ3K>`), mainline's
+are `ggml_vec_dot_q3_K_q8_K`, and they spend the same share of time — so
+the port is doing the same work at a lower rate, which a flat profile
+cannot explain and a per-kernel benchmark on a small dense Q3_K file could.
+`-rtr` was not tried and cannot be on this box: it gives up mmap, and the
+engramQ8 file is 472 GB against 251 GB of RAM. In that window mainline
+measured 15.3 / 15.6 / 16.0 and 16.6 on a 400-token run, below the 17.8 of
+the first A/B, with the load average still at 20 from the previous arm; the
+ik numbers above were taken first, at load 10.
+
 The measurement script itself failed twice before it produced this table,
 and the second failure is worth one sentence: it waited for the server's
 readiness line with a pattern written from memory (`server is listening`),
