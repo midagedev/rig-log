@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ws · V4.1-Flash 실험 대시보드 · 09-13</title>
+<title>ws · V4.1-Flash 실험 대시보드 · 09-14</title>
 <script>var netdataTheme='slate'; var netdataNoBootstrap=true;</script>
 <style>
  body{margin:0;padding:12px 16px;background:#272b30;color:#ddd;font:14px -apple-system,system-ui,sans-serif}
@@ -31,13 +31,27 @@
  .legend b{color:#bbb;font-weight:600}
 </style></head><body>
 
-<h1>ws · DeepSeek-V4.1-Flash — 347 GB across VRAM, RAM and NVMe</h1>
+<h1>ws · DeepSeek-V4.1-Flash — 347 GB across VRAM, RAM and NVMe · 09-14</h1>
 <div class="sub">
  Threadripper 5975WX 32c · A6000 48G (GPU0) + 3090 24G (GPU1) · 256G DDR4-3200 8ch ·
  모델 <b>/models</b> = Phison E18 (nvme0n1) · 부스트 OFF · <b>2.7 GHz 상한</b>(09-13, 디코드 무손실) · 펌프 100% — 냉각수 52°C 30초면 가드가 llama-server <span class="warn">중단</span>
 </div>
 
-<h2>실험 기록 · 2026-09-13 <span class="note">전부 이 머신에서 오늘 실측. 상세는 rig-log <code>log/2026-09-13-*.md</code></span></h2>
+<h2>실험 기록 · 2026-09-14 <span class="note">전부 이 머신에서 오늘 실측, 조용한 머신(IO 압력 행마다 기록). 상세는 rig-log <code>log/2026-09-14-*.md</code>, <code>docs/ik-vs-mainline-v41-gap.md</code></span></h2>
+<div id="runs" style="margin-bottom:10px"><table><thead><tr>
+ <th class="l">실험</th><th class="l">조건</th><th>결과</th><th class="l">읽는 법</th><th class="l">상태</th>
+</tr></thead><tbody>
+ <tr><td class="l">ik CUDA 그래프 on/off</td><td class="l">ik, 드래프트 없음, 6레이어 배치, 6프롬프트×2패스</td><td>18.9 vs 18.7 (2패스)</td><td class="l">래치 가설 기각 — 그래프를 통째로 꺼도 편차 안. 부산물: 1패스 13.6 = 어제의 14.1. <b>14.1은 콜드 수치였다</b></td><td class="l best">닫힘</td></tr>
+ <tr><td class="l">페이지 폴트 카운트</td><td class="l">/proc majflt 요청별, ik vs mainline, 같은 배치</td><td>ik 41–62/tok → −28% · ml 13–21/tok → −6%</td><td class="l">웜 대 웜은 <span class="best">ik 18.8 vs ml 19.8</span>, 5%. 어제의 20%는 첫 패스 페이지 폴트. mmap 가중치 259 GB + engram 209 GB &gt; RAM 251 GB</td><td class="l best">원인 확정</td></tr>
+ <tr><td class="l">engram prefetch → ik 포트</td><td class="l">포크 57735010, 23줄, <code>posix_madvise(WILLNEED)</code></td><td>1패스 13.6 → <span class="best">18.4</span>, 폴트 1–11/tok</td><td class="l">mainline 첫 패스(18.6)와 편차 안. 어제 하루 쫓은 갭이 닫혔다. #2438에 브랜치 참조로 제시, 쪼갤지 메인테이너 답 대기</td><td class="l best">완료</td></tr>
+ <tr><td class="l">프리필 1·2차 창</td><td class="l">4.8k / 11k 토큰 코드 프롬프트, 웜, mainline</td><td>서빙(ub512) 59.5 / 60.2 · <code>--no-op-offload</code> 69.7 / 68.6 · 6레이어 ub2048 <span class="best">127.8</span> / <span class="bad">OOM abort</span></td><td class="l">offload off = CPU 상한 ~70. offload on은 PCIe 전송 바운드라 ub 2048에서만 2배. 11k에서 3090 cuBLAS 풀 OOM. <b>cache_prompt</b>: 11k 접두사 재사용 시 516–775 토큰만 평가(8–15 s 대 185 s) — 오늘 코딩이 되는 이유</td><td class="l">WKS-12 다음 창: 3090 레이어 축소</td></tr>
+ <tr><td class="l">히어로 촬영 창</td><td class="l">8레이어 + DSpark 3, 리즈닝 예산 64, 3.6 GHz, 냉각수 40°C 출발</td><td>2스트림 240tok: 26.9 agg · TTFT 1.21 s · 수락 71%</td><td class="l">4스트림 27.3 agg는 TTFT p50 5.45 s(프리필 큐잉)라 GIF 첫 10초가 스피너 → 보관. Tctl 69→84°C, 캡 불변(toktape 조건 변경 줄 첫 실물 발동)</td><td class="l best">채택 070458</td></tr>
+ <tr><td class="l">요청 단위 reasoning_budget</td><td class="l">8001, chat, max_tokens 300</td><td><code>reasoning_budget</code> 무시 · <code>reasoning_budget_tokens</code>=64 → 294자</td><td class="l">서버 버그 아님, 필드명. README 미문서화만 남음. toktape TTP-73으로 이관</td><td class="l dim">WKS-15 닫힘</td></tr>
+ <tr><td class="l">업스트림</td><td class="l">ik_llama.cpp</td><td>#2444 열림 · #2438 코멘트</td><td class="l"><code>GGML_CUDA_NO_PINNED_WEIGHTS</code> +5/−1(V2-Lite 65.1/60.1/66.0). V4.1 포트 브랜치는 참조로 — V4는 외부 +3689 PR이 닫히고 메인테이너가 직접 넣었다(#2110→#2165)</td><td class="l">답 대기</td></tr>
+ <tr><td class="l">큐 (라벨 <code>experiment</code>)</td><td class="l">WKS-11 engram 수락률·정밀도 무릎 · WKS-13 attn/shexp Q8 그래프트 · WKS-14 ik vs ml 드래프트 쌍</td><td id="queue-state">WKS-14 진행 중 → WKS-11(1) → WKS-13 기준선</td><td class="l">체인으로 자동 진행, 각 창 끝에 8001 복귀. 결과는 이 표에 행으로 추가</td><td class="l dim">진행</td></tr>
+</tbody></table></div>
+
+<details style="margin-top:14px"><summary style="cursor:pointer;color:#9fb;font-size:13px;letter-spacing:.06em;text-transform:uppercase">실험 기록 · 2026-09-13 <span class="note">어제. 상세는 rig-log <code>log/2026-09-13-*.md</code></span></summary>
 <div id="runs" style="margin-bottom:10px"><table><thead><tr>
  <th class="l">실험</th><th class="l">조건</th><th>결과</th><th class="l">읽는 법</th><th class="l">상태</th>
 </tr></thead><tbody>
@@ -52,6 +66,7 @@
  <tr><td class="l">DSpark 드래프트 (ik → mainline 포트, 8001 서빙 중)</td><td class="l">20프롬프트 × draft 없음/n_max 5/3, 요청별 override, greedy, bf16 임베딩 target, <b>조용한 박스</b>(서버 외 무부하)</td><td>n_max 3: 수용률 <span class="best">60.1%</span> · 디코드 중앙값 <span class="best">19.9</span> tok/s (draft 없음 14.1, n_max 5: 45.5% · 14.3) — 프롬프트별 1.43×(0.81–1.95), 17/20 빠름</td><td class="l">V4.1 규칙(hc 지연·저랭크 q norm·output head 없음)을 draft 그래프에 이식, ik 커밋 7b79b229. target 층 id 한 칸 어긋남(V4 출력 vs V4.1 입력)을 메타데이터로 고쳤으나 수용률은 노이즈 안. <s>남은 용의자: draft rope에 YaRN 미적용</s> 참조 코드로 기각(압축 없는 층은 YaRN을 끈다). 새 용의자: 블록 안 causal 마스크(GGUF에 키가 없어 ik 기본값 causal, 참조는 양방향). causal=false 사본은 프롬프트별로 원본과 소수점까지 동일 = 키가 dflash 분기에서 무시됨(대조군). ik에 키 읽는 한 줄을 넣고 재측정 중 → 그 키는 모델 전역 플래그라 KV 캐시 갱신까지 끄는 잘못된 지렛대. draft 전용 플래그로 마스크 두 줄만 고쳐(블록 양방향 + 고정 128칸 윈도, ik 커밋 515a94a3) 재측정: n_max 5 41.1→41.6%, n_max 3(11개) 59.1→62.8%, 프롬프트별 오르내림 반반. <b>마스크 가설 기각</b>(불일치는 실재, 원인은 아님). 참조와 코드 전수 대조: rope·캡처 지점·Markov 헤드·hc 순서·역 rope·sink·scale 전부 일치. 남은 격차는 코드 밖: draft가 빌려 쓰는 target 임베딩 Q3_K·헤드 Q6_K(참조 bf16). Q8_0 업로드의 bf16 두 텐서를 샤드 1에 이식한 변형 둘 측정: <b>임베딩 bf16</b> n_max 5 41.6→45.5%, n_max 3 54.8→60.1%(프롬프트별 최저 11→22%). <b>헤드까지 bf16</b> 46.2% / 59.9%, 프롬프트별 6↑6↓8= — 헤드는 효과 없음. 남은 격차: Q3_K 본체 특징만. <s>draft 전문가 MXFP4 재양자화</s>는 체크포인트 원본이 이미 MXFP4(I8 패킹 + E8M0 스케일)라 재변환할 상위 정밀도가 없음. 참조 발행자 수치 3.57토큰/스텝 대비 우리 ≈3.3</td><td class="l best">최종: ik n_max 3 19.9 vs 14.1 · <b>mainline 포트(V4.1 draft 규칙 3개 이식) 블록 3 22.8 / 최대 29.7 vs draft 없음 17.7</b> · pinned·스레드 효과 0 · CPU 커널은 ik가 앞섬(격차는 하이브리드 경로) · 서빙은 mainline으로 · <b>토큰당 바이트 계산 후 VRAM 재배치(-ub 512, 드래프트 pipeline off, 전문가 2층분 GPU 추가, 융합 HC pre 프로브 오판 수정): 블록 3 24.8 / 최대 31.5, 25 이상 10/20 · blk 7 down까지 3090에 올려 25.6 / 31.8, 11/20(프롬프트별 +1 %, 편차 안)</b></td></tr>
  <tr><td class="l">engram 텐서 귀속</td><td class="l">embd만 Q8 / wkv·q·k만 Q8 두 변형, 같은 PPL 명령</td><td>small 2.2171 · wkv만 2.2183 · table <span class="best">2.1391</span></td><td class="l">둘은 가산적이다. 작은 텐서(+0.2 GB)가 격차의 1/5, 큰 테이블(+125 GB)이 4/5를 메우고 합이 전체와 2.5% 안에서 일치한다. 바이트당으로는 작은 쪽이 160배 효율적이라, 472 GB를 들일 수 없는 사람도 싼 1/5은 가져갈 수 있다. wkv 단독 변형으로 그 1/5의 주인이 wkv 투영임을 실측했다(0.0267 중 0.0255, gate 벡터 몫은 노이즈)</td><td class="l best">완료</td></tr>
 </tbody></table></div>
+</details>
 
 <h2>bench-serve 로그 <span class="note">bench-serve.sh 가 기록(오늘 것만 표시). 같은 프롬프트 두 번이면 두 번째는 engram 행이 캐시에 남아 major fault 0 — cold 와 warm 의 차이가 곧 engram 비용이다.</span></h2>
 <div id="bench"><div class="empty">rig-runs.jsonl 을 읽는 중…</div></div>
@@ -71,7 +86,17 @@
  <div class="g"><div class="lbl">/models 여유 (GiB)</div><div data-netdata="disk_space._models" data-dimensions="avail" data-chart-library="gauge" data-title="" data-units="GiB" data-gauge-max-value="3700" data-gauge-min-value="0" data-width="100%" data-height="120px" data-after="-30" data-points="1" data-colors="#4c4" data-gauge-adjust="width"></div></div>
 </div>
 
-<h2>디코드 병목 <span class="note">토큰당 3.1 GB 를 DDR4 에서 읽는 것이 예산의 80% — 나머지는 반올림이다</span></h2>
+<h2>오늘의 두 질문 <span class="note">① 첫 패스 비용 = 페이지 폴트(prefetch로 닫힘) ② 프리필 = PCIe로 전문가를 GPU에 흘리는 경로(ub가 작으면 손해)</span></h2>
+<div class="charts">
+ <div class="c"><div class="lbl">① llm major page faults/s — 새 프롬프트의 engram 행·전문가 페이지. prefetch 전 ik 41–62/tok, 후 1–11</div><div data-netdata="app.llm_mem_page_faults" data-dimensions="major" data-chart-library="dygraph" data-title="" data-width="100%" data-height="170px" data-after="-900" data-colors="#f96"></div></div>
+ <div class="c"><div class="lbl">① I/O 정체 some pressure % — 조용한 머신의 증인. 측정 행마다 이 값을 적는다</div><div data-netdata="system.io_some_pressure" data-chart-library="dygraph" data-title="" data-width="100%" data-height="170px" data-after="-900"></div></div>
+ <div class="c"><div class="lbl">② GPU0 PCIe (KiB/s) — 프리필 중 rx가 서면 CPU 전문가가 카드로 흘러가는 중(offload 경로)</div><div data-netdata="nvidia_smi.gpu0_pci_bandwidth" data-chart-library="dygraph" data-title="" data-width="100%" data-height="170px" data-after="-900"></div></div>
+ <div class="c"><div class="lbl">② GPU1 PCIe (KiB/s) — 3090은 gen4 x16 실측. 여기가 서는데 tok/s가 60이면 ub가 작은 것</div><div data-netdata="nvidia_smi.gpu1_pci_bandwidth" data-chart-library="dygraph" data-title="" data-width="100%" data-height="170px" data-after="-900" data-colors="#9c6"></div></div>
+ <div class="c"><div class="lbl">② llm CPU % — <code>--no-op-offload</code>면 프리필이 여기서 돌고 ~70 tok/s에 막힌다</div><div data-netdata="app.llm_cpu_utilization" data-chart-library="dygraph" data-title="" data-width="100%" data-height="170px" data-after="-900"></div></div>
+ <div class="c"><div class="lbl">클럭 (MHz, 코어별) — 상시 2.7 GHz 캡, 촬영 창만 3.6. 워치독은 냉각수 50°C에서 2.7로(냉각수는 netdata에 없고 liquidctl로만 읽는다)</div><div data-netdata="cpu.cpufreq" data-chart-library="dygraph" data-title="" data-width="100%" data-height="170px" data-after="-1800" data-dygraph-valuerange="[1500, 3800]"></div></div>
+</div>
+
+<h2>디코드 병목 <span class="note">토큰당 3.44 GB 를 DDR4 에서 읽는 것이 예산의 대부분 — 웜 상태에서 ik와 mainline이 5% 안에 있는 이유</span></h2>
 <div class="charts">
  <div class="c"><div class="lbl">llm major page faults/s — <b>engram 이 드라이브에서 올라오는 소리</b>. 디코드 중 0 이면 캐시에 다 있다는 뜻(= RAM 을 두고 expert 와 경쟁 중)</div><div data-netdata="app.llm_mem_page_faults" data-dimensions="major" data-chart-library="dygraph" data-title="" data-width="100%" data-height="170px" data-after="-600" data-colors="#f96"></div></div>
  <div class="c"><div class="lbl">nvme0n1 읽기 IOPS — engram 행은 작고 개수가 많다. 대역폭이 아니라 이쪽이 비용</div><div data-netdata="disk_ops.nvme0n1" data-dimensions="reads" data-chart-library="dygraph" data-title="" data-width="100%" data-height="170px" data-after="-600" data-colors="#6cf"></div></div>
@@ -122,7 +147,7 @@
 
 <div class="sub" style="margin-top:14px">
  전체 차트: <a href="/" style="color:#9cf">netdata 기본 대시보드</a> ·
- 실험 계획: rig-log <code>docs/v41-experiment-plan.md</code> ·
+ 실험 계획·큐: rig-log <code>docs/v41-experiment-plan.md</code> (WKS 라벨 <code>experiment</code>) · 오늘 로그: <code>log/2026-09-14-v41-gap-closed-prefill-and-queue.md</code> ·
  레버 조사: <code>docs/raising-tokens-per-second.md</code>
 </div>
 
@@ -202,5 +227,5 @@
   setInterval(load, 15000);
 })();
 </script>
-<script type="text/javascript" src="dashboard.js?v20260913"></script>
+<script type="text/javascript" src="dashboard.js?v20260914"></script>
 </body></html>
