@@ -158,6 +158,45 @@ a broken quantizer
 The loader already checked shape and type; byte extent was the one it
 did not. Method: [`upstream-contributions.md`](upstream-contributions.md).
 
-No issue was filed about the NaN itself. It is not a defect in this engine,
+~~No issue was filed about the NaN itself. It is not a defect in this engine,
 and filing it as one would have sent a maintainer looking in his own
-quantizer, which is correct.
+quantizer, which is correct.~~ Struck 2026-09-14; see the correction below.
+
+## Correction, 2026-09-14: it is the fork's own tooling
+
+Two days after the issue closed, the publisher answered the question the
+maintainer had asked: the files had their chat template rewritten with the
+fork's `gguf-py/scripts/gguf_new_metadata.py`. That script reads every tensor
+through `GGUFReader` and writes it back through `GGUFWriter`, and gguf-py
+sizes a tensor as `type_size * ne / block_size`. `ggml_row_size()` in
+`ggml.c` adds `row_meta_size` once per row, and twenty of the fork's quant
+types have a non-zero one — IQ4_KSS's is 4. So every read-then-write pass
+drops `rows × 4` bytes from each IQ4_KSS tensor, which for a `{4096, 2048,
+256}` expert is exactly the 2 MiB measured above.
+
+Reproduced on this machine on the fork at 3bb386eb: Qwen2.5-7B-Instruct
+requantized to IQ4_KSS with `llama-quantize` (the quantizer's output is
+correct, as the earlier reading said), then `gguf_new_metadata.py
+--chat-template "{{ messages }}" --force`.
+
+| | input | rewritten, before the fix | rewritten, after |
+|---|---|---|---|
+| file size | 4 043 393 728 | 4 037 320 960 | 4 043 391 232 |
+| offset of the tensor after `token_embd.weight` (3584 × 152064) | 273 106 944 | 272 498 688 | 273 106 944 |
+| `llama-perplexity -ngl 0 -c 512 --chunks 4` | 1.0027 | nan | 1.0027 |
+
+The shortfall, 6 070 272 bytes after the 2 496-byte header change, equals
+the sum of rows × 4 over the file's IQ4_KSS tensors; after the fix the data
+region is byte-identical to the input under `cmp`. The fix is a table of
+`row_meta_size` per type in `constants.py` and its use in the two shape
+helpers and the reader, 34 lines:
+[#2443](https://github.com/ikawrakow/ik_llama.cpp/pull/2443).
+
+So the sentence above was wrong in the way that matters: the quantizer was
+never at fault, but the repository that ships the quantizer also ships the
+script that broke its output, and that is a defect of theirs. The declined
+loader check would have caught this file; the fix that was wanted was one
+layer down, in the writer. The lesson in
+[`upstream-contributions.md`](upstream-contributions.md) stands — ask what
+the maintainer would pay for — and gains a footnote: a declined issue can
+still be the place where the real cause arrives, so keep watching it.
