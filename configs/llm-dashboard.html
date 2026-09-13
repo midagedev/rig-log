@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ko"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ws · V4.1-Flash 실험 대시보드</title>
+<title>ws · V4.1-Flash 실험 대시보드 · 09-13</title>
 <script>var netdataTheme='slate'; var netdataNoBootstrap=true;</script>
 <style>
  body{margin:0;padding:12px 16px;background:#272b30;color:#ddd;font:14px -apple-system,system-ui,sans-serif}
@@ -34,11 +34,27 @@
 <h1>ws · DeepSeek-V4.1-Flash — 347 GB across VRAM, RAM and NVMe</h1>
 <div class="sub">
  Threadripper 5975WX 32c · A6000 48G (GPU0) + 3090 24G (GPU1) · 256G DDR4-3200 8ch ·
- 모델 <b>/models</b> = Phison E18 (nvme0n1) · 부스트 OFF, 펌프 100% — CPU 80°C 넘으면 <span class="warn">중단</span>
+ 모델 <b>/models</b> = Phison E18 (nvme0n1) · 부스트 OFF · <b>2.7 GHz 상한</b>(09-13, 디코드 무손실) · 펌프 100% — 냉각수 52°C 30초면 가드가 llama-server <span class="warn">중단</span>
 </div>
 
-<h2>실험 로그 <span class="note">bench-serve.sh 가 기록. 같은 프롬프트를 두 번 돌리면 두 번째는 engram 행이 캐시에 남아 major fault 0 — cold 와 warm 의 차이가 곧 engram 비용이다.</span></h2>
-<div id="runs"><div class="empty">rig-runs.jsonl 을 읽는 중…</div></div>
+<h2>실험 기록 · 2026-09-13 <span class="note">전부 이 머신에서 오늘 실측. 상세는 rig-log <code>log/2026-09-13-*.md</code></span></h2>
+<div id="runs" style="margin-bottom:10px"><table><thead><tr>
+ <th class="l">실험</th><th class="l">조건</th><th>결과</th><th class="l">읽는 법</th><th class="l">상태</th>
+</tr></thead><tbody>
+ <tr><td class="l">engram Q3_K → Q8_0 리팩</td><td class="l">샤드 02·05, 텐서 4종×2층, 나머지 하드링크</td><td>+125 GB</td><td class="l">RAM에 안 올라오는 영역이라 속도 무관. 서빙 기본 모델을 이 파일로 교체</td><td class="l best">완료</td></tr>
+ <tr><td class="l">PPL, wikitext-2 4청크</td><td class="l">메인라인 <code>-ngl 0 -t 32</code>, 같은 명령</td><td>2.2438 → <span class="best">2.1090</span></td><td class="l">−6%, 오차막대(±0.06) 안 겹침. 텐서 4종 중 어느 것인지는 미분리</td><td class="l best">완료</td></tr>
+ <tr><td class="l">PopQA 400문항 (long-tail 사실)</td><td class="l">greedy, thinking off, 인기도 5–128 / 656–1494</td><td>34.7% vs 34.0%</td><td class="l">13문항 뒤집힘(8/5) = 동전. 답 텍스트는 22% 달라짐 — 확률만 바뀌고 정답률은 그대로</td><td class="l best">완료</td></tr>
+ <tr><td class="l">손 프로브 24 + 29문항</td><td class="l">상식 / 한국 문학·역사</td><td>전부 정답, 양쪽 동일</td><td class="l">천장에 붙은 시험. 차이를 못 보는 것과 차이가 없는 것은 다르다</td><td class="l dim">포화</td></tr>
+ <tr><td class="l">열 가드 STOP ×2</td><td class="l">V4.1 CPU 디코드 연속, 32스레드, 3.6 GHz</td><td class="bad">냉각수 43→52°C / 5분</td><td class="l">08:32, 08:38. CPU 88–89°C. 5분 넘는 디코드 측정은 스로틀 머신 위의 수치</td><td class="l bad">원인 확정</td></tr>
+ <tr><td class="l">클럭 상한 vs 디코드</td><td class="l">3.6 / 2.7 / 1.8 GHz, 200tok×3 + 1.3k 프롬프트×2</td><td>18 / <span class="best">19</span> / 17 tok/s</td><td class="l">2.7 GHz: 같은 속도, CPU −7°C, 냉각수 상승 절반. 패키지 전력은 어느 클럭이든 ~100 W라 PPT 280 W는 애초에 안 닿는다 → 열은 콜드플레이트 접촉 문제</td><td class="l best">2.7 GHz 상시 적용 09:03</td></tr>
+ <tr><td class="l">ik_llama.cpp 포트, GPU 경로</td><td class="l"><code>GGML_CUDA_NO_PINNED=1 -ngl 99</code>, 운영 배치</td><td><span class="best">2.2270</span> (CPU 2.2258)</td><td class="l">CUDA 경로 = CPU 경로. 청크당 39초(CPU 87초). VRAM 28.8 / 15.4 GB</td><td class="l best">게이트 통과</td></tr>
+ <tr><td class="l">ik_llama.cpp 디코드 tok/s</td><td class="l">같은 배치, 8099, 200tok×3</td><td id="ik-tps">측정 중</td><td class="l">메인라인 20 tok/s 옆에 놓을 첫 ik 숫자. 리팩 I/O와 겹쳐 "혼잡" 라벨</td><td class="l dim" id="ik-tps-st">진행 중</td></tr>
+ <tr><td class="l">DSpark 드래프트 추출</td><td class="l">fp8 원본 mtp.0–2 → <code>arch=dflash</code> GGUF</td><td>7.97 GB · 78 텐서</td><td class="l">Q8 왕복 오차 5.4e-3(블록 [32,32] 정상; [128,128]이면 0.144). ik 로더의 <code>output_hc_*</code> 필수 해제와 드래프트 그래프 V4.1 규칙이 남음</td><td class="l dim">파일만</td></tr>
+ <tr><td class="l">engram 텐서 귀속</td><td class="l">embd만 Q8 / wkv·q·k만 Q8 두 변형, 같은 PPL 명령</td><td>—</td><td class="l">업스트림 "engram_embd Q8_0 기본" PR의 근거. 서브에이전트 진행 중</td><td class="l dim">진행 중</td></tr>
+</tbody></table></div>
+
+<h2>bench-serve 로그 <span class="note">bench-serve.sh 가 기록(오늘 것만 표시). 같은 프롬프트 두 번이면 두 번째는 engram 행이 캐시에 남아 major fault 0 — cold 와 warm 의 차이가 곧 engram 비용이다.</span></h2>
+<div id="bench"><div class="empty">rig-runs.jsonl 을 읽는 중…</div></div>
 <div class="legend">
  <b>decode</b> 토큰/초 (서버 자체 timings) ·
  <b>maj/tok</b> 토큰당 major page fault — 산술상 engram 행은 48개, 그 근처면 예측대로다 ·
@@ -114,7 +130,8 @@
 // The run log. bench-serve.sh appends one JSON object per run to this file,
 // which netdata serves from its own web root -- no extra service to keep up.
 (function () {
-  var el = document.getElementById('runs');
+  var el = document.getElementById('bench');
+  var TODAY = new Date().toISOString().slice(0, 10);
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
@@ -135,8 +152,8 @@
 
   function render(rows) {
     if (!rows.length) {
-      el.innerHTML = '<div class="empty">아직 기록된 실행이 없다. ' +
-                     '<code>bench-serve.sh &lt;label&gt;</code> 를 돌리면 여기 쌓인다.</div>';
+      el.innerHTML = '<div class="empty">오늘(' + TODAY + ') 기록된 bench-serve 실행이 없다. ' +
+                     '<code>bench-serve.sh &lt;label&gt;</code> 를 돌리면 여기 쌓인다. 어제 기록은 rig-log <code>log/2026-09-12-deepseek-v41-first-run.md</code>.</div>';
       return;
     }
     var best = Math.max.apply(null, rows.map(function (r) { return r.decode || 0; }));
@@ -175,7 +192,7 @@
       .then(function (t) {
         render(t.split('\n').filter(Boolean).map(function (l) {
           try { return JSON.parse(l); } catch (e) { return null; }
-        }).filter(Boolean));
+        }).filter(Boolean).filter(function (r) { return (r.t || '').slice(0, 10) === TODAY; }));
       })
       .catch(function (e) {
         el.innerHTML = '<div class="empty">rig-runs.jsonl 을 읽지 못했다 (' + esc(e.message) + ').</div>';
@@ -185,5 +202,5 @@
   setInterval(load, 15000);
 })();
 </script>
-<script type="text/javascript" src="dashboard.js?v20260912"></script>
+<script type="text/javascript" src="dashboard.js?v20260913"></script>
 </body></html>
