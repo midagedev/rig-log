@@ -80,9 +80,9 @@ each with the measured state and what would settle it; the same list is
 
 | issue | experiment | state at 07:50 |
 |---|---|---|
-| WKS-11 | engram quantization and quality: draft acceptance Q3_K against Q8_0 tables, then the intermediate-precision knee, then long-form quality | acceptance window queued behind WKS-14 |
+| WKS-11 | engram quantization and quality: draft acceptance Q3_K against Q8_0 tables, then the intermediate-precision knee, then long-form quality | first question answered below: acceptance does not move with the table precision |
 | WKS-12 | prefill for a coding profile: `-ub`, host-op offload, prompt cache | two windows run; next is a placement with fewer expert layers on the 24 GB card at `-ub 2048` and 4096 |
-| WKS-13 | precision on the GPU-resident tensors: attention and shared experts at Q8_0 by graft | perplexity baseline of the served file queued at the end of the WKS-11 window |
+| WKS-13 | precision on the GPU-resident tensors: attention and shared experts at Q8_0 by graft | baseline measured below: 2.1190 ± 0.059 on four chunks |
 | WKS-14 | ik against mainline with the draft, same split, after the prefetch | running since 07:46 |
 | WKS-15 | per-request reasoning budget | done: wrong field name |
 
@@ -109,3 +109,49 @@ layers is inside the band that separates those two placements; the mainline
 arm at the same six-layer split is what makes the pair, and its first launch
 died on a port-bind race a second after the ik server released 8099 — it is
 queued again behind the engram window with a pause before the bind.
+
+## WKS-11, first question: does the engram table precision move acceptance?
+
+*08:04–08:20. Mainline V4.1 branch, DSpark block 3 with the tl37 draft,
+the eight-layer served placement, the same twenty prompts and two passes.
+Two target files that differ only in the engram tables: the uploader's
+Q3_K_M (tables Q3_K) and the repack (tables Q8_0, token embedding BF16).
+IO pressure 0.00 on every measured row after load.*
+
+| target engram tables | pass | median tok/s | min–max | drafted / accepted |
+|---|---|---:|---|---|
+| Q3_K | 1 | 20.48 | 13.67–28.31 | 3486 / 2022 (58.0 %) |
+| Q3_K | 2 | 23.63 | 14.58–30.50 | 3486 / 2022 (58.0 %) |
+| Q8_0 | 1 | 20.36 | 11.65–25.68 | 3405 / 2007 (58.9 %) |
+| Q8_0 | 2 | **23.75** | 14.54–29.35 | 3405 / 2007 (58.9 %) |
+
+Acceptance is 58.0 against 58.9 percent, and decode is 23.63 against 23.75,
+which is the same number twice. The hypothesis was that Q3_K tables put
+enough noise into the engram path that the draft, trained against the real
+model, would agree with the target less often; it does not — the draft
+agrees with both targets equally, and the extra 0.9 points is inside what
+one prompt order gives. The texts do differ: only 1 of the 20 greedy
+outputs is byte-identical between the two files, which matches yesterday's
+finding that the table precision changes 22 percent of the text without
+moving the accuracy probe. So the engram repack is justified by perplexity
+(2.2438 → 2.1090 yesterday), not by speed, and the drafted pipeline is
+indifferent to it. The intermediate-precision knee (Q4_K, Q5_K, Q6_K
+tables) is the remaining WKS-11 question and is worth asking only for the
+disk and perplexity trade, not for tok/s.
+
+## WKS-13: the perplexity baseline of the served file
+
+*08:20–08:33. `llama-perplexity` from the mainline V4.1 build, the served
+file (engram Q8_0, token embedding BF16), wiki.test.raw, context 2048,
+batch 2048, four chunks, CPU only, 32 threads.*
+
+```
+[1]1.7335,[2]1.6745,[3]1.6964,[4]2.1190
+Final estimate: PPL = 2.1190 +/- 0.05906
+```
+
+Yesterday's four-chunk figure for the same repack was 2.1090 ± 0.0585; today's
+2.1190 ± 0.0591 is a 0.01 shift well inside one standard error, from a build
+that has moved since. The graft in WKS-13 (attention and shared experts to
+Q8_0) will be measured with exactly this command, and this is the number it
+has to beat by more than the error bar to be worth its 5 GB of VRAM.
