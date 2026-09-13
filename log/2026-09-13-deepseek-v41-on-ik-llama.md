@@ -186,16 +186,33 @@ saves, and decode gets slower with the draft than without. What does not
 follow is the off-by-one: the corrected ids did not move acceptance outside
 the noise of three prompts, so either the correction is right and something
 else in the draft graph is also wrong, or the capture point is not what the
-comment says and the file was right all along. The remaining suspect the
+comment says and the file was right all along. ~~The remaining suspect the
 code reading turned up is rope: the reference draft attention uses the
 body's YaRN-corrected frequency table, and ik's DSV4 draft graph (V4 and
 V4.1 alike) ropes the draft with `freq_scale = 1, ext_factor = 0`, plain
 rope — invisible on a 20-token prompt, but the tables were trained on the
-other thing. The gate also tried token identity between draft and no-draft
+other thing.~~ The gate also tried token identity between draft and no-draft
 outputs and got a divergence after 74–237 characters on every prompt; that
 is the batched-verification versus one-token-at-a-time drift a Q3 target
 shows between engines too, and it does not distinguish a lossy draft from a
 correct one, which is why acceptance is the number this table is about.
+
+The rope suspect was wrong, and it is struck above. `DSparkAttention` in the
+reference asserts `compress_ratio == 0`, and a V4.1 attention layer without
+compression turns YaRN off and uses the base theta; plain rope is what the
+reference does, and ik does the same in both places it ropes, the block
+queries and the context K/V built from the target's hidden states. A second,
+line-by-line pass against the reference found the other pieces matching too:
+the capture is the input of the target layers, which makes `[37,38,39]` the
+right file; the block starts one position past the last target token; the
+filler token is 128799; the Markov bias chains each position on the previous
+drafted token. One thing does not match. The converted draft carries no
+`dflash.attention.causal` key, so ik falls back to a causal mask inside the
+five-token block, while the reference (`get_dspark_topk_idxs`) lets every
+block position see the whole block. A draft trained on one mask and run on
+the other computes different hidden states at every block position after the
+first. That is the suspect now, and a copy of the draft with the key set to
+false is the test.
 
 The third and last run of that gate also produced a measurement of the
 measurer: the gate script was edited while it was running, bash read the

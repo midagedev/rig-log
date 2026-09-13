@@ -15,3 +15,16 @@ why (V4 captures after the layer, V4.1 before it; the converter inherited V4).
 three prompts, greedy, acceptance from the server's timings. Stops the serving
 process first and restarts it last. Do not edit it while it runs; bash reads
 scripts incrementally and the third run died that way.
+
+`set-gguf-keys.py` — the general form of the rewrite above: copy a GGUF with
+metadata keys replaced or added, tensors byte for byte. Used to add
+`dflash.attention.causal=false`, which the converted draft lacks; without it
+ik falls back to a causal mask inside the proposal block, while the reference
+lets every block position see the whole block.
+
+`dspark-sweep.sh` — the faster gate. One server load per draft file, and every
+prompt (twenty) and every `n_max` inside that load, through the per-request
+`speculative.n_max` override. Rows go to a JSONL file with the load average
+next to each, since acceptance does not depend on load but tok/s does. It
+drops `/tmp/cpu-busy.flag` so a CPU benchmark running alongside holds its
+timing runs, and an EXIT trap restarts the serving process even on failure.
