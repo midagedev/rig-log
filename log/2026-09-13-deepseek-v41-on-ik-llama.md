@@ -811,3 +811,36 @@ Where ik's 14.1 against mainline's 17.7 sits, read from the two trees rather
 than measured: [`docs/ik-vs-mainline-v41-gap.md`](../docs/ik-vs-mainline-v41-gap.md).
 The short version is that ik already fuses the hyper-connection ops and syncs
 less than mainline; what it lacks is a CUDA-graph latch that never releases.
+
+### Is the fused-pre probe bug mainline's? Measured: no
+
+The resolver fix above reads as general code, and master carries the same
+probe and the same fused HC ops for DeepSeek V4, so it was tested there
+before anything was filed: upstream master at 5f436dddb, unsloth's
+`DeepSeek-V4-Flash-0731-UD-IQ1_S`, two-GPU layer split with the card boundary
+at layer 30 (`-ts 2,1`) and at layer 22 (`-ts 1,1`), experts on CPU, greedy 96
+tokens through `/completion`, master against master plus the patch:
+
+| split | master | patched | text |
+|---|---:|---:|---|
+| boundary at 30 | HC pre enabled, 17.4 / 18.0 tok/s | enabled, 17.8 / 17.9 | identical |
+| boundary at 22 | HC pre enabled, 18.0 / 18.4 | enabled, 18.4 / 18.6 | identical |
+
+The probe never disables the op on V4. On V4 the pre node's inputs live in
+the same layer; on V4.1 they are the previous layer's lagged mix, which is
+what lets the scheduler place the node on the other card. So the fix stays a
+branch PR ([vcruz305#2](https://github.com/vcruz305/llama.cpp/pull/2)) and
+nothing goes to ggml-org; a code-read "this is general" was a hypothesis and
+the measurement closed it.
+
+The same window ran unsloth's V4 DSpark draft (BF16) through the branch build
+with the V4.1 port and through plain master: flavor V4, 94 drafted / 63
+accepted on both, 20.3–20.6 against 20.7–21.1 tok/s, 18.0–18.6 without a
+draft on either. So the port leaves the V4 path alone, which is what its PR
+now says instead of "untested". One observation not claimed as a bug: on
+both builds the greedy text with the draft differs from the greedy text
+without it from about the twentieth token, and the drafted answer degenerates
+into a repeated sentence. An exact verifier should not change a greedy
+output; an IQ1_S target may simply be close enough to ties that a batched
+verify flips them. Not investigated further.
+
