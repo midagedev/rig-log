@@ -635,3 +635,79 @@ The cache-size log line also lied for two builds: it summed the per-layer
 tensor vector after aliasing, so each source buffer was counted once per
 reader — 72 MiB reported for 6.28 MiB allocated. Counted by unique pointer
 now.
+
+### Where the token's time goes, and a VRAM re-balance: 24.8 tok/s
+
+The question after the port was whether anything else in ik was worth
+carrying over. Read side by side, the answer is no: the one ik advantage that
+survives into the hybrid path is the CPU dot-product kernel, worth 5–11 % of
+the CPU share on the small-model bench above, and mainline already has what
+the rest of ik's V4 path fuses — the hyper-connection pre/comb/post kernels
+(`fused_dsv4_hc_*`, on by default, CUDA-backed), CUDA graphs per split, one
+scheduler copy when `-ot` is in use, and a `mul_mat_id` that splits each
+expert across all threads with no barrier between experts. ik's `-thp` never
+ran here either: it needs a hugetlbfs pool, and this machine has none.
+
+What the code did give was the accounting. From the GGUF headers: 40 MoE
+layers, 384 experts, 6 routed per token, an expert is 16.85 MB (up and gate
+Q3_K at 5.07 MB each, down Q4_K/Q5_K at 6.71 MB). With six layers on the cards
+a token reads 3.44 GB from system RAM, and a three-token draft verified as a
+batch of four touches at most 23.4 distinct experts a layer:
+
+| path | bytes per step | at 115.8 GB/s (measured STREAM) | measured |
+|---|---:|---:|---:|
+| no draft, one token | 3.44 GB | 29.7 ms | 56.5 ms |
+| block 3, batch of four | 13.4 GB | 116 ms | ~127 ms |
+
+The served path is within about 10 % of the memory wall. Fixed overheads
+(kernel count, graph launch) therefore cannot move the served number much,
+and a four-token block would read 23 % more per step for fewer than 23 % more
+accepted tokens, so it was not tried. What is left is bytes per step: fewer
+expert layers on the CPU, or smaller experts.
+
+Two restarts failed on the way. `--load-mode none` with transparent huge
+pages set to `always` was meant to test the loader's own warning ("tensor
+overrides to CPU are used with mmap enabled — consider using --load-mode
+none"): AnonHugePages never rose above 150 MB during the nine-minute load, and
+the server died allocating a 515 MiB compute buffer on the 24 GB card, which
+has 600 MB of slack in the served configuration. Not understood, reverted.
+`-devd CUDA0` — the draft on one card, to stop its two-card pipeline — aborts
+in `ggml_backend_sched_backend_id_from_cur`: the DSpark draft reads the
+target's hidden states, some of which live on CUDA1.
+
+The verbose logs of those failures showed two things the quiet logs had
+hidden. Every mainline number above ran with the fused hyper-connection
+*pre* kernel disabled on all forty layers: layer 28 is the first layer on the
+second card, its `pre` mix comes from layer 27 on the first, the scheduler
+places the weightless fused node with its inputs, and the probe in
+`resolve_fused_ops` read that placement as "missing support" and turned the
+op off globally. The unfused ops land on the same card, so nothing was wrong
+but the verdict; the fix asks the layer's device whether it supports the op
+(`ggml_backend_dev_supports_op`) before believing the placement — ten lines,
+commit e42d711e5 on the merged worktree, and the log now reads "placed on CUDA0
+by the scheduler, CUDA1 supports it, keeping it enabled". Second, the draft
+context had no tensor overrides, so it ran with pipeline parallelism and four
+copies of its compute buffers; a no-op `-otd` turns that off.
+
+The third restart put the three changes together with a smaller micro-batch:
+`-ub 512` (compute buffers 4297 MiB on CUDA0 and 2447 MiB on CUDA1, measured;
+the header of `configs/v41-serve.sh` records what it costs a 4288-token prompt),
+the draft's `-otd`, the resolver fix, and the freed VRAM spent on experts —
+blk 6 `down` and blk 7 `gate`/`up` on CUDA0, blk 6 `gate`/`up` on CUDA1, so
+the CPU streams 32 layer-equivalents instead of 34, 5.9 % fewer bytes. Cards
+after load: 46.8 of 49.1 GB and 20.9 of 24.6 GB. Same 20 prompts, greedy,
+block 3, IO pressure 0.00 on every row of the second pass:
+
+| pass | median tok/s | best | prompts ≥ 25 | per-prompt ratio to the 22.7 pass |
+|---|---:|---:|---:|---:|
+| 1 (first after load) | 21.8 | 28.0 | 4/20 | — |
+| 2 | **24.75** | 31.5 | 10/20 | 1.070 (median) |
+
+Seven percent on a load-to-load band of about four; the first-pass penalty
+reproduced a third time (12 % again). The three changes share one restart, so
+the split between them is not measured; by the accounting above the expert
+move is the part that can carry most of it, and the fused-pre fix is below the
+band on its own. The serving port now runs this configuration. Not claimed:
+the long-prompt prefill cost of `-ub 512` on this build (the 214 against 343
+tok/s figure in the script header is from an earlier build), and whether the
+24 GB card's remaining 3.6 GB takes blk 7 `down` as well.

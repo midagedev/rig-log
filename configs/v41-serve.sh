@@ -22,16 +22,24 @@
 # that means something else entirely. Order still matters within the list:
 # the catch-all exps=CPU has to come last.
 #
-# -ub 2048, and -c 16384 rather than 32768, both measured rather than chosen.
+# -ub 512 now, -ub 2048 before 2026-09-13 evening; -c 16384 rather than 32768.
 # Prompt processing is batched and compute-bound, so a larger micro-batch
 # amortizes each expert tensor read across more tokens: at a 4288-token prompt,
 # -ub 512 gave 214 tok/s and -ub 2048 gave 343, with decode unchanged. The
-# prefill compute buffer scales with micro-batch and is allocated on CUDA1, the
-# 24 GB card, so it competes with both the expert layers and the KV cache
-# there -- -ub 3072 dies asking that card for 13.9 GiB. Context is the other
-# side of the same trade: 32768 forces -ub back down to 1024 and prefill to
-# 188 tok/s. Quantizing the KV cache does not buy it back; the buffer, not the
-# cache, is what does not fit.
+# compute buffer scales with the micro-batch (4.3 GB on CUDA0 and 2.4 GB on
+# CUDA1 at 512, measured), and that VRAM is worth more as expert layers:
+# decode with experts on the CPU is bound by system memory bandwidth, and every
+# 6.5 GB layer moved onto a card takes 3 % off the bytes a token reads. The
+# trade is deliberate: long-prompt prefill is slower, decode is faster.
+# Context is the same trade: 32768 forces -ub down and prefill with it.
+# Quantizing the KV cache does not buy it back; the buffer, not the cache, is
+# what does not fit.
+#
+# The draft gets one -otd. A draft context without tensor overrides enables
+# pipeline parallelism across the two cards, which keeps four copies of its
+# compute buffers; the override is a no-op placement that turns that off. A
+# single draft device (-devd CUDA0) is not an option: the DSpark draft reads the
+# target's hidden states, some of which live on CUDA1, and the scheduler aborts.
 #
 # Run it on a machine with nothing else holding VRAM.
 set -eu
@@ -44,16 +52,16 @@ B=${B:-$HOME/llama.cpp-v41-merged/build/bin/llama-server}
 # draft borrows: 41 -> 45 % acceptance at block 5, 55 -> 60 % at block 3, for 1.3 GB of RAM.
 M=${M:-/models/DeepSeek-V4.1-Flash-Q3_K_M-engramQ8-tokembdBF16/DeepSeek-V4.1-Flash-Q3_K_M-00001-of-00009.gguf}
 # The DSpark draft: block 3 measured 22.8 tok/s median against 17.7 without it (20 greedy prompts,
-# quiet box, warmed); block 5 is the same within noise. The request-level speculative.n_max is
+# quiet box, warmed), 24.8 after the VRAM re-balance below; block 5 is the same within noise. The request-level speculative.n_max is
 # disabled in this server, so the block size is set here.
 D=${D:-/models/DeepSeek-V4.1-Flash-DSpark/DeepSeek-V4.1-Flash-Fp8-128x742M-MXFP4_MOE.tl37.gguf}
 
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 
 exec "$B" -m "$M" --alias DeepSeek-V4.1-Flash \
-  -c 16384 -ngl 99 -t 32 -b 2048 -ub 2048 \
+  -c 16384 -ngl 99 -t 32 -b 2048 -ub 512 \
   --lazy-mode auto \
-  -ot "blk\.[0-3]\.ffn_.*_exps=CUDA0,blk\.[4-5]\.ffn_.*_exps=CUDA1,exps=CPU" \
-  -md "$D" --spec-type draft-dspark --spec-draft-n-max 3 \
+  -ot "blk\.[0-3]\.ffn_.*_exps=CUDA0,blk\.6\.ffn_down_exps=CUDA0,blk\.7\.ffn_(gate|up)_exps=CUDA0,blk\.[4-5]\.ffn_.*_exps=CUDA1,blk\.6\.ffn_(gate|up)_exps=CUDA1,exps=CPU" \
+  -md "$D" --spec-type draft-dspark --spec-draft-n-max 3 -otd "output_norm=CUDA0" \
   --jinja \
   --host 127.0.0.1 --port 8001
