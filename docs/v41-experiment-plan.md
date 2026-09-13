@@ -138,6 +138,70 @@ Worth one sweep, reported separately from decode, because a configuration that
 is right for one can be wrong for the other and this repo has already published
 a table where that happened.
 
+## The queue as of 2026-09-14 morning
+
+Measured since the sections above were written: the ik-against-mainline gap
+is a first-pass page-fault gap (warm, ik 18.8 against mainline 19.8 at the
+same split; [docs](ik-vs-mainline-v41-gap.md)), and long-prompt prefill on
+the served `-ub 512` profile is 214 tok/s against 343 at `-ub 2048` (4288
+tokens, earlier build). Three windows, in this order; each stops the
+production server, runs on port 8099, and restores it.
+
+| # | window | what it settles | gate |
+|---|---|---|---|
+| Q1 | ik engram row prefetch (port of 86d01ece1 into `llama_set_engram_rows`), same six prompts, faults counted | whether the 41–62 faults a token and the 28 % first-pass loss are the engram rows | ik pass 1 from 13.6 toward 18.8; faults toward mainline's 13–21 |
+| Q2 | prefill: deterministic code prompt at ~4k and ~15k tokens, `-ub` 512 / 1024 / 2048 / 4096, PCIe link gen and width sampled during prefill, then `cache_prompt` on a growing prefix | E5 with numbers; whether prefill is PCIe-bound (the CUDA backend pulls CPU expert weights for batches ≥ 32, `ggml_backend_cuda_device_offload_op`), and how much a coding client's next turn actually prefills | tok/s per `-ub`; `prompt_n` on the second request of the pair |
+| Q3 | precision on the GPU-resident tensors (below) | whether attention and shared experts at Q8_0 change perplexity, at a VRAM cost and no decode cost | 4-chunk perplexity on the served file against the grafted one; decode within the load-to-load band |
+
+The likely outcome of Q2 is two serving profiles — decode (the current one)
+and coding (larger `-ub`, longer context, possibly no draft) — rather than
+one compromise.
+
+### Q3 — raise precision where the bandwidth is not the bottleneck
+
+The user's question was whether the experts that sit in RAM could be
+quantized less, for quality, without losing tok/s. The served file, read by
+tensor group (2026-09-14, the `engramQ8-tokembdBF16` shards):
+
+| group | quant | size |
+|---|---|---:|
+| engram tables | Q8_0 | 209.2 GB |
+| routed experts | Q3_K 155.7 · Q4_K 96.8 · Q5_K 6.2 | 258.7 GB |
+| attention | Q3_K | 2.2 GB |
+| shared experts | Q3_K / Q4_K / Q5_K | 0.7 GB |
+| dense ffn, norms | BF16 / F32 | 0.2 GB |
+| token embedding / output | BF16 / Q6_K | 1.8 GB |
+
+The routed experts cannot go up. Decode with experts on the CPU is bound by
+the bytes a token reads (3.44 GB at this quant against 115.8 GB/s), so every
+bit per weight added to the experts is subtracted from tok/s in proportion;
+Q3_K to Q4_K_M is roughly +35 % bytes. And 259 GB of experts plus 209 GB of
+engram already sit on 251 GB of RAM as memory-mapped files, which is where
+the first-pass faults come from; larger experts fault more.
+
+What can go up is everything the GPU reads: attention (2.2 GB at Q3_K, the
+tensor group most sensitive to quantization), the shared experts (0.7 GB,
+read every token), and, at a VRAM price per layer, the eight routed-expert
+layers that live on the cards. Attention and shared experts at Q8_0 are
+about 5 GB more VRAM in total and zero bytes more per token on the CPU side.
+Five gigabytes is one expert layer's worth of card memory (about 3 % of
+decode), or comes out of the compute-buffer headroom if `-ub` stays at 512.
+
+How to build the file: the same graft the engram repack used
+([log](../log/2026-09-13-engram-q8-repack.md), `tools/engram-repack/repack.py`)
+with the attention and `_shexp` tensors taken from the uploader's Q8_0 build
+instead of the engram tensors. Those tensors are spread across the Q8_0
+shards 1–7, which are not on disk (only 8–10, the engram shards, are); at
+about 6 GB of wanted tensors against 300 GB of shards, fetch them by HTTP
+range from the tensor offsets rather than downloading the shards. The fp8
+originals are on disk (476 GB) as the fallback source. Perplexity: four
+chunks, 39 s a chunk on this placement, measured once on the current file
+first so the comparison has a baseline.
+
+Not in Q3: `--tensor-type` overrides in `llama-quantize` from the fp8
+originals. That produces the same file at the cost of a full requantization
+pass; the graft is the cheaper route while the tooling exists.
+
 ## Blocked, and on what
 
 These are the large levers, and none of them can run yet.
