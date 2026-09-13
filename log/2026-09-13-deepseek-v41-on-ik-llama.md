@@ -391,7 +391,7 @@ and the HTTP thread competing). Same no-draft server at `-t 30`: 14.27 /
 at `-t 32`: 13.63 / 13.10 / 13.64. All inside the band. Closed.
 
 The engine lever on the CPU side is the small-model kernel bench, run by a
-delegate on the same box: on a dense Qwen2.5-7B Q3_K_M at 32 threads ik
+delegate on the same box ([report and every command](../docs/kernel-bench-2026-09-13.md)): on a dense Qwen2.5-7B Q3_K_M at 32 threads ik
 decodes 32.0 tok/s against mainline's 30.4 and prefills at 217 against 104;
 on DeepSeek-V2-Lite Q3_K_M (a deepseek2 MoE) 73.5 against 66.2 and 447
 against 201. `-rtr` and `-fmoe 0` are within 5 % of the defaults on both. So
