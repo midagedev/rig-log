@@ -727,3 +727,82 @@ except slack — the cards are now at 47.0 of 49.1 GB and 23.2 of 24.6 GB, and
 the next tensor group does not fit. That closes the "more experts on the
 cards" lever; what remains on bytes per step is the quantization of the
 experts themselves.
+
+### Recording it: what the tape shows and why it is lower than the table
+
+The number above is greedy decoding through `/completion`, twenty prompts,
+second pass after load. A recording goes through a different door. The
+recorder ([toktape](https://github.com/midagedev/toktape)) talks to
+`/v1/chat/completions` with the server's default sampling and, on this
+model, the reasoning block on. Measured on the same twenty prompts against
+the same server, per prompt against the 2.7 GHz greedy pass:
+
+| path | median tok/s | best | against greedy `/completion` |
+|---|---:|---:|---:|
+| greedy `/completion` (the table above) | 25.6 | 31.8 | — |
+| server-default sampling, `/completion` | 24.5 | 31.4 | −4.4 % |
+| chat endpoint, greedy, thinking on | 22.4 | 28.5 | −11.6 % |
+
+Sampling costs a little because the draft's tokens are checked against a
+sampled target instead of an argmax. The chat path costs more because the
+reasoning block is drafted like anything else and accepts worse: on a 2048-
+token Korean prompt the first tape spent all 2048 tokens inside the
+thinking block at 17.3 tok/s. The recordings below were therefore made with
+`--reasoning-budget 0` on a copy of the serving script, and the port went
+back to the committed script afterwards.
+
+One more lever was tried for the clip only. The CPU clock cap that the
+serving config runs at, 2.7 GHz, was raised to 3.6 GHz for the length of a
+recording:
+
+| cap | median tok/s | best | per prompt | coolant |
+|---|---:|---:|---:|---|
+| 2.7 GHz | 25.6 | 31.8 | — | steady |
+| 3.6 GHz | 27.0 | 34.1 | +4.7 %, 20 of 20 faster | 38.7 → 48.8 °C in 2 min 20 s |
+
+The morning's "2.7 equals 3.6" was measured without a draft; with a draft
+the verify step has more CPU work per token and the clock shows. It is not
+a serving setting: the guard stops load at 52 °C and 3.6 GHz reaches 50 in
+about two minutes, which is what happened to the last four-stream tape
+below (the watchdog dropped the cap to 2.7 partway through).
+
+The tapes, all on the 25.6 configuration, all second pass after load:
+
+| tape | prompt | cap | thinking | single / aggregate tok/s | page faults per token |
+|---|---|---|---|---:|---:|
+| English, code | best single prompt, 213 tokens | 2.7 | on | 28.6 | 0.4 |
+| English, code | four streams, 249 tokens each | 2.7 | on | 4 × 7.4 = 29.6 | — |
+| Korean prose, 2048 tokens on MoE and offloading | single | 3.6 | off | 20.3 | 6.2 |
+| Korean prose, four topics, 768 tokens each | four streams | 3.6 | off | 4 × 6.7 = 25.1 | 2.8 |
+| English prose, same prompts | single | 3.6 | off | 19.7 | 6.3 |
+| English prose, same prompts | four streams | 3.6 → 2.7 (watchdog) | off | 4 × 5.7 = 22.6 | 5.9 |
+
+The code tape is the fastest because a 213-token answer to a well-known
+prompt drafts well; long prose drafts worse, and a 2048-token answer runs
+into the reasoning-off penalty on acceptance rather than the thinking one.
+The prose clips are the honest number for "explain something to me"; the
+code clip is the honest number for the best case.
+
+**Page faults, and a small fix.** The right-hand column is the recorder's
+count of major page faults during decode. The engram tables (209 GB) are
+read lazily off NVMe a few dozen rows a token, and a row this process has
+never touched is a synchronous fault inside `get_rows`. On fresh text the
+first tapes showed 41 faults a token and about 20 tok/s where the cached
+runs gave 25. The row ids are known in `set_input` before the graph runs,
+so a `posix_madvise(WILLNEED)` over each row's pages there
+(commit 86d01ece1 on the merged worktree, Linux and macOS only) brought it to
+0.9 faults a token on the same text, roughly +1 tok/s. The prose tapes
+above still show 3 to 6 a token: those are the rows the prefetch asked for
+but the drive had not delivered by the time the graph read them, and they
+are not free either.
+
+This also reads back onto the first-pass penalty measured three times
+above. ~~The likeliest reason is `--lazy-mode auto` still paging experts
+in~~ — the experts are a candidate; the engram rows of never-seen prompts
+are a measured part of it, since a first pass over twenty new prompts
+touches their rows for the first time and a second pass finds them in the
+page cache. How much of the 12 % each carries is not separated.
+
+Clips: the English code pair and the two prose pairs are on the shared
+drive, named `rig-log-v41-dspark-*`. Card and tape files are in the
+recorder's run directory on the machine.
