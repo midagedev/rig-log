@@ -87,7 +87,7 @@ run_arm() {  # $1 arm; the arm "nodraft" serves the target alone and ignores NMA
   if [ "$arm" != nodraft ]; then
     [ -f "$d" ] || { say "$arm: missing $d"; return 1; }
     if [ "$ENGINE" = ik ]; then spec=(--model-draft "$d" --spec-type "dspark:n_max=5")
-    else spec=(-md "$d" --spec-type draft-dspark --draft-max 5); fi
+    else spec=(-md "$d" --spec-type draft-dspark --spec-draft-n-max 5); fi
   fi
   local t0=$(date +%s)
   "$BIN" -m "$M" -c 16384 -ngl 99 -t "$THREADS" -b 2048 -ub 2048 -ot "$OT" --host 127.0.0.1 --port $PORT \
