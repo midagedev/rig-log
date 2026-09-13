@@ -76,6 +76,7 @@ untouched.
 |---|---|---|---|---|---|---|
 | the upload | Q3_K | Q3_K | Q3_K | — | 2.2438 ± 0.0631 | — |
 | small only | Q3_K | Q8_0 | BF16 | 0.2 GB | 2.2171 ± 0.0626 | 0.0267 |
+| wkv only | Q3_K | Q8_0 | Q3_K | 0.2 GB | 2.2183 ± 0.0626 | 0.0255 |
 | table only | Q8_0 | Q3_K | Q3_K | 125 GB | 2.1391 ± 0.0591 | 0.1047 |
 | the repack | Q8_0 | Q8_0 | BF16 | 125 GB | 2.1090 ± 0.0585 | 0.1348 |
 
@@ -99,6 +100,14 @@ branch would start from a file that has part of this fixed — the upload
 predates that commit. Separating `wkv` alone is one more variant and about
 forty minutes, since without the table the shards are the original 42 GB
 rather than 104 GB.
+
+That variant has since run. With only `engram_wkv` moved to Q8_0 and the gate
+vectors left at Q3_K, perplexity is 2.2183 ± 0.0626, against 2.2171 for the
+small variant: it closes 0.0255 of the 0.0267. The gate vectors add 64 KB
+between them and account for the remaining 0.0012, which is noise. The
+projection owns the cheap fifth, and it is now measured rather than inferred.
+Sizes are the shard-byte deltas: 99,532,800 bytes per swapped shard for the
+wkv variant, 99,597,120 for the small one.
 
 ## Fact recall
 
