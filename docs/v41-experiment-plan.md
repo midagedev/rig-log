@@ -191,10 +191,17 @@ decode), or comes out of the compute-buffer headroom if `-ub` stays at 512.
 How to build the file: the same graft the engram repack used
 ([log](../log/2026-09-13-engram-q8-repack.md), `tools/engram-repack/repack.py`)
 with the attention and `_shexp` tensors taken from the uploader's Q8_0 build
-instead of the engram tensors. Those tensors are spread across the Q8_0
+instead of the engram tensors. ~~Those tensors are spread across the Q8_0
 shards 1–7, which are not on disk (only 8–10, the engram shards, are); at
 about 6 GB of wanted tensors against 300 GB of shards, fetch them by HTTP
-range from the tensor offsets rather than downloading the shards. The fp8
+range from the tensor offsets rather than downloading the shards.~~
+Corrected 2026-09-14 afternoon, from the shard headers: shards 1–7 hold
+only routed-expert tensors (12–18 a shard), and every attention, shared
+expert and indexer tensor of all forty layers — 924 tensors, Q8_0 where
+quantized — sits in shard 10, the 10 GB shard that is already on disk. No
+download is needed; the graft reads the source locally. (An HTTP-range
+extractor was written and run on a second machine before the headers were
+read; it fetched zero tensors, which is how the premise was found wrong.) The fp8
 originals are on disk (476 GB) as the fallback source. Perplexity: four
 chunks, 39 s a chunk on this placement, measured once on the current file
 first so the comparison has a baseline.
