@@ -140,8 +140,8 @@ output hyper-connection head is exactly what the lag removed. The draft
 graph (`build_dflash_dsv4`) is written to V4's rules and needs the same two
 changes the body needed, the one-sublayer lag and the low-rank-only q norm;
 a draft that gets them wrong drafts the wrong tokens and lowers throughput
-instead of raising it. And the body's GPU path is still unvalidated, so
-there is no ik baseline to measure a draft against. In that order.
+instead of raising it. The body's GPU path is validated below, so the ik
+baseline for a draft to be measured against now exists. In that order.
 
 ## Costs and what is not claimed
 
@@ -150,9 +150,18 @@ is already in page cache, because ik's loader touches every tensor. This
 entry is ten builds and about fifteen of those loads, and the loads are most
 of its wall clock.
 
-Not claimed: `-ngl` above zero (the CUDA path is unexercised; `ggml_fill`,
-which the one-hot mix uses, has a CPU kernel and no CUDA one, so it will
-need one or an input tensor instead), a batch of one against the oracle,
+The GPU path, later the same day: with `GGML_CUDA_NO_PINNED=1` (without
+it, the `-ot` overrides turn the 303 GB of CPU-resident experts into a
+pinned allocation and the load fails), `-ngl 99` and the production
+placement — layers 0–3 experts on the first GPU, 4–5 on the second, the
+rest on the CPU — the same four-chunk perplexity is **2.2270 ± 0.0625**
+against 2.2258 ± 0.0622 at `-ngl 0`, running estimates 1.7320 / 1.7486 /
+1.8248 / 2.2270, at 39 s per chunk instead of 87. So the CUDA path
+produces the same numbers as the CPU path; `ggml_fill` for the one-hot mix
+ran where the scheduler placed it and did not need a CUDA kernel for this
+graph. GPU memory in use was 28.8 GB and 15.4 GB.
+
+Not claimed: a batch of one against the oracle,
 session save and restore of the compressed streams (written as empty with a
 TODO), the MTP graph (asserted off), `-rtr` and the prefetch exemption for
 the engram table, and any speed. The reader layers reuse the index source's
