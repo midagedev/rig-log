@@ -94,7 +94,12 @@ for i, p in enumerate(json.load(open(prompts)), 1):
     body = {"prompt": "<｜User｜>" + p + "<｜Assistant｜></think>", "n_predict": npred, "temperature": 0,
             "cache_prompt": False, "speculative.n_max": nmax}
     req = urllib.request.Request(f"http://127.0.0.1:{port}/completion", json.dumps(body).encode(), {"Content-Type": "application/json"})
-    r = json.load(urllib.request.urlopen(req, timeout=900))
+    try:
+        r = json.load(urllib.request.urlopen(req, timeout=900))
+    except Exception as e:  # one bad response (a 500 on an unencodable text has happened) must not end the arm
+        print("  %s n_max=%d #%02d: REQUEST FAILED %s" % (arm, nmax, i, e), flush=True)
+        open(out, "a").write(json.dumps({"tag": tag, "arm": arm, "n_max": nmax, "prompt": i, "error": str(e)}) + "\n")
+        continue
     t = r.get("timings", {})
     dn, da = t.get("draft_n", 0), t.get("draft_n_accepted", 0)
     tot_d += dn; tot_a += da

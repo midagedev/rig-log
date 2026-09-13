@@ -254,6 +254,69 @@ new line, and the run died on an unbound variable between the last arm and
 the serving restart. The serving restart was done by hand. The script is in
 `tools/dspark/` as it ran, with the fix.
 
+### The mask, read and then measured
+
+The question the copy could not answer was then answered twice, first by
+reading and then by running. Reading first, because most of it does not
+need a machine. The reference draft's index function
+(`get_dspark_topk_idxs`) hands every position of a proposal block the same
+row: the ring of the last 128 committed positions plus all five block slots,
+and the sparse-attention kernel masks nothing but a `-1` index. There is no
+causal mask anywhere in the draft's attention. ik's mask builder in
+`llama-dflash.cpp` did two things differently: it let block position *j* see
+only block positions up to *j*, and it slid the 128-key window with the query
+row, so row *j* saw 127 − *j* window keys where the reference sees 128 for
+every row. Both are real deviations, and both are a few lines.
+
+The first attempt at the fix — the `attention.causal` key — was the wrong
+lever, and reading found that too. The flag it flips is `hparams.causal_attn`,
+and in ik that flag also gates the KV-cache update ("non-causal masks do not
+use the KV cache"), the batch-size clamp, defragmentation, and the embedding-
+model input path. A run with that binary would have measured the mask and
+four side effects together. The patch that went in instead adds a
+draft-local flag, set automatically for V4.1 drafts, and touches only the two
+mask lines: whole block visible, window anchored at the newest committed
+position. Other DFlash drafts keep the causal, sliding mask. It is commit
+`515a94a3` in the ik tree.
+
+The same reading pass went through everything else the draft does and
+compared it line by line with the reference: rope (plain, base theta, no
+YaRN — the reference asserts the uncompressed path), the capture point
+(input of layers 37–39, mean over the four hyper-connection streams; ik
+captures `l_out` of 36–38 after decrementing the one-based ids, which is the
+same tensor), the block geometry (the sampled token at position +1, noise
+tokens after it), the Markov head (bias from the previous drafted token,
+chained through the argmax), the shared head and its norm, the
+hyper-connection lag order, the q and kv projections and their norms, the
+inverse rope on the attention output, the sink, the softmax scale. All of it
+matches. The mask was the only deviation in the code.
+
+Then the run, same twenty prompts, same binary otherwise:
+
+| block (`n_max`) | causal mask (before) | reference mask (after) | prompts up / down / same |
+|---|---|---|---|
+| 5 | 41.1 % (2128 / 5181) | 41.6 % (2139 / 5147) | 6 / 7 / 7 |
+| 3, first 11 prompts | 59.1 % (974 / 1649) | 62.8 % (998 / 1588) | 5 / 3 / 3 |
+
+The numbers moved, so the patch is live — the earlier control copy had
+not moved them at all — and they moved by less than the per-prompt spread.
+Half a point at a five-token block, under four at a three-token block on the
+eleven prompts the run completed before one request failed with a 500 (the
+harness stopped the arm instead of skipping the prompt; fixed in the
+script). The mask was a real mismatch and it was not the cause. The patch
+stays because it matches the reference, not because it pays.
+
+What remains is not in the code. The draft has no embedding and no head of
+its own; it borrows the target's, and in this target those are `token_embd`
+at Q3_K and `output` at Q6_K where the draft was trained against bf16
+copies. The uploader's Q8_0 set keeps both in bf16, so two variants of the
+target were built by grafting those two tensors into shard 1
+(`tools/dspark/graft-gguf-tensors.py`; the other eight shards are hard
+links): one with the bf16 embedding, one with embedding and head. They are
+the next two sweeps. Behind them stand the noise sources that cannot be
+grafted away: the target's hidden features come from a Q3_K body, and the
+draft's own experts are an MXFP4 re-quantization of fp8.
+
 ## Costs and what is not claimed
 
 Every test costs a four-minute model load: 256 GB mapped from a file that
