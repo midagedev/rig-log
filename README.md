@@ -130,6 +130,13 @@ The method, including the two mistakes that cost the most, is in
   set, major faults and drive reads alongside throughput, because tok/s alone
   cannot say whether a slow run lost its expert pages or its engram rows.
 
+- [`docs/quiet-machine.md`](docs/quiet-machine.md) — why "quiet box" has to be
+  a protocol and not a load-average check: one day, five collisions between a
+  sweep, a repack and a CPU benchmark, all because a 200 GB model load is
+  I/O-bound and the load average does not see it. One lease, IO pressure as
+  the signal, the witness recorded in every measurement row, and delegates
+  handed the runner script rather than a sentence about the flag.
+
 - [`docs/wrx80e-bios-setup.md`](docs/wrx80e-bios-setup.md) — the firmware side
   of running this board as an unattended LLM host: CPU power limit (PPT/cTDP,
   hidden in AMD CBS), above-4G mapping for two GPUs, auto power-on, the onboard
