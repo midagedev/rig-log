@@ -87,3 +87,25 @@ each with the measured state and what would settle it; the same list is
 | WKS-15 | per-request reasoning budget | done: wrong field name |
 
 Results land below as the windows return.
+
+## WKS-14: ik with the draft, after the prefetch
+
+*07:46–08:00. ik fork 57735010, DSpark block 3 (`--spec-type dspark:n_max=3`),
+the six-layer split, the served target file (engram Q8_0, bf16 token
+embedding), the same twenty greedy 200-token prompts as yesterday's table,
+two passes, IO pressure 0.00 on every row after load.*
+
+| ik, block 3 | median tok/s | min–max | drafted / accepted | major faults |
+|---|---:|---|---|---:|
+| pass 1 | 23.96 | 15.66–30.47 | 3321 / 1996 (60.1 %) | 48 597 (≈12 a token) |
+| pass 2 | **24.88** | 16.10–31.04 | 3321 / 1996 (60.1 %) | 0 |
+
+Yesterday's ik number with the same draft and block was 19.86, first pass,
+before the prefetch. Acceptance is identical to the count (1996 of 3321),
+which it should be: the prefetch changes when a row is read, not what it
+holds. The first pass is now 4 % under the second rather than 28 % under.
+Against mainline's 25.6 on the eight-layer placement, ik at 24.9 on six
+layers is inside the band that separates those two placements; the mainline
+arm at the same six-layer split is what makes the pair, and its first launch
+died on a port-bind race a second after the ik server released 8099 — it is
+queued again behind the engram window with a pause before the bind.

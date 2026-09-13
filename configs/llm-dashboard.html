@@ -48,6 +48,7 @@
  <tr><td class="l">히어로 촬영 창</td><td class="l">8레이어 + DSpark 3, 리즈닝 예산 64, 3.6 GHz, 냉각수 40°C 출발</td><td>2스트림 240tok: 26.9 agg · TTFT 1.21 s · 수락 71%</td><td class="l">4스트림 27.3 agg는 TTFT p50 5.45 s(프리필 큐잉)라 GIF 첫 10초가 스피너 → 보관. Tctl 69→84°C, 캡 불변(toktape 조건 변경 줄 첫 실물 발동)</td><td class="l best">채택 070458</td></tr>
  <tr><td class="l">요청 단위 reasoning_budget</td><td class="l">8001, chat, max_tokens 300</td><td><code>reasoning_budget</code> 무시 · <code>reasoning_budget_tokens</code>=64 → 294자</td><td class="l">서버 버그 아님, 필드명. README 미문서화만 남음. toktape TTP-73으로 이관</td><td class="l dim">WKS-15 닫힘</td></tr>
  <tr><td class="l">업스트림</td><td class="l">ik_llama.cpp</td><td>#2444 열림 · #2438 코멘트</td><td class="l"><code>GGML_CUDA_NO_PINNED_WEIGHTS</code> +5/−1(V2-Lite 65.1/60.1/66.0). V4.1 포트 브랜치는 참조로 — V4는 외부 +3689 PR이 닫히고 메인테이너가 직접 넣었다(#2110→#2165)</td><td class="l">답 대기</td></tr>
+ <tr><td class="l">ik 드래프트 쌍 (WKS-14)</td><td class="l">ik+prefetch, DSpark 3, 6레이어, 20프롬프트×2패스</td><td>1패스 23.96 · 2패스 <span class="best">24.88</span> · 수락 60.1%</td><td class="l">어제 19.86(콜드) → 24.9. 수락 수는 1996/3321로 동일 — prefetch는 언제 읽는가만 바꾼다. mainline 같은 배치 팔은 포트 바인드 레이스로 죽어 재대기</td><td class="l">ml 팔 재실행 대기</td></tr>
  <tr><td class="l">큐 (라벨 <code>experiment</code>)</td><td class="l">WKS-11 engram 수락률·정밀도 무릎 · WKS-13 attn/shexp Q8 그래프트 · WKS-14 ik vs ml 드래프트 쌍</td><td id="queue-state">WKS-14 진행 중 → WKS-11(1) → WKS-13 기준선</td><td class="l">체인으로 자동 진행, 각 창 끝에 8001 복귀. 결과는 이 표에 행으로 추가</td><td class="l dim">진행</td></tr>
 </tbody></table></div>
 
