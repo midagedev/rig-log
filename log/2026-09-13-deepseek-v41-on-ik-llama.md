@@ -900,3 +900,44 @@ weights to the device for any batch of 32 rows or more; 58 tok/s is about
 what streaming 259 GB of experts over PCIe per 512-token micro-batch
 predicts, so that flag is the experiment that decides whether prefill is
 PCIe-bound), and runs `-ub 2048` and `4096` on the six-layer placement.
+
+### Prefill, second window (07:08–07:41)
+
+Same box, production server stopped, port 8099, `--lazy-mode auto`, no draft,
+prompts of 4823 and 11186 tokens of source code, two passes each, IO
+pressure 0.00–0.05 on every warm row. "8-layer" is the served placement,
+"6-layer" has the experts of layers 6 and 7 back on the CPU.
+
+| arm | 4.8k cold | 4.8k warm | 11k cold | 11k warm |
+|---|---:|---:|---:|---:|
+| `-ub 512`, 8-layer (served) | 42.8 | 59.5 | 56.4 | 60.2 |
+| `-ub 512`, 8-layer, `--no-op-offload` | 64.2 | 69.7 | 67.8 | 68.6 |
+| `-ub 2048`, 6-layer | 72.9 | **127.8** | crashed | — |
+| `-ub 2048`, 6-layer, `--no-op-offload` | 65.5 | 71.3 | crashed | — |
+| `-ub 4096`, 6-layer | did not load: 18.4 GB compute buffer on the 24 GB card | | | |
+
+Four readings. With host-op offload off, prefill is the CPU computing the
+experts and sits at 69–71 tok/s whatever the micro-batch — so the CPU path
+has a ceiling of about 70 here. With offload on, the CUDA backend copies the
+CPU-resident expert weights to the cards for every micro-batch, which at
+`-ub 512` is slower than the CPU (60 against 70) and at `-ub 2048` twice as
+fast (128; the server's own progress lines read 149–154 tok/s at 2048-token
+steps before the crash). The PCIe hypothesis is half right: offload is a
+transfer-bound path that pays off only when the micro-batch is large enough
+to amortize the copy, and the served `-ub 512` is on the wrong side of that
+line. Third, the crash: both `-ub 2048` arms aborted on the 11k prompt at
+37 % with `CUDA error: out of memory` in `ggml_cuda_pool_vmm::alloc` under
+`ggml_cuda_mul_mat_cublas` on the 24 GB card — the cuBLAS pool grows with
+the context during prompt processing and the reserve at load did not cover
+it. That is a robustness defect (an out-of-memory during a request should be
+an error, not an abort) and a candidate for the branch author. Fourth, the
+prompt cache: after the 11k prompt had been processed once, a request with
+the same prompt evaluated 516 tokens, one with 260 tokens appended evaluated
+775, so a coding client that grows its prefix pays 8–15 s per turn against
+185 s cold. That is the number that makes the served profile usable for
+coding today, larger micro-batch or not.
+
+What a coding profile needs, then: `-ub 2048` with enough free VRAM on the
+24 GB card for the compute buffer and the cuBLAS pool at 16k context, which
+means fewer expert layers on that card than the six-layer split — the next
+window is that placement, and `-ub 4096` on it if it fits. Filed as WKS-12.

@@ -47,7 +47,12 @@ confirming the rate came back.
 Work items go to the **WKS** project on the self-hosted tracker (`gadak
 --workspace gdk`, project key `WKS`). Findings that outrun an issue go to a
 wiki page in the `GDK` space and get linked from the issue by URL. Do not
-open a `TODO.md` here.
+open a `TODO.md` here. **Experiments carry the label `experiment`** — one
+issue per experiment with the measured state so far and what would settle
+it (user instruction 2026-09-14); the experiment queue in
+`docs/v41-experiment-plan.md` and those issues say the same thing. On the
+Mac the PATH `gadak` is a dev build whose home is `~/.gadak-dev`, so the
+`gdk` workspace needs `GADAK_HOME=$HOME/.gadak`.
 
 Friction with gadak itself goes to the **GDK** board as its own issue, with
 the command and its real output — routing around it destroys the evidence.
