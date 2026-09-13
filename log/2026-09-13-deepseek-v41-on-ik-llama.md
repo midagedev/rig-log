@@ -872,3 +872,10 @@ takes 13–21 after its first prompt and loses 6 %. The difference that fits
 is the engram row prefetch mainline gained in 86d01ece1 and ik does not
 have; porting it is the next change on ik, and the fault count is its gate.
 Details and the per-prompt rows are in the [docs file](../docs/ik-vs-mainline-v41-gap.md).
+
+The prefetch ported to ik in twenty-three lines (fork commit 57735010) and
+re-ran in the same window at 06:05: first pass **18.4 tok/s** against 13.6
+before, faults 1–11 a token against 41–62, second pass 19.0. The 20 % gap
+this entry spent a day on was the engram rows faulting in ik's compute
+thread, and it is closed cold as well as warm; ik and mainline are now within
+the band of each other at this placement without a draft.

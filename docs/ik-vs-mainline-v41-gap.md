@@ -237,3 +237,27 @@ its own 18.8, with the fault count as the gate. Row 1 is closed. Rows 2 and
 wait. The comparison table at the top of this file, cold against cold, was
 a fair comparison of what a user sees on a new prompt; it was not a fair
 description of the engines.
+
+## Measured: the prefetch, ported
+
+*2026-09-14, 06:05–06:17. ik fork commit 57735010, `llama : prefetch the
+engram rows a token will read before the graph runs` — the 86d01ece1 change
+placed in `llama_set_engram_rows`. Same window as the fault count above, ik
+arm only. IO pressure `some avg10` 13.0 at "up" (the load), 4.8 on the first
+request, then falling to 0.*
+
+| ik | pass 1 tok/s | pass 1 maj faults / token | pass 2 tok/s |
+|---|---:|---:|---:|
+| before (above) | 13.6 | 41–62 | 18.8 |
+| with the prefetch | **18.4** (18.38–18.58) | 10.9 on the first prompt, then 1.1–3.2 | 19.0 |
+
+The first pass moved from 13.6 to 18.4, which is the whole 28 % the fault
+count had attributed to it, and the residual faults are lower than
+mainline's 13–21 at the same point. Against mainline's first pass at the
+same split (18.6) ik is now within the load-to-load band cold as well as
+warm. The engram rows were the fault source; the ranked table's row 3 is
+done and the reading that put the gap in the GPU path is closed. What
+remains between the engines at this placement is 5 % warm, and the
+drafted pair (19.9 against 25.6) has not been re-measured with the ik
+prefetch in place — that comparison also carried a VRAM re-balance ik
+never had.
