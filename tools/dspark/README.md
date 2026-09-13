@@ -28,3 +28,10 @@ prompt (twenty) and every `n_max` inside that load, through the per-request
 next to each, since acceptance does not depend on load but tok/s does. It
 drops `/tmp/cpu-busy.flag` so a CPU benchmark running alongside holds its
 timing runs, and an EXIT trap restarts the serving process even on failure.
+
+`graft-gguf-tensors.py DST_SHARD DONOR OUT name...` copies a shard replacing the named tensors
+with the donor's (type, shape and bytes, no dequantization), verifies the inventory of the result
+and renames it into place under one flock. Used to build the `-tokembdBF16` (token embedding) and
+`-headBF16` (embedding plus output head) variants of the engram-Q8 target from the Q8_0 upload's
+last shard, which keeps both tensors in BF16: the DSpark draft borrows them from the target, and
+the reference draft was trained against bf16 copies, not the Q3_K / Q6_K of the Q3_K_M upload.
