@@ -67,22 +67,38 @@ those tensors cost at Q3_K.
 
 Two more variants, each built by the same repack against the same sources
 and measured with the same command, split the eight tensors into the big
-table and everything else.
+table and everything else. Every variant was verified the same way: the
+swapped tensor's bytes hashed against the Q8_0 source, and the tensors that
+were supposed to stay put hashed against the original and logged as
+untouched.
 
-| variant | `engram_embd` | `engram_wkv` | `engram_q/k` | extra bytes | PPL |
-|---|---|---|---|---|---|
-| the upload | Q3_K | Q3_K | Q3_K | — | 2.2438 ± 0.0631 |
-| small only | Q3_K | Q8_0 | BF16 | +0.2 GB | 2.2171 ± 0.0626 |
-| table only | Q8_0 | Q3_K | Q3_K | +125 GB | *pending* |
-| the repack | Q8_0 | Q8_0 | BF16 | +125 GB | 2.1090 ± 0.0585 |
+| variant | `engram_embd` | `engram_wkv` | `engram_q/k` | added | PPL | closes |
+|---|---|---|---|---|---|---|
+| the upload | Q3_K | Q3_K | Q3_K | — | 2.2438 ± 0.0631 | — |
+| small only | Q3_K | Q8_0 | BF16 | 0.2 GB | 2.2171 ± 0.0626 | 0.0267 |
+| table only | Q8_0 | Q3_K | Q3_K | 125 GB | 2.1391 ± 0.0591 | 0.1047 |
+| the repack | Q8_0 | Q8_0 | BF16 | 125 GB | 2.1090 ± 0.0585 | 0.1348 |
 
-The small tensors alone close 0.0267 of the 0.1348 gap — a fifth of it — for
-two hundred megabytes across the two layers. That is the cheap half of the
-finding, and it is worth separating from the table for a second reason:
-mainline's quantizer already exempts `engram_q` and `engram_k`
-(`llama-quant.cpp:315-318`), so part of this variant's gain is a defect of
-this particular upload rather than of mainline's defaults today. What the
-variant cannot separate is `wkv` from `q/k`; both moved together.
+The two halves are additive. They close 0.0267 and 0.1047 separately, 0.1314
+together, against 0.1348 measured for both at once — a residual of 0.0034,
+two and a half percent of the effect and far inside the error bars. Nothing
+here interacts; each group of tensors costs what it costs.
+
+What the split is really about is the price. The table carries roughly four
+fifths of the loss and asks 125 GB for it. The small tensors carry the
+remaining fifth and ask two hundred megabytes, which is about a hundred and
+sixty times more perplexity recovered per byte. A user who does not want a
+472 GB directory can still have the cheap fifth.
+
+Two honest limits. The small variant moved `engram_wkv` and the two gate
+vectors together, so it cannot say which of them carries that fifth; the
+gate vectors are two 5120x4 tensors per layer and the projection is 67 MB,
+which makes `wkv` the likely owner but not the measured one. And because the
+V4.1 branch already exempts the gate vectors, a conversion done with today's
+branch would start from a file that has part of this fixed — the upload
+predates that commit. Separating `wkv` alone is one more variant and about
+forty minutes, since without the table the shards are the original 42 GB
+rather than 104 GB.
 
 ## Fact recall
 
