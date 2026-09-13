@@ -218,6 +218,39 @@ does help is the clock. Two caveats: RAPL on Zen 3 through the
 cross-checked against a wall meter, and these are two-sample runs on a
 quiet machine, good for the shape of the curve and not for the third digit.
 
+### A second session was on the machine, and one measurement paid for it
+
+From 09:29 to 11:07 a `llama-server` this session did not start held both
+GPUs and about one core. Another Claude session on the same workstation had
+launched it, serving the original Q3_K_M on port 8001 for a different
+project. Nothing announced it: the load average was the only symptom, and a
+load average does not say who.
+
+Both perplexity runs above overlapped it. Perplexity is deterministic, so
+the numbers stand unchanged; what the contention bought was wall time, and
+the small variant's pass took 160 s against 87 s for the same work earlier
+in the day.
+
+One measurement was lost outright. A throughput comparison launched its own
+server on port 8001, then waited for `/health` to answer — and `/health`
+answered, from the server that was already there. It measured a stranger,
+cold, under a 472 GB `sha256sum`, and reported 5.44, 9.53 and 11.92 tok/s
+climbing run over run, which is the shape of a model still being paged in.
+The second engine then failed to start at all: `cudaMalloc failed: out of
+memory`, 29 GB asked for on a card whose 38 GB was already spoken for.
+
+Three things are now in the script rather than in someone's memory. It
+refuses to measure a port it did not open, and prints who is listening. It
+refuses to start when any process holds a GPU, and prints which. It waits
+for its own server's log line before trusting a health endpoint, and counts
+`sha256sum` and any `llama-server` as noise alongside the obvious ones.
+
+The general form is worth stating, because the first version of that script
+was written carefully and still got this wrong: on a machine more than one
+agent shares, "is the box quiet" is not a question about load. It is two
+questions about ownership — is anything else listening on my port, and does
+anything else hold a device I am about to ask for.
+
 ## Not measured, not claimed
 
 - Which of the four engram tensors carries the perplexity difference.
