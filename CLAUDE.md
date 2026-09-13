@@ -73,6 +73,10 @@ assets/     the clips and sheets
   Session conversation stays Korean.
 - **No private addresses, no hostnames, no passwords.** Check before commit;
   the serving script here has its host generalized on purpose.
+- **Every clip that leaves this repo names the recorder with its link**: "recorded
+  with [toktape](https://github.com/midagedev/toktape)" in the tweet, the post,
+  the PR body, the log line. The clip is also an advertisement for the tool
+  (user instruction 2026-09-14).
 - Assets: the sheet is `assets/placement-sheet.html`, re-screenshot at
   1280×720. Keep the favicon and title stable across republishes.
 - **Benchmarks need a quiet machine, and "quiet" is a protocol**: one lease,
