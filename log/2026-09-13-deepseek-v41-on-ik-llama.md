@@ -181,9 +181,37 @@ which repacks tensors at load and gives up mmap; neither is free, and `-rtr`
 against a 347 GB file with two never-resident tables is its own experiment.
 
 So the gap was measured with ik's default accelerations already on, and the
-one remaining excuse is the contended machine rather than the flags. The
-comparison that closes it — both engines, same prompt, quiet box — is the
-next entry's first table.
+one remaining excuse was the contended machine rather than the flags. The
+comparison that closes it ran at midday on a quiet box: no other perplexity,
+no repack, both GPUs and both ports empty before each engine started, the
+same engramQ8 file, the same placement, three 200-token greedy completions
+each, prefill and decode from the server's own timings.
+
+| prompt | mainline prefill | mainline decode | ik prefill | ik decode |
+| --- | --- | --- | --- | --- |
+| write-ahead log | 21.7 | 12.10 | 16.3 | 13.80 |
+| swapped-out page | 30.7 | 17.80 | 23.1 | 14.06 |
+| float addition | 31.0 | 17.30 | 23.1 | 14.18 |
+
+Mainline's first row is `--lazy-mode auto` warming up — the morning run on
+the same script ramped 5.4 / 9.5 / 11.9 the same way — so its steady
+number is 17–18 tok/s. ik's is 14, and it is 14 whether the machine is
+loaded (14.0 / 14.3 / 14.1 at load 28 this morning) or quiet (load 4). The
+contention excuse is gone: the port decodes about 20 % slower than
+mainline on this graph, and prefills about 25 % slower, with `fused_moe`
+and `flash_attn` on. Where the 20 % goes is not measured here; the
+candidates are the dsv4 graph path that ik's fused kernels were not written
+for, the reader layers' top-k reuse, and `-rtr`, which was not tried.
+
+The measurement script itself failed twice before it produced this table,
+and the second failure is worth one sentence: it waited for the server's
+readiness line with a pattern written from memory (`server is listening`),
+and neither engine prints that — mainline says `listening on http://`, ik
+says `HTTP server listening` — so it declared both halves "never became
+ready" fifteen minutes into a healthy load. The ik numbers above were
+taken by hand from the server the script was about to kill; the mainline
+half was rerun with the pattern fixed. The script is in
+`tools/engine-ab/` with the fix.
 
 Not claimed: a batch of one against the oracle,
 session save and restore of the compressed streams (written as empty with a
