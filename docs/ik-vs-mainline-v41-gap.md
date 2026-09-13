@@ -1,11 +1,13 @@
 # Where ik_llama.cpp loses to mainline on DeepSeek-V4.1: a source reading
 
 *2026-09-14. A read-only comparison of the two trees; nothing in this file was
-measured except where a number is cited from the log. The one experiment that
-decides it is at the end and has not been run yet.*
+measured except where a number is cited from the log. The experiment at the
+end was run the same morning; its result, and what it did to the table above,
+is in the section after it.*
 
-The measured gap, same box, same file, same draft, quiet machine, second pass
-after load ([log](../log/2026-09-13-deepseek-v41-on-ik-llama.md)):
+The measured gap, same box, same file, same draft, quiet machine, ~~second pass
+after load~~ — corrected below: both no-draft rows are **first pass after
+load** ([log](../log/2026-09-13-deepseek-v41-on-ik-llama.md)):
 
 | engine | no draft | DSpark block 3 |
 |---|---:|---:|
@@ -13,8 +15,10 @@ after load ([log](../log/2026-09-13-deepseek-v41-on-ik-llama.md)):
 | mainline (V4.1 runtime branch + master) | 17.7 | 25.6 |
 
 Only the no-draft pair is a like-for-like comparison (the 25.6 came after a
-VRAM re-balance the ik run never had). 14.1 against 17.7 is 70.9 against 56.5
-ms per token: 14.4 ms a token, 360 µs a layer. The draft multiplier is in fact
+VRAM re-balance the ik run never had). ~~14.1 against 17.7 is 70.9 against 56.5
+ms per token: 14.4 ms a token, 360 µs a layer.~~ Both numbers are first-pass
+figures, so that per-layer arithmetic was done on a cold number and does not
+describe the graph; see the measurement at the end. The draft multiplier is in fact
 better on ik (1.41× against 1.29×), so the draft path is not where the gap is.
 
 ## What ik already has
@@ -108,8 +112,11 @@ fresh-text numbers only, not the steady-state table.
 ## The experiment that decides it
 
 Run the ik no-draft configuration once with `GGML_CUDA_DISABLE_GRAPHS=1`
-(`ggml/src/ggml-cuda.cu:4711`). If it still measures 14.1, CUDA graphs were
-already off in the served run and the latch is the cause. Then, in order:
+(`ggml/src/ggml-cuda.cu:4711`). ~~If it still measures 14.1, CUDA graphs were
+already off in the served run and the latch is the cause.~~ That sentence
+did not discriminate: the same number is what "graphs latched off" and
+"graphs on but irrelevant" both produce. What the experiment can say is
+whether graphs are a lever at all. Then, in order:
 
 | # | change | where | kind | effort | should move |
 |---|---|---|---|---|---|
@@ -120,3 +127,62 @@ already off in the served run and the latch is the cause. Then, in order:
 
 Not recommended: CPU kernel work (the bench says ik leads), HC fusion (already
 there), scheduler copy-path work (ik already syncs less).
+
+## Measured: CUDA graphs are not the lever, and 14.1 was a cold number
+
+*2026-09-14, 05:11–05:33. ik `llama-server`, same file and placement as the
+table, `GGML_CUDA_NO_PINNED=1`, no draft, `cache_prompt` off, the first six
+of the twenty prompts, 200 greedy tokens each (prompt 3 stops at 26), two
+passes per arm, one load per arm, port 8099 with the production server
+stopped. Witness: IO pressure `some avg10` 0.63 / 1.81 at the start of each
+arm, the avg300 of 5–6 being the load itself; the coolant probe in the
+script matched nothing, so no temperature is on record for this window.
+Numbers are the server's own `eval time` lines; the script's summary line
+had a quoting bug and printed nothing.*
+
+| arm | pass 1, tok/s per prompt | pass 2, tok/s per prompt |
+|---|---|---|
+| CUDA graphs default | 13.97 · 13.26 · 13.22 · 14.86 · 14.27 · 13.22 | 19.03 · 18.86 · 19.61 · 18.90 · 18.95 · 18.93 |
+| `GGML_CUDA_DISABLE_GRAPHS=1` | 14.11 · 13.29 · 13.19 · 14.84 · 12.51 · 12.98 | 18.38 · 18.53 · 19.24 · 18.68 · 18.65 · 18.77 |
+
+Two things follow, one of them about the table at the top of this file.
+
+**Graphs on or off is inside the band.** Pass 2 medians 18.9 against 18.7,
+pass 1 13.6 against 13.2; the load-to-load band measured yesterday is 4 %.
+Removing the latch (row 1 of the ranked table) cannot gain what disabling
+graphs entirely does not lose, so row 1 is closed as a lever. Whether the
+latch fires is still not established; it just does not matter here.
+
+**The published 14.1 is a first-pass number, and so is mainline's 17.7.**
+Today's pass 1 lands inside yesterday's 14.13 (13.19–14.95) prompt for
+prompt, and pass 2 on the same prompts is 18.9, 35 % higher. The log's
+mainline row was also the first request after load (the block-5 rows under
+it are labelled first and second pass; the no-draft row preceded them). So
+the top table compares two cold numbers, which is a fair comparison, but
+the 70.9-against-56.5 ms reading treated them as steady state and was
+struck above. What a warm ik decodes against a warm mainline at the same
+split has not been measured: the mainline second pass without a draft at
+this placement does not exist in the log, and 17.7 divided by the 0.88
+first-to-second ratio seen with a draft is a derivation, not a number.
+
+Pass 2 on repeated prompts is a best case, not a steady state: the same
+tokens route to the same experts and the same engram rows. A novel prompt
+in production behaves like pass 1 on both engines, which is the case that
+matters and the case where the gap was measured.
+
+Why ik's first pass costs 35 % is not measured yet. The server's load
+lines put 411 GB of tensors in CPU buffers on a 251 GB box, so the CPU
+weights are memory-mapped and cannot all be resident; a first pass over a
+new prompt reads expert rows and engram rows from disk, a second pass finds
+them in the page cache. Mainline's first-pass penalty was 12 % with the
+engram prefetch in place. The measurement that separates the two is the
+major-fault count from `/proc/<pid>/stat` before and after each request,
+pass 1 against pass 2; if it is near zero in both, the penalty is not
+paging and row 4 (the reuse hash) moves up instead of row 3.
+
+The ranked table, re-read: row 1 closed; row 3 (engram prefetch, port of
+86d01ece1) is the candidate for the first-pass penalty pending the fault
+count; row 2 still applies to the drafted pairs only; row 4 waits on the
+fault count. The next window is one script: ik no-draft with fault counts
+per request, then mainline no-draft at the same six-layer split, two passes
+each.

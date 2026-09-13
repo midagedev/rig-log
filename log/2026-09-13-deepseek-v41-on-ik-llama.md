@@ -844,3 +844,20 @@ into a repeated sentence. An exact verifier should not change a greedy
 output; an IQ1_S target may simply be close enough to ties that a batched
 verify flips them. Not investigated further.
 
+
+### The deciding experiment for the ik gap, run
+
+The [source reading](../docs/ik-vs-mainline-v41-gap.md) ended on one
+experiment: ik without a draft, CUDA graphs default against
+`GGML_CUDA_DISABLE_GRAPHS=1`. It ran at 05:11–05:33 on the first six of the
+twenty prompts, two passes per arm, one load per arm, the production server
+stopped. The two arms are inside the load-to-load band in both passes
+(pass 2 medians 18.9 and 18.7), so the CUDA-graph latch is closed as a lever.
+The result that matters is the other one: pass 1 reproduces yesterday's 14.13
+prompt for prompt, and pass 2 on the same six prompts is **18.9 tok/s**, 35 %
+higher. The 14.1 in the tables above is therefore a first-pass number, and so
+is mainline's 17.7 on the row it is compared with; both are labelled that way
+in the docs file now, with the ms-per-layer arithmetic built on them struck.
+The next window counts major page faults per request on the ik side and adds
+the mainline second pass at the same six-layer split, which the log does not
+have.
