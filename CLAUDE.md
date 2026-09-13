@@ -75,3 +75,7 @@ assets/     the clips and sheets
   the serving script here has its host generalized on purpose.
 - Assets: the sheet is `assets/placement-sheet.html`, re-screenshot at
   1280×720. Keep the favicon and title stable across republishes.
+- **Benchmarks need a quiet machine, and "quiet" is a protocol**: one lease,
+  IO pressure rather than load average, the witness recorded in every row,
+  and delegates get the runner script rather than an instruction. The method
+  and the incidents behind it are [`docs/quiet-machine.md`](docs/quiet-machine.md).
