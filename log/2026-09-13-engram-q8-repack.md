@@ -175,9 +175,31 @@ Given the table is never resident, a default of Q8_0 for `engram_embd` costs
 the user disk and nothing else, and the perplexity table above is the
 evidence. The recipient is therefore the branch author rather than a
 maintainer of merged code, and the right moment is when the C++ half of V4.1
-support goes up. It goes into `docs/upstream-contributions.md` once the
-four-tensor attribution above is complete, because a report that says "the
-table" should have shown that it is the table.
+support goes up.
+
+The attribution above is what makes it reportable: a claim about "the table"
+had to show that it is the table, and now it does, along with the cheaper
+half that a user without 125 GB can still take. The candidate is recorded in
+[`docs/upstream-contributions.md`](../docs/upstream-contributions.md); it is
+not filed, and filing is not this session's call.
+
+The searches behind "nobody upstream has this", verbatim, so the absence is
+checkable by someone else:
+
+```
+gh search issues --repo ggml-org/llama.cpp engram
+gh search prs    --repo ggml-org/llama.cpp engram
+gh search issues --repo ggml-org/llama.cpp "engram quantization"
+gh search prs    --repo ggml-org/llama.cpp "llama-quant engram"
+gh search code   --repo ggml-org/llama.cpp engram_embd
+gh api graphql -f query='query{ search(query: "repo:ggml-org/llama.cpp engram
+  quantization", type: DISCUSSION, first: 5){ discussionCount } }'
+gh api repos/ggml-org/llama.cpp/contents/src/llama-quant.cpp | base64 -d | grep -i engram
+```
+
+The code search returned nothing, the discussion count was zero, the file
+holds no `engram` at all, and the only two hits anywhere were the open draft
+#28696 and the closed #19654.
 
 ## The thermal guard fired, twice
 
