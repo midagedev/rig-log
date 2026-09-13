@@ -119,8 +119,10 @@ ik_llama.cpp implements this family under its **DFlash** companion
 architecture, and the GGUF it wants is `arch = dflash`.
 
 The Q3_K_M upload has none of these tensors (1046 tensors, exactly the 40
-body blocks), so the draft had to come from the fp8 original. Mainline's
-converter refuses `--dspark` for anything but `DeepseekV4ForCausalLM`
+body blocks), so the draft had to come from the fp8 original. The V4.1
+branch's converter (`vcruz305/llama.cpp`, which is what "mainline" means
+throughout this entry, since upstream has no V4.1 outside an open draft)
+refuses `--dspark` for anything but `DeepseekV4ForCausalLM`
 (`convert_hf_to_gguf.py:269-274`); a working copy widened the gate with a
 `DeepseekV41DSparkModel` that inherits the V4.1 dequantizer — the fp8 block
 is [32,32] on V4.1 against [128,128] on V4, and getting that wrong produces

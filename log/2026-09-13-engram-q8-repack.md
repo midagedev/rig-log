@@ -126,19 +126,42 @@ show up as speed is speculative decoding, which verifies draft tokens
 against the target's confidence; that measurement waits on the DSpark port
 in ik_llama.cpp (`log/2026-09-13-deepseek-v41-on-ik-llama.md`).
 
-## What the quantizer does today
+## What the quantizer does today, and where upstream actually is
 
-Mainline `src/llama-quant.cpp` already keeps `engram_q.weight` and
-`engram_k.weight` unquantized (lines 315–318, with the comment that
-`ggml_mul` has no quantized path); the upload has them at Q3_K, so it
-predates that rule or was built with another tool. There is no rule for
-`engram_embd.weight` or `engram_wkv.weight`, which is why the table ends up
-at whatever the body type is. Given the table is never resident, a default of
-Q8_0 for `engram_embd` costs the user disk and nothing else, and the
-perplexity table above is the evidence. That is an upstream candidate; it
-goes to `docs/upstream-contributions.md` once the four-tensor attribution
-above is measured, since a PR that says "the table" should have shown it is
-the table.
+This section first read ~~mainline `src/llama-quant.cpp` already keeps
+`engram_q.weight` and `engram_k.weight` unquantized~~. That was wrong about
+which tree, and the mistake matters because it is the difference between
+"already fixed upstream" and "nobody upstream has seen this yet".
+
+Upstream `ggml-org/llama.cpp` has no engram in `llama-quant.cpp`, and no
+DeepSeek-V4.1 at all. Its V4.1 support is an open draft pull request,
+[#28696](https://github.com/ggml-org/llama.cpp/pull/28696), 443 added lines
+that touch only `conversion/` and `gguf-py/` with no C++ in them. An earlier
+engram pull request, #19654, was closed in February without merging.
+
+What every entry here calls mainline is the llama.cpp *line* rather than the
+ik fork, and concretely it is `vcruz305/llama.cpp`, the V4.1 branch written
+by the same person who published the GGUF files this machine serves. The
+gate-vector exemption is that branch's, committed 2026-09-11:
+
+```c
+// DeepSeek-V4.1 engram gate scales: one value per channel, applied with
+// ggml_mul, which has no quantized path.
+quantize &= name.find("engram_q.weight") == std::string::npos;
+quantize &= name.find("engram_k.weight") == std::string::npos;
+```
+
+The upload still carries them at Q3_K, so it was built before that commit or
+with another tool. No tree has a rule for `engram_embd.weight` or
+`engram_wkv.weight`, which is why the table takes the body's type.
+
+Given the table is never resident, a default of Q8_0 for `engram_embd` costs
+the user disk and nothing else, and the perplexity table above is the
+evidence. The recipient is therefore the branch author rather than a
+maintainer of merged code, and the right moment is when the C++ half of V4.1
+support goes up. It goes into `docs/upstream-contributions.md` once the
+four-tensor attribution above is complete, because a report that says "the
+table" should have shown that it is the table.
 
 ## The thermal guard fired, twice
 
