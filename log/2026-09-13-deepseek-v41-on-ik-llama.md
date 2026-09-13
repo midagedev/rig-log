@@ -180,9 +180,11 @@ drive (so the tok/s are contended, the acceptance rates are not):
 | draft, as converted [38,39,40] | 9.2 / 8.7 / 11.4 | 413 / 452 / 343 | 115 (28 %) / 108 (24 %) / 128 (37 %) |
 
 Two things follow and one does not. The draft runs end to end on this
-box, which it did not this morning. It is below break-even: at a quarter to
+box, which it did not this morning. ~~It is below break-even: at a quarter to
 two fifths accepted, a five-token block costs more target work than it
-saves, and decode gets slower with the draft than without. What does not
+saves, and decode gets slower with the draft than without.~~ (Struck the same
+afternoon: twenty prompts and a smaller block put it above break-even; the
+table below.) What does not
 follow is the off-by-one: the corrected ids did not move acceptance outside
 the noise of three prompts, so either the correction is right and something
 else in the draft graph is also wrong, or the capture point is not what the
@@ -213,6 +215,38 @@ block position see the whole block. A draft trained on one mask and run on
 the other computes different hidden states at every block position after the
 first. That is the suspect now, and a copy of the draft with the key set to
 false is the test.
+
+### Twenty prompts instead of three, and the block size
+
+The three-prompt table above has error bars wide enough to hide the
+answer, so the next gate loaded the corrected draft once and ran twenty
+prompts through it, changing the block size per request (`speculative.n_max`
+is a request-level override in ik's server). The machine was not quiet — a
+CPU benchmark was running alongside, load average 18 to 24 — so the tok/s
+column is a floor, not the number; acceptance does not depend on load.
+
+| block (`n_max`) | drafted | accepted | per-prompt median (min–max) | decode tok/s, median |
+|---|---|---|---|---|
+| 5 | 5181 | 2128 (41.1 %) | 45 % (13–87) | 13.4 |
+| 3 | 3590 | 1968 (54.8 %) | 61 % (20–88) | 18.9 |
+
+Two things change. First, the verdict: 18.9 tok/s under load 24 is above the
+14 tok/s the same binary decodes without a draft on a quiet box, so the
+draft pays, and the morning's "below break-even" was the product of three
+prompts and a five-token block. Second, the block: positions four and five of
+a five-token block are accepted rarely enough that they cost more
+verification than they return; a three-token block takes fourteen points
+more acceptance and five and a half tok/s. The per-prompt spread is the other
+thing the three-prompt table could not show — 13 % on a prose continuation,
+87 % on a SQL query — and it is the reason no three-prompt sample of this
+draft agrees with another.
+
+The `causal=false` copy of the draft measured identical to the original on
+every prompt, to the decimal. That is not the hypothesis failing; it is the
+key being ignored — ik reads `attention.causal` only for the `dflash2`
+architecture, and this draft is `dflash`. The two arms are a control, and the
+control says the switch was not wired. A one-line patch in the ik tree reads
+the key for `dflash` drafts too; the run with that binary is the actual test.
 
 The third and last run of that gate also produced a measurement of the
 measurer: the gate script was edited while it was running, bash read the
