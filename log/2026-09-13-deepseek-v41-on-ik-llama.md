@@ -306,16 +306,49 @@ harness stopped the arm instead of skipping the prompt; fixed in the
 script). The mask was a real mismatch and it was not the cause. The patch
 stays because it matches the reference, not because it pays.
 
-What remains is not in the code. The draft has no embedding and no head of
-its own; it borrows the target's, and in this target those are `token_embd`
-at Q3_K and `output` at Q6_K where the draft was trained against bf16
-copies. The uploader's Q8_0 set keeps both in bf16, so two variants of the
-target were built by grafting those two tensors into shard 1
-(`tools/dspark/graft-gguf-tensors.py`; the other eight shards are hard
-links): one with the bf16 embedding, one with embedding and head. They are
-the next two sweeps. Behind them stand the noise sources that cannot be
-grafted away: the target's hidden features come from a Q3_K body, and the
-draft's own experts are an MXFP4 re-quantization of fp8.
+What remains is not in the code, and the next two runs found some of it.
+The draft has no embedding and no head of its own; it borrows the target's,
+and in this target those are `token_embd` at Q3_K and `output` at Q6_K where
+the draft was trained against bf16 copies. The uploader's Q8_0 set keeps
+both in bf16, so two variants of the target were built by grafting those two
+tensors into shard 1 (`tools/dspark/graft-gguf-tensors.py`; the other eight
+shards are hard links, the whole thing costs 2 GB of disk): one with the bf16
+embedding, one with embedding and head. Same twenty prompts, same patched
+binary, all twenty completed in both:
+
+| target shard 1 | `n_max` 5 | per-prompt median (min–max) | `n_max` 3 | per-prompt median (min–max) |
+|---|---|---|---|---|
+| upload (Q3_K embedding, Q6_K head), causal mask | 41.1 % | 45 % (13–87) | 54.8 % | 61 % (20–88) |
+| upload, reference mask | 41.6 % | 50 % (11–78) | 62.8 %* | 64 % (25–85) |
+| bf16 embedding | **45.5 %** | 53 % (22–81) | **60.1 %** | 63 % (30–86) |
+| bf16 embedding and head | 46.2 % | 52 % (20–80) | 59.9 % | 65 % (24–84) |
+
+\* eleven prompts, the run that stopped on a 500; the same eleven measured
+59.1 % with the causal mask.
+
+The embedding is the one that moves. Four points at a five-token block over
+the same binary with the upload's shard, and the floor of the per-prompt
+spread rises from 11 % to 22 % — the prompts the draft did worst on are the
+ones the 3-bit embedding was hurting most. The head on top of it changes
+nothing: 0.7 points one way at one block size, 0.2 the other way at the
+other, and prompt by prompt six up, six down, eight unchanged. At the
+three-token block the two changes cannot be cleanly separated, because the
+mask-only run did not finish; what the twenty prompts say is 54.8 % with the
+upload's shard and 60.1 % with the bf16 embedding, mask included in the
+second. The tok/s columns of these runs are again floors, load 19–28.
+
+So the borrowed embedding was a real part of the gap and the borrowed head
+was not. For the machine, the recipe is one grafted shard: keep `token_embd`
+in bf16 when a DSpark draft will run against the target. The cost is
+1.3 GB of RAM at load. For the uploaders, the same sentence is the
+recommendation. Two noise sources are left and neither is grafted away: the
+target's hidden features come from a Q3_K body, and the draft's own experts
+are an MXFP4 re-quantization of fp8. The draft file is 8 GB, so a Q8_0
+re-conversion of it is the cheap next test; a higher-precision target is not
+cheap on this machine. For scale, the draft's publisher reports a mean
+acceptance length of 3.57 tokens per step on its own benchmarks; a five-token
+block at 45.5 % is 2.3 drafted tokens accepted per step plus the verified
+one, which is in the same neighbourhood on a different workload.
 
 ## Costs and what is not claimed
 
