@@ -19,7 +19,15 @@ source <(sed -n "/^M=/p; /^OT=/p; /^liq()/p" ~/engine-ab.sh)
 # TGT overrides the served target (a variant shard set); TAG lands in every file name and JSONL row
 M=${TGT:-$M}
 TAG=${TAG:-base}
-IK=$HOME/ik_llama.cpp/build/bin/llama-server
+# ENGINE=ik (default) or ml: mainline llama.cpp with its merged DSpark (-md/--spec-type draft-dspark);
+# ENGINE_BIN overrides the binary. THREADS sets -t (default 32).
+ENGINE=${ENGINE:-ik}
+case "$ENGINE" in
+  ik) BIN=${ENGINE_BIN:-$HOME/ik_llama.cpp/build/bin/llama-server}; EXTRA=() ;;
+  ml) BIN=${ENGINE_BIN:-$HOME/llama.cpp-v41/build/bin/llama-server}; EXTRA=(--lazy-mode auto); unset GGML_CUDA_NO_PINNED GGML_CUDA_NO_PINNED_WEIGHTS ;;
+  *) echo "ENGINE must be ik or ml"; exit 2 ;;
+esac
+THREADS=${THREADS:-32}
 DIR=/models/DeepSeek-V4.1-Flash-DSpark
 declare -A DRAFT=([tl37]=$DIR/DeepSeek-V4.1-Flash-Fp8-128x742M-MXFP4_MOE.tl37.gguf
                   [tl37nc]=$DIR/DeepSeek-V4.1-Flash-Fp8-128x742M-MXFP4_MOE.tl37nc.gguf)
@@ -78,11 +86,12 @@ run_arm() {  # $1 arm; the arm "nodraft" serves the target alone and ignores NMA
   local arm=$1 d=${DRAFT[$1]:-} spec=()
   if [ "$arm" != nodraft ]; then
     [ -f "$d" ] || { say "$arm: missing $d"; return 1; }
-    spec=(--model-draft "$d" --spec-type "dspark:n_max=5")
+    if [ "$ENGINE" = ik ]; then spec=(--model-draft "$d" --spec-type "dspark:n_max=5")
+    else spec=(-md "$d" --spec-type draft-dspark --draft-max 5); fi
   fi
   local t0=$(date +%s)
-  $IK -m "$M" -c 16384 -ngl 99 -t 32 -b 2048 -ub 2048 -ot "$OT" --host 127.0.0.1 --port $PORT \
-      "${spec[@]}" > "/tmp/dspark-sweep-srv-$TAG-$arm.log" 2>&1 &
+  "$BIN" -m "$M" -c 16384 -ngl 99 -t "$THREADS" -b 2048 -ub 2048 -ot "$OT" --host 127.0.0.1 --port $PORT \
+      "${EXTRA[@]}" "${spec[@]}" > "/tmp/dspark-sweep-srv-$TAG-$arm.log" 2>&1 &
   SP=$!
   local ready=""
   for i in $(seq 1 240); do
