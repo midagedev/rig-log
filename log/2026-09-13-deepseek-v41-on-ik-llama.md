@@ -357,6 +357,58 @@ acceptance length of 3.57 tokens per step on its own benchmarks; a five-token
 block at 45.5 % is 2.3 drafted tokens accepted per step plus the verified
 one, which is in the same neighbourhood on a different workload.
 
+### The levers, pulled, and the final table
+
+Everything above was measured with something else running. The last window of
+the day put all of it on a quiet box in one sequence, with the serving process
+stopped at the start and restarted at the end, and pulled the two levers the
+profile had left: pinned memory and the choice of engine on the CPU side.
+
+The pinned-memory lever looked like the largest candidate on paper. When `-ot`
+sends tensors to the CPU, ik's loader (`src/llama-load-tensors.cpp`) drops
+mmap so that those weights land in pinned host memory; with 411 GB on the CPU
+side that allocation cannot succeed, and the documented escape,
+`GGML_CUDA_NO_PINNED=1`, also makes `ggml_cuda_host_malloc` return null for
+every staging buffer, so every host-to-device copy in the graph goes through
+pageable memory. A four-line patch adds `GGML_CUDA_NO_PINNED_WEIGHTS`: the
+weights stay mmapped and unpinned, the staging buffers stay pinned. Measured
+on the same three prompts, no draft, bf16-embedding target: **13.63 tok/s
+pageable, 13.60 with pinned staging.** The lever moves nothing on this graph,
+so the patch stays uncommitted and the candidate is closed.
+
+The engine lever on the CPU side is the small-model kernel bench, run by a
+delegate on the same box: on a dense Qwen2.5-7B Q3_K_M at 32 threads ik
+decodes 32.0 tok/s against mainline's 30.4 and prefills at 217 against 104;
+on DeepSeek-V2-Lite Q3_K_M (a deepseek2 MoE) 73.5 against 66.2 and 447
+against 201. `-rtr` and `-fmoe 0` are within 5 % of the defaults on both. So
+on CPU matmul ik is ahead, not behind, and the V4.1 gap of 20 % decode and
+25 % prefill against mainline is not a generic kernel deficit. That bench also
+cost a fifth collision: its own gate was the load average again, and its last
+round ran through this window's CPU-only V4.1 measurement, so both were
+discarded and the CPU-only comparison was rerun (below). The method note is
+[`docs/quiet-machine.md`](../docs/quiet-machine.md).
+
+The final table is the bf16-embedding target on the production placement,
+ik `llama-server`, twenty greedy 200-token prompts per arm, one model load per
+arm, nothing else on the box (the load average of 17–31 in the rows is the
+server's own 32 threads on 32 cores). No draft, then the three-token and
+five-token blocks:
+
+| arm | drafted | accepted | decode tok/s, median (min–max) | prompts faster than no draft |
+| --- | --- | --- | --- | --- |
+| no draft | — | — | 14.13 (13.19–14.95) | — |
+| DSpark, `n_max` 5 | 4808 | 2187 (45.5 %) | 14.33 (8.42–20.89) | 11 / 20 |
+| DSpark, `n_max` 3 | 3321 | 1996 (60.1 %) | **19.86** (11.41–28.89) | 17 / 20 |
+
+The acceptance rates reproduce the earlier contended runs to the decimal,
+which is what acceptance should do. The rates are the new numbers: the
+three-token block is **41 % faster than no draft** at the median, per-prompt
+1.43× (0.81–1.95), and the five-token block is break-even. Against mainline
+without a draft (17–18 tok/s on the same file, quiet box, above), the port
+with its draft now decodes faster than mainline does without one, which is
+the first time today that sentence has been true. The gap itself is still
+there underneath: 14.1 against 17–18 without the draft.
+
 ## Costs and what is not claimed
 
 Every test costs a four-minute model load: 256 GB mapped from a file that
@@ -444,8 +496,10 @@ half was rerun with the pattern fixed. The script is in
 Not claimed: a batch of one against the oracle,
 session save and restore of the compressed streams (written as empty with a
 TODO), the MTP graph (asserted off), `-rtr` and the prefetch exemption for
-the engram table, and ~~any speed~~ any speed beyond the one quiet-box
-A/B above — no cause for the 20 %, no `-rtr`, no draft. The reader layers reuse the index source's
+the engram table, and ~~any speed~~ ~~any speed beyond the one quiet-box
+A/B above — no cause for the 20 %, no `-rtr`, no draft~~ — the final table
+above now carries the draft on a quiet box; still not claimed are a cause for
+the 20 % (pinned memory and the CPU kernels are both excluded now) and `-rtr`. The reader layers reuse the index source's
 top-k rather than attending densely as mainline does; the four-chunk
 perplexity does not distinguish the two, and a longer context might.
 
