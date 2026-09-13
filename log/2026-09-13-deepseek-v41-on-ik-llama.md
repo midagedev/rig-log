@@ -373,8 +373,16 @@ every staging buffer, so every host-to-device copy in the graph goes through
 pageable memory. A four-line patch adds `GGML_CUDA_NO_PINNED_WEIGHTS`: the
 weights stay mmapped and unpinned, the staging buffers stay pinned. Measured
 on the same three prompts, no draft, bf16-embedding target: **13.63 tok/s
-pageable, 13.60 with pinned staging.** The lever moves nothing on this graph,
-so the patch stays uncommitted and the candidate is closed.
+pageable, 13.60 with pinned staging.** Two loads of the identical no-draft
+configuration an hour apart gave 13.63 and 14.13, so the load-to-load band is
+about 4 %, and the verdict is that pinned staging is inside it on this graph.
+On a small hybrid model it is not: DeepSeek-V2-Lite Q3_K_M with its experts on
+the CPU (`llama-bench`, tg128, three repeats) decodes 60.1 tok/s with
+everything pageable, 66.0 with pinned staging, 65.1 with everything pinned
+the way ik does by default — and mainline, same file, same placement, 68.9.
+So the escape hatch does cost 10 % where the weights are small enough to pin,
+which is what the patch is for; it is committed on the fork as 3ded8071 with
+the V4.1 number in its message, and the V4.1 candidate is closed.
 
 The engine lever on the CPU side is the small-model kernel bench, run by a
 delegate on the same box: on a dense Qwen2.5-7B Q3_K_M at 32 threads ik
@@ -385,13 +393,31 @@ on CPU matmul ik is ahead, not behind, and the V4.1 gap of 20 % decode and
 25 % prefill against mainline is not a generic kernel deficit. That bench also
 cost a fifth collision: its own gate was the load average again, and its last
 round ran through this window's CPU-only V4.1 measurement, so both were
-discarded and the CPU-only comparison was rerun (below). The method note is
+discarded and the CPU-only comparison was rerun alone. The method note is
 [`docs/quiet-machine.md`](../docs/quiet-machine.md).
+
+That rerun is the number that locates the loss. V4.1 itself, the same
+bf16-embedding file, `-ngl 0` and no GPU visible, `llama-bench` tg64 with
+two repeats, nothing else on the box (IO pressure 0.08 at the start, no
+other `llama-*` process): **ik decodes 9.80 tok/s, mainline 7.98.** The
+prefill numbers (18.9 ± 10.7 and 16.0 ± 4.1) are too noisy at two repeats to
+rank. So on this very graph, all on the CPU, ik is 23 % ahead — and on the
+production placement, with six layers of experts and all the attention on
+the GPUs, it is 20 % behind. The whole gap, and then some, is in the hybrid
+path: what ik does between the CPU experts and the GPU — the host-to-device
+traffic per token, the split of the graph, the scheduler — and not in the
+matmul. The small-model hybrid bench above says the same thing at smaller
+scale (66 against 69 on V2-Lite). That is the performance-improvement point
+this bench was run to find, and it is a different place to read than the
+kernels this entry has been profiling.
 
 The final table is the bf16-embedding target on the production placement,
 ik `llama-server`, twenty greedy 200-token prompts per arm, one model load per
-arm, nothing else on the box (the load average of 17–31 in the rows is the
-server's own 32 threads on 32 cores). No draft, then the three-token and
+arm, nothing else launched on the box: the kernel bench's command log ends at
+16:17 and its process sampler, which listed live `llama-*` pids every ten
+seconds, shows only this window's server until it was stopped at 16:48; after
+that the witness is the window script alone. The load average of 17–31 in
+the rows is the server's own 32 threads on 32 cores. No draft, then the three-token and
 five-token blocks:
 
 | arm | drafted | accepted | decode tok/s, median (min–max) | prompts faster than no draft |
@@ -401,10 +427,19 @@ five-token blocks:
 | DSpark, `n_max` 3 | 3321 | 1996 (60.1 %) | **19.86** (11.41–28.89) | 17 / 20 |
 
 The acceptance rates reproduce the earlier contended runs to the decimal,
-which is what acceptance should do. The rates are the new numbers: the
+which is what acceptance should do. The outputs do not: at `n_max` 5 only 3
+of the 20 greedy texts are identical to the no-draft text, and the other 17
+diverge after 32 to 493 characters, so the drafted arms and the no-draft arm
+are timed on continuations that share a prefix and then differ. Earlier in
+the day two drafted arms were identical to the character, which fits: the
+verification batch and single-token decode round differently, and greedy
+argmax flips on a near-tie. The tok/s comparison stands (the texts are the
+same length within a few percent); a claim that drafting leaves greedy output
+unchanged would not. The rates are the new numbers: the
 three-token block is **41 % faster than no draft** at the median, per-prompt
 1.43× (0.81–1.95), and the five-token block is break-even. Against mainline
-without a draft (17–18 tok/s on the same file, quiet box, above), the port
+without a draft (17–18 tok/s, quiet box, above — same body, but the
+engramQ8 shard 1 with the Q3_K embedding rather than the grafted one), the port
 with its draft now decodes faster than mainline does without one, which is
 the first time today that sentence has been true. The gap itself is still
 there underneath: 14.1 against 17–18 without the draft.
