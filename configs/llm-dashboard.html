@@ -50,7 +50,7 @@
  <tr><td class="l">ik_llama.cpp 포트, GPU 경로</td><td class="l"><code>GGML_CUDA_NO_PINNED=1 -ngl 99</code>, 운영 배치</td><td><span class="best">2.2270</span> (CPU 2.2258)</td><td class="l">CUDA 경로 = CPU 경로. 청크당 39초(CPU 87초). VRAM 28.8 / 15.4 GB</td><td class="l best">게이트 통과</td></tr>
  <tr><td class="l">ik_llama.cpp 디코드 tok/s</td><td class="l">같은 배치, 8099, 200tok×3</td><td id="ik-tps">14.0 / 14.3 / 14.1</td><td class="l">첫 ik 숫자, ik 기본 플래그(-fmoe·-mla·-fa·-rtr 없음), 리팩 I/O와 겹친 <b>혼잡 측정</b>. 같은 시각 메인라인은 17–19. 조용한 머신에서 ik 플래그를 켜고 다시 재야 비교가 된다</td><td class="l dim" id="ik-tps-st">혼잡·기본 플래그</td></tr>
  <tr><td class="l">DSpark 드래프트 추출</td><td class="l">fp8 원본 mtp.0–2 → <code>arch=dflash</code> GGUF</td><td>7.97 GB · 78 텐서</td><td class="l">Q8 왕복 오차 5.4e-3(블록 [32,32] 정상; [128,128]이면 0.144). ik 로더의 <code>output_hc_*</code> 필수 해제와 드래프트 그래프 V4.1 규칙이 남음</td><td class="l dim">파일만</td></tr>
- <tr><td class="l">engram 텐서 귀속</td><td class="l">embd만 Q8 / wkv·q·k만 Q8 두 변형, 같은 PPL 명령</td><td>—</td><td class="l">업스트림 "engram_embd Q8_0 기본" PR의 근거. 서브에이전트 진행 중</td><td class="l dim">진행 중</td></tr>
+ <tr><td class="l">engram 텐서 귀속</td><td class="l">embd만 Q8 / wkv·q·k만 Q8 두 변형, 같은 PPL 명령</td><td>small만: <span class="best">2.2171</span></td><td class="l">wkv+q/k만 Q8/BF16(+0.2 GB)이 6% 격차의 1/5을 메운다. embd만 바꾼 변형은 측정 중. 업스트림 "engram_embd Q8_0 기본" PR의 근거</td><td class="l dim">절반 완료</td></tr>
 </tbody></table></div>
 
 <h2>bench-serve 로그 <span class="note">bench-serve.sh 가 기록(오늘 것만 표시). 같은 프롬프트 두 번이면 두 번째는 engram 행이 캐시에 남아 major fault 0 — cold 와 warm 의 차이가 곧 engram 비용이다.</span></h2>

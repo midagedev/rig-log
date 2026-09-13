@@ -61,9 +61,28 @@ tokens, hence the wide ±.
 
 Six percent lower, and the intervals do not overlap. The computation is
 deterministic and the two files differ in eight tensors, so this is what
-those tensors cost at Q3_K. What is not separated is *which* of the four:
-the big table, the `wkv` projection, or the two gate vectors that went to
-BF16. That is one more repack per variant if it matters.
+those tensors cost at Q3_K.
+
+### Which of the four tensors
+
+Two more variants, each built by the same repack against the same sources
+and measured with the same command, split the eight tensors into the big
+table and everything else.
+
+| variant | `engram_embd` | `engram_wkv` | `engram_q/k` | extra bytes | PPL |
+|---|---|---|---|---|---|
+| the upload | Q3_K | Q3_K | Q3_K | — | 2.2438 ± 0.0631 |
+| small only | Q3_K | Q8_0 | BF16 | +0.2 GB | 2.2171 ± 0.0626 |
+| table only | Q8_0 | Q3_K | Q3_K | +125 GB | *pending* |
+| the repack | Q8_0 | Q8_0 | BF16 | +125 GB | 2.1090 ± 0.0585 |
+
+The small tensors alone close 0.0267 of the 0.1348 gap — a fifth of it — for
+two hundred megabytes across the two layers. That is the cheap half of the
+finding, and it is worth separating from the table for a second reason:
+mainline's quantizer already exempts `engram_q` and `engram_k`
+(`llama-quant.cpp:315-318`), so part of this variant's gain is a defect of
+this particular upload rather than of mainline's defaults today. What the
+variant cannot separate is `wkv` from `q/k`; both moved together.
 
 ## Fact recall
 
