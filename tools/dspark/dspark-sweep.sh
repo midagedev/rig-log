@@ -87,7 +87,12 @@ run_arm() {  # $1 arm; the arm "nodraft" serves the target alone and ignores NMA
   if [ "$arm" != nodraft ]; then
     [ -f "$d" ] || { say "$arm: missing $d"; return 1; }
     if [ "$ENGINE" = ik ]; then spec=(--model-draft "$d" --spec-type "dspark:n_max=5")
-    else spec=(-md "$d" --spec-type draft-dspark --spec-draft-n-max 5); fi
+    else
+      # mainline ignores the request's speculative.n_max (server-schema.cpp keeps it under #if 0), so the
+      # block size is a server flag here and one ENGINE=ml run measures one block: NMAXES must be a single value
+      case "$NMAXES" in *" "*) echo "ENGINE=ml: NMAXES must be one value (mainline ignores per-request n_max)"; exit 2;; esac
+      spec=(-md "$d" --spec-type draft-dspark --spec-draft-n-max "$NMAXES")
+    fi
   fi
   local t0=$(date +%s)
   "$BIN" -m "$M" -c 16384 -ngl 99 -t "$THREADS" -b 2048 -ub 2048 -ot "$OT" --host 127.0.0.1 --port $PORT \

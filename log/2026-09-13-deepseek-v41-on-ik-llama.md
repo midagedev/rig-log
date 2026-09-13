@@ -357,7 +357,7 @@ acceptance length of 3.57 tokens per step on its own benchmarks; a five-token
 block at 45.5 % is 2.3 drafted tokens accepted per step plus the verified
 one, which is in the same neighbourhood on a different workload.
 
-### The levers, pulled, and the final table
+### The levers, pulled, and the final table for ik
 
 Everything above was measured with something else running. The last window of
 the day put all of it on a quiet box in one sequence, with the serving process
@@ -504,7 +504,7 @@ enough that the extra two drafted tokens cost what they return. The
 acceptance rates match ik's to within a point and a half on both blocks,
 which is the port working. The machine's number for DeepSeek-V4.1-Flash
 with a draft, on a quiet box, warmed, is **22.8 tok/s median, 29.7 best**,
-29 % over mainline without the draft and 61 % over ik with it. The 25 the
+29 % over mainline without the draft, ~~61 % over ik with it~~ — corrected within the hour: 61 % over ik *without* a draft (14.1) and 15 % over ik with its own block-3 draft (19.9). The 25 the
 day was aiming at is the median of eight prompts out of twenty, not of the
 set; what stands between 22.8 and 25 is the mainline no-draft rate itself,
 which the hybrid-path finding above says is where the next work is. The
@@ -594,6 +594,15 @@ ready" fifteen minutes into a healthy load. The ik numbers above were
 taken by hand from the server the script was about to kill; the mainline
 half was rerun with the pattern fixed. The script is in
 `tools/engine-ab/` with the fix.
+
+Not claimed for the mainline draft port: that a V4 draft still loads
+through it (the head tensors only become optional when `output_hc_base.weight`
+is absent, so it should, but no V4 draft was run), and that its acceptance
+matches the reference implementation — the evidence is that it matches ik's
+port within a point and a half on both block sizes, and ik's port was the one
+audited against `inference/model.py`. The build also carries two unmerged
+upstream PRs (#27569, #26575), so the serving numbers are for that tree, not
+for master.
 
 Not claimed: a batch of one against the oracle,
 session save and restore of the compressed streams (written as empty with a
