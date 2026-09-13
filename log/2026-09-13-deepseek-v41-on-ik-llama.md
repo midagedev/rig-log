@@ -342,10 +342,17 @@ was not. For the machine, the recipe is one grafted shard: keep `token_embd`
 in bf16 when a DSpark draft will run against the target. The cost is
 1.3 GB of RAM at load. For the uploaders, the same sentence is the
 recommendation. Two noise sources are left and neither is grafted away: the
-target's hidden features come from a Q3_K body, and the draft's own experts
+target's hidden features come from a Q3_K body, ~~and the draft's own experts
 are an MXFP4 re-quantization of fp8. The draft file is 8 GB, so a Q8_0
-re-conversion of it is the cheap next test; a higher-precision target is not
-cheap on this machine. For scale, the draft's publisher reports a mean
+re-conversion of it is the cheap next test~~ — struck the same evening: the
+checkpoint stores the draft's routed experts as packed 4-bit with one E8M0
+scale per 32 weights (`mtp.0.ffn.experts.0.w1.weight` is `I8 [2304, 2560]`,
+its scale `[2304, 160]`), which is MXFP4 already. The converter repacks
+those bytes; it does not quantize them. Everything else in the draft is fp8
+dequantized to Q8_0, and the shared embedding is now bf16. There is no
+higher-precision draft to convert from, so the only untested source left is
+the Q3_K target body, and a higher-precision target is not cheap on this
+machine. For scale, the draft's publisher reports a mean
 acceptance length of 3.57 tokens per step on its own benchmarks; a five-token
 block at 45.5 % is 2.3 drafted tokens accepted per step plus the verified
 one, which is in the same neighbourhood on a different workload.
