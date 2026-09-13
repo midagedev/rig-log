@@ -83,7 +83,7 @@ each with the measured state and what would settle it; the same list is
 | WKS-11 | engram quantization and quality: draft acceptance Q3_K against Q8_0 tables, then the intermediate-precision knee, then long-form quality | first question answered below: acceptance does not move with the table precision |
 | WKS-12 | prefill for a coding profile: `-ub`, host-op offload, prompt cache | two windows run; next is a placement with fewer expert layers on the 24 GB card at `-ub 2048` and 4096 |
 | WKS-13 | precision on the GPU-resident tensors: attention and shared experts at Q8_0 by graft | baseline measured below: 2.1190 ± 0.059 on four chunks |
-| WKS-14 | ik against mainline with the draft, same split, after the prefetch | running since 07:46 |
+| WKS-14 | ik against mainline with the draft, same split, after the prefetch | done below: 24.88 against 24.22 |
 | WKS-15 | per-request reasoning budget | done: wrong field name |
 
 Results land below as the windows return.
@@ -109,6 +109,27 @@ layers is inside the band that separates those two placements; the mainline
 arm at the same six-layer split is what makes the pair, and its first launch
 died on a port-bind race a second after the ik server released 8099 — it is
 queued again behind the engram window with a pause before the bind.
+
+*08:34–08:42, the mainline arm.* Same six-layer split, same draft, same
+block (`--spec-type draft-dspark --spec-draft-n-max 3`), same twenty prompts,
+two passes, IO pressure 0.02 at launch and 0.00 on the measured rows.
+
+| six-layer split, block 3 | pass 1 | pass 2 | drafted / accepted | faults, pass 1 |
+|---|---:|---:|---|---:|
+| ik fork 57735010 | 23.96 | **24.88** | 3321 / 1996 (60.1 %) | 48 597 |
+| mainline V4.1 branch | 22.63 | 24.22 | 3430 / 2027 (59.1 %) | 88 064 |
+
+So the pair at the same placement is 24.88 against 24.22, ik ahead by
+under 3 percent, which is inside the run-to-run band on this prompt set;
+yesterday's table had ik behind by 20 percent on the same two engines, and
+the whole of that was the page faults the prefetch removed. Three of the
+twenty greedy outputs are byte-identical across the two engines, which is
+about what two different kernels at Q3_K produce. Mainline on its
+eight-layer placement (25.6 yesterday) stays the served configuration: the
+extra layer is worth about what the engine difference is, and mainline is
+what upstream maintains. The ik fork's value is now the port itself and
+the prefetch, not a speed lead.
+
 
 ## WKS-11, first question: does the engram table precision move acceptance?
 
