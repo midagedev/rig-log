@@ -40,6 +40,7 @@ system RAM, at 25–33 tok/s.
 | GPU 1 | NVIDIA GeForce RTX 3090, 24 GB |
 | Board | ASUS Pro WS WRX80E-SAGE SE WIFI |
 | Storage | Samsung 980 PRO 2 TB NVMe (root) + Phison E18 4 TB NVMe (`/models`, added 2026-09-12) |
+| Case | 3RSYS T840 |
 | Power | Super Flower Leadex Platinum SF-2000F14HP, 2000 W |
 | Cooling | NZXT Kraken X-series AIO, pump pinned at 100%, CPU boost disabled, clock capped at 2.7 GHz (`configs/cpu-clockcap`) |
 | OS | Ubuntu 24.04, kernel parameter `pci=realloc=off` (see below) |
