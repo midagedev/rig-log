@@ -14,3 +14,6 @@ measure whether it mattered.
   alias exact-match, and the comparison by band.
 - `run-probe.sh` — serve each variant in turn with `configs/v41-serve.sh`
   and run one probe against it.
+- `clock-test.sh`, `power-test.sh` — decode/prefill rate, package power
+  (RAPL) and temperatures at each `scaling_max_freq` the board exposes;
+  the P-state runs in the thermal section of the entry.

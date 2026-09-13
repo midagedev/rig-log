@@ -37,7 +37,9 @@
 set -eu
 
 B=${B:-$HOME/llama.cpp-v41/build/bin/llama-server}
-M=${M:-/models/DeepSeek-V4.1-Flash-Q3_K_M/DeepSeek-V4.1-Flash-Q3_K_M-00001-of-00009.gguf}
+# engramQ8: the Q3_K_M upload with its engram tensors grafted from the Q8_0 build
+# (log/2026-09-13-engram-q8-repack.md); same speed, 6 % lower perplexity.
+M=${M:-/models/DeepSeek-V4.1-Flash-Q3_K_M-engramQ8/DeepSeek-V4.1-Flash-Q3_K_M-00001-of-00009.gguf}
 
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 

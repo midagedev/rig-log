@@ -145,6 +145,37 @@ for ≤44 °C before starting and running only the 50 remaining questions.
 `popqa.py` now saves partial results every 25 questions, which is what let
 the retry be 50 questions instead of 400.
 
+### Capping the clock costs nothing
+
+The obvious question was whether the CPU needs its clock for this load at
+all. `acpi-cpufreq` on this board exposes three P-states, 3.6, 2.7 and
+1.8 GHz. Two short runs per cap with the coolant allowed to fall back
+between them — three 200-token decodes on short prompts, then two
+1,308-token prompts each with up to 200 tokens of decode, package power
+read from RAPL (`intel-rapl:0`, package-0) over each request:
+
+| cap | decode, 200 tok ×3 | decode after 1.3k prompt ×2 | prefill 1.3k ×2 | pkg W during request | CPU after run |
+|---|---|---|---|---|---|
+| 3.6 GHz | 16.5 / 18.0 / 18.1 | 17.2 / 18.4 | 84 / 114 | 94–106 | 67.5 °C, 58.5 °C |
+| 2.7 GHz | 18.8 / 18.5 / 19.3 | 16.1 / 17.9 | 100 / 105 | 94–95 | 60.9 °C, 55.2 °C |
+| 1.8 GHz | 17.0 / 17.9 / 18.0 | 11.8 / 16.6 | 81 / 41 | 66–78 | 57.4 °C, 50.6 °C |
+
+Decode does not care about the clock between 2.7 and 3.6 GHz; the cores are
+waiting on memory either way. At 1.8 GHz it starts to, and prefill halves
+on one run. The coolant rose 3.2 °C over the first run at 3.6 GHz and 1.6 °C
+at 2.7 GHz, with the CPU package 7 °C cooler at the same throughput.
+
+The power column is the surprise: the package draws about 100 W during
+V4.1 decode at any clock, a third of the 280 W PPT the BIOS is set to.
+Lowering the PPT further would not touch this load — the limit is never
+reached — and the 88 °C readings under a 100 W draw say the heat problem
+is the cold plate's contact with the sWRX8 IHS (which the Kraken X3 does
+not fully cover; that is why boost is off), not the power. The cap that
+does help is the clock. Two caveats: RAPL on Zen 3 through the
+`intel-rapl` driver is a vendor-specific counter this repo has not
+cross-checked against a wall meter, and these are two-sample runs on a
+quiet machine, good for the shape of the curve and not for the third digit.
+
 ## Not measured, not claimed
 
 - Which of the four engram tensors carries the perplexity difference.
