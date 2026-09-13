@@ -186,3 +186,54 @@ count; row 2 still applies to the drafted pairs only; row 4 waits on the
 fault count. The next window is one script: ik no-draft with fault counts
 per request, then mainline no-draft at the same six-layer split, two passes
 each.
+
+## Measured: the fault count, and mainline warm at the same split
+
+*2026-09-14, 05:42–06:01. Same six prompts, same file and placement, two
+passes, one load per arm, production server stopped; major faults from
+`/proc/<pid>/stat` field 12 before and after each request. IO pressure
+`some avg10` at most 0.05 on every row after load. ik arm:
+`GGML_CUDA_NO_PINNED=1`; mainline arm: the merged tree with
+`--lazy-mode auto`, no draft, the six-layer split ik has. Prompt 3 stops at
+14 tokens and is not used for medians.*
+
+| engine | pass 1 tok/s | pass 1 maj faults / token | pass 2 tok/s | pass 2 faults |
+|---|---:|---:|---:|---:|
+| ik | 13.6 (13.2–14.2) | 41–62 | **18.8** (18.75–18.83) | 0 |
+| mainline, 6-layer split | 18.6 (17.2–19.3) | 143 on the first prompt, then 40 → 13–21 | **19.8** (19.80–19.85) | 0 |
+
+Three results, in order of how much they change the picture.
+
+**Warm against warm, the gap is 5 %, not 20 %.** ik 18.8 against mainline
+19.8 at the same split, zero faults on either side. Everything in the
+"where ik loses" reading above — fused ops, scheduler, CUDA graphs — is
+looking for 20 % that a warm graph does not have. The source reading stands
+as a description of the two trees; the gap it was written to explain is a
+cold-path gap.
+
+**The cold gap is the cost of a page fault, not only the count.** Both
+engines fault on a first pass: the CPU weights are memory-mapped on both,
+and a new prompt reads expert rows and engram rows the page cache has not
+seen. ik at 41–62 faults a token loses 28 % against its own warm number;
+mainline at 13–21 faults a token loses 6 %, and even its 143-fault first
+prompt runs 17.2. The engram prefetch (86d01ece1, `posix_madvise(WILLNEED)`
+on the rows the token will read before the graph runs) is the difference
+the source reading already named at row 3: rows fetched ahead become minor
+faults or no faults, and the ones that remain overlap the compute. ik has
+no such point (`src/llama.cpp:5267-5303`), so every row is a synchronous
+fault in the compute thread. This is a reading of the two numbers, not a
+separated measurement; the separation would be ik with the prefetch ported.
+
+**Mainline's fault count falls across a first pass, ik's does not.** 143,
+40, then 13–21 on mainline against a flat 41–62 on ik. Prompt 1 on mainline
+is `--lazy-mode auto` still pulling experts; the 13–21 that remain are the
+engram rows of new prompts. ik's flat 47 says it is faulting on more than
+engram rows, or on the same rows more often. Not separated here.
+
+The ranked table, third reading: row 3 (engram prefetch port) is first, and
+it is the only row with a measured target — ik's first pass from 13.6 toward
+its own 18.8, with the fault count as the gate. Row 1 is closed. Rows 2 and
+4 address a warm gap of 5 % and a drafted gap not yet re-measured warm; they
+wait. The comparison table at the top of this file, cold against cold, was
+a fair comparison of what a user sees on a new prompt; it was not a fair
+description of the engines.

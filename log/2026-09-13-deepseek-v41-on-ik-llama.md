@@ -861,3 +861,14 @@ in the docs file now, with the ms-per-layer arithmetic built on them struck.
 The next window counts major page faults per request on the ik side and adds
 the mainline second pass at the same six-layer split, which the log does not
 have.
+
+The fault-count window ran next (05:42–06:01, same six prompts, both engines,
+major faults per request from `/proc`). Warm against warm at the same
+six-layer split ik decodes **18.8** and mainline **19.8**: a 5 % gap, not the
+20 % this entry has been chasing. The 20 % is a first-pass number on both
+sides, and the first pass is page faults on memory-mapped weights and engram
+rows: ik takes 41–62 major faults a token and loses 28 % to them, mainline
+takes 13–21 after its first prompt and loses 6 %. The difference that fits
+is the engram row prefetch mainline gained in 86d01ece1 and ik does not
+have; porting it is the next change on ik, and the fault count is its gate.
+Details and the per-prompt rows are in the [docs file](../docs/ik-vs-mainline-v41-gap.md).
