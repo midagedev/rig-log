@@ -806,3 +806,8 @@ page cache. How much of the 12 % each carries is not separated.
 Clips: the English code pair and the two prose pairs are on the shared
 drive, named `rig-log-v41-dspark-*`. Card and tape files are in the
 recorder's run directory on the machine.
+
+Where ik's 14.1 against mainline's 17.7 sits, read from the two trees rather
+than measured: [`docs/ik-vs-mainline-v41-gap.md`](../docs/ik-vs-mainline-v41-gap.md).
+The short version is that ik already fuses the hyper-connection ops and syncs
+less than mainline; what it lacks is a CUDA-graph latch that never releases.
