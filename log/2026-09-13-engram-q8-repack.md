@@ -300,7 +300,7 @@ anything else hold a device I am about to ask for.
 
 ## Not measured, not claimed
 
-- Which of the four engram tensors carries the perplexity difference.
+- ~~Which of the four engram tensors carries the perplexity difference.~~ Measured the same day, above: the table four fifths, `engram_wkv` the rest, the gate vectors noise.
 - Any effect on speed. The probes' per-answer rates were on 3–13 token
   answers and are not decode rates by the rule in
   `docs/live-run-cockpit-brief.md`.
