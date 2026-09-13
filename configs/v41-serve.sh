@@ -36,10 +36,17 @@
 # Run it on a machine with nothing else holding VRAM.
 set -eu
 
-B=${B:-$HOME/llama.cpp-v41/build/bin/llama-server}
-# engramQ8: the Q3_K_M upload with its engram tensors grafted from the Q8_0 build
-# (log/2026-09-13-engram-q8-repack.md); same speed, 6 % lower perplexity.
-M=${M:-/models/DeepSeek-V4.1-Flash-Q3_K_M-engramQ8/DeepSeek-V4.1-Flash-Q3_K_M-00001-of-00009.gguf}
+# The build is the V4.1 runtime branch merged with upstream master plus the V4.1 DSpark draft port
+# (log/2026-09-13-deepseek-v41-on-ik-llama.md, "The same draft on mainline").
+B=${B:-$HOME/llama.cpp-v41-merged/build/bin/llama-server}
+# engramQ8-tokembdBF16: the Q3_K_M upload with its engram tensors grafted from the Q8_0 build
+# (log/2026-09-13-engram-q8-repack.md) and its token embedding kept in bf16, which the DSpark
+# draft borrows: 41 -> 45 % acceptance at block 5, 55 -> 60 % at block 3, for 1.3 GB of RAM.
+M=${M:-/models/DeepSeek-V4.1-Flash-Q3_K_M-engramQ8-tokembdBF16/DeepSeek-V4.1-Flash-Q3_K_M-00001-of-00009.gguf}
+# The DSpark draft: block 3 measured 22.8 tok/s median against 17.7 without it (20 greedy prompts,
+# quiet box, warmed); block 5 is the same within noise. The request-level speculative.n_max is
+# disabled in this server, so the block size is set here.
+D=${D:-/models/DeepSeek-V4.1-Flash-DSpark/DeepSeek-V4.1-Flash-Fp8-128x742M-MXFP4_MOE.tl37.gguf}
 
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 
@@ -47,5 +54,6 @@ exec "$B" -m "$M" --alias DeepSeek-V4.1-Flash \
   -c 16384 -ngl 99 -t 32 -b 2048 -ub 2048 \
   --lazy-mode auto \
   -ot "blk\.[0-3]\.ffn_.*_exps=CUDA0,blk\.[4-5]\.ffn_.*_exps=CUDA1,exps=CPU" \
+  -md "$D" --spec-type draft-dspark --spec-draft-n-max 3 \
   --jinja \
   --host 127.0.0.1 --port 8001
