@@ -1,0 +1,8 @@
+[Unit]
+Description=Cap CPU at 2.7 GHz (memory-bound LLM decode, cooler loop)
+After=multi-user.target cpu-noboost.service
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cpu-clockcap 2700000
+[Install]
+WantedBy=multi-user.target

@@ -187,3 +187,8 @@ quiet machine, good for the shape of the curve and not for the third digit.
 - The engram tensors on ik_llama.cpp; both variants were measured on
   mainline. The ik port loads the same files, so the comparison should
   transfer, but it was not run.
+
+*Applied 2026-09-13 09:03: `configs/cpu-clockcap` and its unit cap all 64
+policies at 2.7 GHz at boot, after `cpu-noboost`. Verified with `cpupower
+frequency-info` ("within 1.80 GHz and 2.70 GHz") on all policies; the served
+model stayed up through the change.*

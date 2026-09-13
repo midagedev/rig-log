@@ -1,0 +1,18 @@
+#!/bin/sh
+# Cap every CPU policy at 2.7 GHz and assert it took.
+#
+# Measured 2026-09-13 (rig-log, log/2026-09-13-engram-q8-repack.md): DeepSeek-V4.1
+# decode with experts on the CPU is memory-bound, so 2.7 GHz gives the same tok/s
+# as 3.6 GHz while the package runs ~7 C cooler and the coolant climbs half as
+# fast toward the 52 C thermal-guard stop. 1.8 GHz starts to cost prefill.
+# acpi-cpufreq exposes exactly 3.6 / 2.7 / 1.8 GHz on this board.
+set -eu
+CAP=${1:-2700000}
+for p in /sys/devices/system/cpu/cpufreq/policy*; do
+    echo "$CAP" > "$p/scaling_max_freq"
+done
+for p in /sys/devices/system/cpu/cpufreq/policy*; do
+    got=$(cat "$p/scaling_max_freq")
+    [ "$got" = "$CAP" ] || { echo "$p: scaling_max_freq=$got, wanted $CAP" >&2; exit 1; }
+done
+echo "clock cap: all policies at $CAP kHz"

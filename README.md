@@ -62,7 +62,7 @@ Two notes that cost a day each:
 | 2026-09-12 | [Two NVMe drives, and the benchmark that kept measuring the cache](log/2026-09-12-nvme-sustained-write.md) | write floors differ 2.5x; a test that stops before the cliff reports the cache |
 | 2026-09-12 | [A 347 GB model with 84 GB of it left on the drive](log/2026-09-12-deepseek-v41-first-run.md) | DeepSeek-V4.1-Flash at 20 tok/s on mainline llama.cpp, engram never loaded, and a prefill flag set wrong the whole time |
 | 2026-09-13 | [Getting ik_llama.cpp to run DeepSeek-V4.1](log/2026-09-13-deepseek-v41-on-ik-llama.md) | four graph changes, a perplexity gate that matches mainline on the CPU, and a DSpark draft file that is not wired yet |
-| 2026-09-13 | [Putting the engram tables back at Q8_0](log/2026-09-13-engram-q8-repack.md) | 6 % lower perplexity for 125 GB that is never loaded; PopQA does not move; the thermal guard stops CPU decode at five minutes |
+| 2026-09-13 | [Putting the engram tables back at Q8_0](log/2026-09-13-engram-q8-repack.md) | 6 % lower perplexity for 125 GB that is never loaded; PopQA does not move; the thermal guard stops CPU decode at five minutes, and a 2.7 GHz cap fixes that for free |
 
 ## Queued
 
