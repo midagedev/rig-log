@@ -450,6 +450,49 @@ with its draft now decodes faster than mainline does without one, which is
 the first time today that sentence has been true. The gap itself is still
 there underneath: 14.1 against 17–18 without the draft.
 
+### The same draft on mainline
+
+The lever with the right size was never inside ik. Mainline merged DSpark in
+August (PRs #25173 and #25784), and the V4.1 runtime branch this entry has
+been measuring against carries that code; what it did not carry was the
+V4.1 draft. Loading the draft under mainline fails on `output_hc_fn.weight`
+not found: mainline's DSV4 draft graph is the V4 draft, with the learned
+output head, the mixes consumed in the same sublayer, and the per-head q
+normalization. The three differences are the same three the ik port needed
+(commit 7b79b229 there), and mainline's own V4.1 body graph
+(`src/models/deepseek41.cpp`) already implements them for the target, so the
+port is a transcription: a `dflash_dsv41` flag set when the file has no
+`output_hc_base.weight`, the three head tensors optional under it, the
+draft loop computing each sublayer's mix for the next one from a one-hot
+start and collapsing with the last FFN mix, and the per-head `rms_norm` on
+q skipped. Three files, 52 lines added, 9 removed, on top of upstream master
+and two open speculative PRs (#27569, #26575) merged without conflict.
+
+It loads and drafts. Same target file, same placement, same twenty prompts,
+mainline `llama-server` with `--lazy-mode auto` as in every mainline number
+above:
+
+| arm | drafted | accepted | decode tok/s, median (min–max) |
+| --- | --- | --- | --- |
+| no draft | — | — | 17.70 (9.41–18.09) |
+| DSpark block 5, first pass after load | 5022 | 2192 (43.6 %) | 18.29 (9.05–26.65) |
+| DSpark block 5, second pass, same server | 5022 | 2192 (43.6 %) | **22.48** (11.09–32.89) |
+
+Two things to read carefully. The acceptance is 43.6 % against ik's 45.5 %
+on the same block, close enough that the port is doing the same thing and
+far enough that the two verifications are not bit-identical. And the two
+passes have identical draft counts because mainline ignores the request's
+`speculative.n_max`: the server schema has that field under `#if 0` with a
+TODO ("we disable speculative parameter adjustments for now",
+`tools/server/server-schema.cpp`), so the sweep's "n_max 3" pass was a
+second block-5 pass — and it was 23 % faster than the first, with the same
+drafts. That is `--lazy-mode auto` still warming through twenty prompts
+after a fresh load, which the no-draft pass also showed in its first row.
+The warmed number is the one to compare: **22.5 tok/s at block 5 on
+mainline against 14.3 on ik**, the same draft, and mainline's no-draft
+17.7 against ik's 14.1. The block-3 run, with the size set on the server
+command line since the request field is dead, is the next number.
+
 ## Costs and what is not claimed
 
 Every test costs a four-minute model load: 256 GB mapped from a file that
