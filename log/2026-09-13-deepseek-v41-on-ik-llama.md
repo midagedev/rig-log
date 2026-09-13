@@ -491,7 +491,25 @@ after a fresh load, which the no-draft pass also showed in its first row.
 The warmed number is the one to compare: **22.5 tok/s at block 5 on
 mainline against 14.3 on ik**, the same draft, and mainline's no-draft
 17.7 against ik's 14.1. The block-3 run, with the size set on the server
-command line since the request field is dead, is the next number.
+command line since the request field is dead, is the last number of the day:
+
+| arm | drafted | accepted | decode tok/s, median (min–max) | prompts over 25 |
+| --- | --- | --- | --- | --- |
+| DSpark block 3, first pass after load | 3321 | 1963 (59.1 %) | 20.27 (12.98–25.93) | 3 / 20 |
+| DSpark block 3, second pass, same server | 3321 | 1963 (59.1 %) | **22.78** (15.33–29.74) | 8 / 20 |
+
+So the block size that mattered so much on ik (14.3 against 19.9) does not
+matter on mainline (22.5 against 22.8): mainline's verification is cheap
+enough that the extra two drafted tokens cost what they return. The
+acceptance rates match ik's to within a point and a half on both blocks,
+which is the port working. The machine's number for DeepSeek-V4.1-Flash
+with a draft, on a quiet box, warmed, is **22.8 tok/s median, 29.7 best**,
+29 % over mainline without the draft and 61 % over ik with it. The 25 the
+day was aiming at is the median of eight prompts out of twenty, not of the
+set; what stands between 22.8 and 25 is the mainline no-draft rate itself,
+which the hybrid-path finding above says is where the next work is. The
+engine choice follows the measurement: the serving port moves to the
+mainline build with the port and block 3.
 
 ## Costs and what is not claimed
 
