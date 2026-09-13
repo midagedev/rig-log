@@ -9,8 +9,11 @@ the machine in [the README](../README.md), CPU-only, on this date.
 
 Everything here was measured with mainline still serving on its port and a
 209 GB download running on the model drive. That is fine for a correctness
-gate — perplexity does not care who else is on the CPU — and it is why no
-throughput figure in this entry should be read as a throughput figure.
+gate — perplexity does not care who else is on the CPU — and it is why ~~no
+throughput figure in this entry should be read as a throughput figure~~ no
+throughput figure in the first sections should be read as one; the quiet-box
+table at the end of the throughput section, added later the same day, is the
+exception.
 
 ## What happened, in order
 
@@ -216,7 +219,8 @@ half was rerun with the pattern fixed. The script is in
 Not claimed: a batch of one against the oracle,
 session save and restore of the compressed streams (written as empty with a
 TODO), the MTP graph (asserted off), `-rtr` and the prefetch exemption for
-the engram table, and any speed. The reader layers reuse the index source's
+the engram table, and ~~any speed~~ any speed beyond the one quiet-box
+A/B above — no cause for the 20 %, no `-rtr`, no draft. The reader layers reuse the index source's
 top-k rather than attending densely as mainline does; the four-chunk
 perplexity does not distinguish the two, and a longer context might.
 
