@@ -52,7 +52,7 @@ B=${B:-$HOME/llama.cpp-v41-merged/build/bin/llama-server}
 # draft borrows: 41 -> 45 % acceptance at block 5, 55 -> 60 % at block 3, for 1.3 GB of RAM.
 M=${M:-/models/DeepSeek-V4.1-Flash-Q3_K_M-engramQ8-tokembdBF16/DeepSeek-V4.1-Flash-Q3_K_M-00001-of-00009.gguf}
 # The DSpark draft: block 3 measured 22.8 tok/s median against 17.7 without it (20 greedy prompts,
-# quiet box, warmed), 24.8 after the VRAM re-balance below; block 5 is the same within noise. The request-level speculative.n_max is
+# quiet box, warmed), 24.8 after the VRAM re-balance below and 25.6 with blk 7 down on the 24 GB card too; block 5 is the same within noise. The request-level speculative.n_max is
 # disabled in this server, so the block size is set here.
 D=${D:-/models/DeepSeek-V4.1-Flash-DSpark/DeepSeek-V4.1-Flash-Fp8-128x742M-MXFP4_MOE.tl37.gguf}
 
@@ -61,7 +61,7 @@ export CUDA_DEVICE_ORDER=PCI_BUS_ID
 exec "$B" -m "$M" --alias DeepSeek-V4.1-Flash \
   -c 16384 -ngl 99 -t 32 -b 2048 -ub 512 \
   --lazy-mode auto \
-  -ot "blk\.[0-3]\.ffn_.*_exps=CUDA0,blk\.6\.ffn_down_exps=CUDA0,blk\.7\.ffn_(gate|up)_exps=CUDA0,blk\.[4-5]\.ffn_.*_exps=CUDA1,blk\.6\.ffn_(gate|up)_exps=CUDA1,exps=CPU" \
+  -ot "blk\.[0-3]\.ffn_.*_exps=CUDA0,blk\.6\.ffn_down_exps=CUDA0,blk\.7\.ffn_(gate|up)_exps=CUDA0,blk\.[4-5]\.ffn_.*_exps=CUDA1,blk\.6\.ffn_(gate|up)_exps=CUDA1,blk\.7\.ffn_down_exps=CUDA1,exps=CPU" \
   -md "$D" --spec-type draft-dspark --spec-draft-n-max 3 -otd "output_norm=CUDA0" \
   --jinja \
   --host 127.0.0.1 --port 8001

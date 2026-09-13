@@ -711,3 +711,19 @@ band on its own. The serving port now runs this configuration. Not claimed:
 the long-prompt prefill cost of `-ub 512` on this build (the 214 against 343
 tok/s figure in the script header is from an earlier build), and whether the
 24 GB card's remaining 3.6 GB takes blk 7 `down` as well.
+
+One more tensor group, since the 24 GB card had 3.6 GB left: blk 7 `down`
+(2.58 GB) on CUDA1, the CPU down to 31 layer-equivalents, predicted +3 %.
+Same protocol, IO pressure at most 0.69 on the second pass:
+
+| pass | median tok/s | best | prompts ≥ 25 | per-prompt ratio to the 24.8 pass |
+|---|---:|---:|---:|---:|
+| 1 (first after load) | 20.6 | 27.5 | 2/20 | — |
+| 2 | **25.6** | 31.8 | 11/20 | 1.011 (median), faster on 11/20 |
+
+The median crossed 25, but the per-prompt ratio says the step is inside the
+band: 1 % measured against 3 % predicted. It stays, because it costs nothing
+except slack — the cards are now at 47.0 of 49.1 GB and 23.2 of 24.6 GB, and
+the next tensor group does not fit. That closes the "more experts on the
+cards" lever; what remains on bytes per step is the quantization of the
+experts themselves.
