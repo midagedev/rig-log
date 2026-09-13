@@ -486,9 +486,12 @@ passes have identical draft counts because mainline ignores the request's
 TODO ("we disable speculative parameter adjustments for now",
 `tools/server/server-schema.cpp`), so the sweep's "n_max 3" pass was a
 second block-5 pass — and it was 23 % faster than the first, with the same
-drafts. That is `--lazy-mode auto` still warming through twenty prompts
-after a fresh load, which the no-draft pass also showed in its first row.
-The warmed number is the one to compare: **22.5 tok/s at block 5 on
+drafts. The likeliest reason is `--lazy-mode auto` still paging experts in
+through twenty prompts after a fresh load, which the no-draft pass also
+showed in its first row; that attribution is a candidate, not measured. The
+shape itself is measured twice (below): the first pass after a load is
+slower, the second is not beaten by a third. The second-pass number is the
+one to compare: **22.5 tok/s at block 5 on
 mainline against 14.3 on ik**, the same draft, and mainline's no-draft
 17.7 against ik's 14.1. The block-3 run, with the size set on the server
 command line since the request field is dead, is the last number of the day:
@@ -497,6 +500,20 @@ command line since the request field is dead, is the last number of the day:
 | --- | --- | --- | --- | --- |
 | DSpark block 3, first pass after load | 3321 | 1963 (59.1 %) | 20.27 (12.98–25.93) | 3 / 20 |
 | DSpark block 3, second pass, same server | 3321 | 1963 (59.1 %) | **22.78** (15.33–29.74) | 8 / 20 |
+
+The serving port was then restarted with this build, target and draft at
+block 3, and the same twenty prompts ran twice more against it. The first
+pass after that load had two chat requests of mine overlapping prompts 4 and
+5; on prompts 6 to 20 it matches the first pass after the earlier load to
+within 1 % (median ratio 1.00). The second pass after that load:
+
+| pass | decode tok/s, median (min–max) | against the second pass above, per prompt |
+| --- | --- | --- |
+| first after the 18:40 load | 19.58 (13.14–25.53) | 0.88 |
+| second after the 18:40 load | **22.69** (15.29–29.59) | 0.996 |
+
+So 22.7–22.8 is the plateau, not a floor, and it reproduces across two
+loads.
 
 So the block size that mattered so much on ik (14.3 against 19.9) does not
 matter on mainline (22.5 against 22.8): mainline's verification is cheap
