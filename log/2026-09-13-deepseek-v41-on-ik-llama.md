@@ -879,3 +879,24 @@ before, faults 1–11 a token against 41–62, second pass 19.0. The 20 % gap
 this entry spent a day on was the engram rows faulting in ik's compute
 thread, and it is closed cold as well as warm; ik and mainline are now within
 the band of each other at this placement without a draft.
+
+### Prefill, first window (06:40–06:50)
+
+The served configuration — eight expert layers on the cards, `-ub 512`,
+`--lazy-mode auto`, no draft — prefills a 4823-token code prompt at
+**43.6 tok/s cold** (110 s, the first request after load, IO pressure 1.3)
+and **58.3 tok/s warm** (83 s, second pass, IO 0.00). Both cards were at PCIe
+gen 4 × 16 during the prefill, so the link is not the limit. The header of
+the serving script quotes 214 tok/s at `-ub 512` from an earlier build with
+fewer expert layers on the cards; that figure does not describe this
+configuration. The three larger micro-batches did not load at this
+placement: the 24 GB card, with the experts of layers 4–6 on it, has no room
+for a 4.7 GB compute buffer, and the new `--fit` logic on master cannot
+lower `-ngl` because it is pinned at 99. A prompt of 60 KB of source was
+16748 tokens, over the 16384 context, and produced no number. The second
+window, queued behind the recording, fixes the prompt at ~11k tokens, adds
+`--no-op-offload` at `-ub 512` (the CUDA backend copies CPU-resident expert
+weights to the device for any batch of 32 rows or more; 58 tok/s is about
+what streaming 259 GB of experts over PCIe per 512-token micro-batch
+predicts, so that flag is the experiment that decides whether prefill is
+PCIe-bound), and runs `-ub 2048` and `4096` on the six-layer placement.
