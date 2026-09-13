@@ -138,8 +138,10 @@ the GGUF's Q8_0, relative RMS error 5.4e-3; the same comparison with the
 [128,128] scale layout forced gives 0.144, which is what the silent
 failure would have looked like.
 
-That is data, not a working draft. Three things stand between the file
-and a tok/s number. ik's DSpark loader requires `output_hc_{base,fn,scale}`
+~~That is data, not a working draft. Three things stand between the file
+and a tok/s number.~~ Later the same day the draft was wired, loaded, and
+measured; the paragraph below this list is the result, and the list is kept
+as the plan it was. ik's DSpark loader requires `output_hc_{base,fn,scale}`
 (`llama-load-tensors.cpp:2814-2817`), which V4.1 does not have — the
 output hyper-connection head is exactly what the lag removed. The draft
 graph (`build_dflash_dsv4`) is written to V4's rules and needs the same two
@@ -147,6 +149,59 @@ changes the body needed, the one-sublayer lag and the low-rank-only q norm;
 a draft that gets them wrong drafts the wrong tokens and lowers throughput
 instead of raising it. The body's GPU path is validated below, so the ik
 baseline for a draft to be measured against now exists. In that order.
+
+### The draft, wired: it loads, it drafts, and it does not pay yet
+
+The loader and graph changes are one commit in the ik tree (`7b79b229`,
+four files, 43 lines): a V4.1 draft is recognised by the absence of
+`output_hc_base.weight`, the three head tensors become optional, the draft
+graph skips the per-head q norm and carries the hyper-connection mix one
+sublayer behind exactly as the body does, and the last FFN's mix collapses
+the copies at the output. The draft file needed one correction of its own.
+DeepSeek's V4 code collects the target hidden state *after* each target
+layer runs; the V4.1 code collects it *before* (`inference/model.py`: "the
+MTP head reads the attention input of its target layers, not their
+output"). The converter inherited V4's `config + 1` and wrote
+`target_layers = [38, 39, 40]`, which ik reads as the outputs of layers
+37–39; the reference reads the outputs of 36–38. A metadata-only copy with
+`[37, 38, 39]` (`tools/dspark/fix-target-layers.py`, tensors byte-identical)
+is the corrected file.
+
+Both files were run through the same gate, ik's server with
+`--model-draft … --spec-type dspark:n_max=5`, three 200-token greedy
+completions, acceptance from the server's own `draft_n` /
+`draft_n_accepted`, with the engram repack still writing on the model
+drive (so the tok/s are contended, the acceptance rates are not):
+
+| arm | decode tok/s | drafted | accepted |
+| --- | --- | --- | --- |
+| no draft | 11.7 / 12.8 / 12.8 | — | — |
+| draft, corrected ids [37,38,39] | 8.9 / 12.2 / — | 415 / 317 | 115 (28 %) / 133 (42 %) |
+| draft, as converted [38,39,40] | 9.2 / 8.7 / 11.4 | 413 / 452 / 343 | 115 (28 %) / 108 (24 %) / 128 (37 %) |
+
+Two things follow and one does not. The draft runs end to end on this
+box, which it did not this morning. It is below break-even: at a quarter to
+two fifths accepted, a five-token block costs more target work than it
+saves, and decode gets slower with the draft than without. What does not
+follow is the off-by-one: the corrected ids did not move acceptance outside
+the noise of three prompts, so either the correction is right and something
+else in the draft graph is also wrong, or the capture point is not what the
+comment says and the file was right all along. The remaining suspect the
+code reading turned up is rope: the reference draft attention uses the
+body's YaRN-corrected frequency table, and ik's DSV4 draft graph (V4 and
+V4.1 alike) ropes the draft with `freq_scale = 1, ext_factor = 0`, plain
+rope — invisible on a 20-token prompt, but the tables were trained on the
+other thing. The gate also tried token identity between draft and no-draft
+outputs and got a divergence after 74–237 characters on every prompt; that
+is the batched-verification versus one-token-at-a-time drift a Q3 target
+shows between engines too, and it does not distinguish a lossy draft from a
+correct one, which is why acceptance is the number this table is about.
+
+The third and last run of that gate also produced a measurement of the
+measurer: the gate script was edited while it was running, bash read the
+new line, and the run died on an unbound variable between the last arm and
+the serving restart. The serving restart was done by hand. The script is in
+`tools/dspark/` as it ran, with the fix.
 
 ## Costs and what is not claimed
 
