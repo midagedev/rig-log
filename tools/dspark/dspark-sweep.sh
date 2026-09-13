@@ -10,6 +10,9 @@
 set -u
 export GGML_CUDA_NO_PINNED=1
 source <(sed -n "/^M=/p; /^OT=/p; /^liq()/p" ~/engine-ab.sh)
+# TGT overrides the served target (a variant shard set); TAG lands in every file name and JSONL row
+M=${TGT:-$M}
+TAG=${TAG:-base}
 IK=$HOME/ik_llama.cpp/build/bin/llama-server
 DIR=/models/DeepSeek-V4.1-Flash-DSpark
 declare -A DRAFT=([tl37]=$DIR/DeepSeek-V4.1-Flash-Fp8-128x742M-MXFP4_MOE.tl37.gguf
@@ -28,7 +31,7 @@ finish() {
     nohup bash ~/rig-log-v41-serve.sh > /tmp/llm-serve.log 2>&1 < /dev/null &
     for i in $(seq 1 180); do curl -sf 127.0.0.1:8001/health >/dev/null && { say "8001 back"; break; }; sleep 5; done
   fi
-  rm -f /tmp/cpu-busy.flag
+  [ "$(cat /tmp/cpu-busy.flag 2>/dev/null)" = "$$" ] && rm -f /tmp/cpu-busy.flag
   say SWEEP_DONE
 }
 trap finish EXIT
@@ -61,7 +64,7 @@ p = [
 json.dump(p, open(sys.argv[1], "w"))
 PY
 
-touch /tmp/cpu-busy.flag
+echo $$ > /tmp/cpu-busy.flag
 while pgrep -x llama-bench >/dev/null; do say "waiting for a running llama-bench to finish"; sleep 15; done
 for pid in $(pgrep -x llama-server); do say "stopping llama-server $pid"; kill "$pid"; while kill -0 "$pid" 2>/dev/null; do sleep 2; done; done
 
@@ -70,22 +73,22 @@ run_arm() {  # $1 arm
   [ -f "$d" ] || { say "$arm: missing $d"; return 1; }
   local t0=$(date +%s)
   $IK -m "$M" -c 16384 -ngl 99 -t 32 -b 2048 -ub 2048 -ot "$OT" --host 127.0.0.1 --port $PORT \
-      --model-draft "$d" --spec-type "dspark:n_max=5" > "/tmp/dspark-sweep-srv-$arm.log" 2>&1 &
+      --model-draft "$d" --spec-type "dspark:n_max=5" > "/tmp/dspark-sweep-srv-$TAG-$arm.log" 2>&1 &
   SP=$!
   local ready=""
   for i in $(seq 1 240); do
-    kill -0 $SP 2>/dev/null || { say "$arm died"; grep -iE "error|fail|assert" "/tmp/dspark-sweep-srv-$arm.log" | tail -5; SP=""; return 1; }
-    if grep -qE "HTTP server listening|listening on http|server is listening|main loop" "/tmp/dspark-sweep-srv-$arm.log" && curl -sf 127.0.0.1:$PORT/health >/dev/null; then ready=1; break; fi
+    kill -0 $SP 2>/dev/null || { say "$arm died"; grep -iE "error|fail|assert" "/tmp/dspark-sweep-srv-$TAG-$arm.log" | tail -5; SP=""; return 1; }
+    if grep -qE "HTTP server listening|listening on http|server is listening|main loop" "/tmp/dspark-sweep-srv-$TAG-$arm.log" && curl -sf 127.0.0.1:$PORT/health >/dev/null; then ready=1; break; fi
     sleep 5
   done
   [ -n "$ready" ] || { say "$arm never ready"; return 1; }
   say "$arm up pid $SP after $(( $(date +%s) - t0 )) s"
-  grep -E "draft flavor|causal" "/tmp/dspark-sweep-srv-$arm.log" | head -3 | sed 's/^/  /'
+  grep -E "draft flavor|causal" "/tmp/dspark-sweep-srv-$TAG-$arm.log" | head -3 | sed 's/^/  /'
   curl -s 127.0.0.1:$PORT/completion -d '{"prompt":"hi","n_predict":4,"temperature":0}' >/dev/null
   for nmax in $NMAXES; do
-    python3 - "$arm" "$nmax" "$PROMPTS" "$NPRED" "$PORT" "$OUT" <<'PY'
+    python3 - "$arm" "$nmax" "$PROMPTS" "$NPRED" "$PORT" "$OUT" "$TAG" <<'PY'
 import json, sys, urllib.request, os
-arm, nmax, prompts, npred, port, out = sys.argv[1], int(sys.argv[2]), sys.argv[3], int(sys.argv[4]), sys.argv[5], sys.argv[6]
+arm, nmax, prompts, npred, port, out, tag = sys.argv[1], int(sys.argv[2]), sys.argv[3], int(sys.argv[4]), sys.argv[5], sys.argv[6], sys.argv[7]
 tot_d = tot_a = 0
 for i, p in enumerate(json.load(open(prompts)), 1):
     body = {"prompt": "<｜User｜>" + p + "<｜Assistant｜></think>", "n_predict": npred, "temperature": 0,
@@ -95,11 +98,11 @@ for i, p in enumerate(json.load(open(prompts)), 1):
     t = r.get("timings", {})
     dn, da = t.get("draft_n", 0), t.get("draft_n_accepted", 0)
     tot_d += dn; tot_a += da
-    row = {"arm": arm, "n_max": nmax, "prompt": i, "draft_n": dn, "accepted": da,
+    row = {"tag": tag, "arm": arm, "n_max": nmax, "prompt": i, "draft_n": dn, "accepted": da,
            "decode_n": t.get("predicted_n"), "tps": round(t.get("predicted_per_second", 0), 2),
            "load1": float(open("/proc/loadavg").read().split()[0])}
     open(out, "a").write(json.dumps(row) + "\n")
-    open(f"/tmp/dspark-sweep-text-{arm}-n{nmax}-{i}.txt", "w").write(r.get("content", ""))
+    open(f"/tmp/dspark-sweep-text-{tag}-{arm}-n{nmax}-{i}.txt", "w").write(r.get("content", ""))
     print("  %s n_max=%d #%02d: decode %s @ %.2f tok/s | draft %d acc %d (%.0f%%) | load %.1f" % (
         arm, nmax, i, row["decode_n"], row["tps"], dn, da, 100.0 * da / dn if dn else 0, row["load1"]), flush=True)
 print("  == %s n_max=%d total: draft %d accepted %d (%.1f%%)" % (arm, nmax, tot_d, tot_a, 100.0 * tot_a / tot_d if tot_d else 0), flush=True)
@@ -113,5 +116,5 @@ for arm in $ARMS; do run_arm "$arm"; done
 echo "== text identity across arms (same binary, greedy; a difference is batched-vs-single drift or a broken switch)"
 set -- $ARMS
 if [ $# -ge 2 ]; then for nmax in $NMAXES; do for i in $(seq 1 20); do
-  cmp -s "/tmp/dspark-sweep-text-$1-n$nmax-$i.txt" "/tmp/dspark-sweep-text-$2-n$nmax-$i.txt" || echo "  n_max=$nmax #$i differs"
+  cmp -s "/tmp/dspark-sweep-text-$TAG-$1-n$nmax-$i.txt" "/tmp/dspark-sweep-text-$TAG-$2-n$nmax-$i.txt" || echo "  n_max=$nmax #$i differs"
 done; done; fi
