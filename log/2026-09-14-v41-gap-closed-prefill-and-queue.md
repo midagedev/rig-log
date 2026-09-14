@@ -323,3 +323,45 @@ seven layers: perplexity 1.90 instead of 2.12, drafted decode 25.2
 against the served 25.6, one expert layer of VRAM freed. The serve script
 moves to that file and the seven-layer placement; 8001 comes back on it
 when the context-length windows finish, and the rate is confirmed then.
+
+## WKS-12, the context windows: the ceiling is not the KV cache
+
+*10:39–11:06.* Two chained windows on the attention-Q8_0 file asked how
+much context the served VRAM leaves. The answer came out of the loader,
+not the benchmark: only the seven-layer, 16k arm loaded at all. Every
+other arm died in `graph_reserve` with "failed to allocate compute pp
+buffers", and the size of the allocation it wanted is the finding.
+
+| arm | `-ub` | `-c` | failed allocation |
+|---|---:|---:|---:|
+| seven layers | 512 | 64k | 9.1 GB (device 1) |
+| seven layers | 512 | 128k | 19.0 GB |
+| five layers | 2048 | 64k | 35.8 GB |
+| five layers | 2048 | 128k | 68.8 GB |
+| four layers | 2048 | 256k | 135.0 GB |
+| four layers, KV q8_0 | 2048 | 256k | 134.9 GB |
+| no expert layers | 2048 | 512k | 269.1 GB |
+| no expert layers, KV q8_0 | 2048 | 512k | 267.8 GB |
+
+The number doubles with the context and quadruples with the micro-batch,
+and quantizing the KV cache moves it by a tenth of a percent. The KV
+cache itself is small — 2.5 GB on the 48 GB card at 128k, about 20 KB a
+token, so 256k is 5 GB and 512k is 10 GB, and the estimate earlier today
+of 46 KB a token was twice too high. What does not fit is the attention
+scores matrix: context × micro-batch × heads × four bytes is 17.2 GB at
+128k and 512, which is the 19 GB the loader asked for. That matrix only
+exists when attention runs without a fused kernel, and the serve log
+prints no flash-attention line for this architecture.
+
+So the context question becomes a flash-attention question. If `-fa on`
+takes on the V4.1 path, a 256k coding profile is 5 GB of KV plus the
+micro-batch-scaled compute buffer and fits with four expert layers; if
+the kernel is refused for this attention shape, the ceiling stays near
+16k–32k at `-ub 512` and that is a finding for upstream. The one-arm
+test is next, after the pause the user asked for.
+
+*11:06, the serving switch.* 8001 came back on the attention-Q8_0 file at
+seven expert layers with 46.0 + 21.9 GB of VRAM in use. The first
+request after load ran cold at 14.8 tok/s over 300 tokens, the same
+page-fault pass every fresh load shows; the warm number is the user's
+toktape session.
