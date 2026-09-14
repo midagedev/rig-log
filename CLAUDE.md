@@ -84,6 +84,11 @@ assets/     the clips and sheets
   (user instruction 2026-09-14).
 - Assets: the sheet is `assets/placement-sheet.html`, re-screenshot at
   1280×720. Keep the favicon and title stable across republishes.
+- **toktape is a sibling project we feed requirements to.** When a recording
+  or serving round here shows something the recorder should do itself (a
+  witness it asked us for by hand, a mode it lacks), send the request to the
+  toktape session directly rather than working around it (user instruction
+  2026-09-14).
 - **Benchmarks need a quiet machine, and "quiet" is a protocol**: one lease,
   IO pressure rather than load average, the witness recorded in every row,
   and delegates get the runner script rather than an instruction. The method
