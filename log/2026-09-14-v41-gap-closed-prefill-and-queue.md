@@ -551,3 +551,11 @@ latency of each is what costs, not the count.
 The same window answers a question about the fused indexer for free: its
 warm decode, 25.07, is the unfused build's 25.22 from this morning within
 the band. The fused op is not a decode cost.
+
+*13:04–13:13, the identity check.* Twenty greedy 200-token prompts on the
+fused build at the served placement, two passes behind the coolant gate:
+22.61 cold, 25.16 with the engram rows cached, and **all twenty outputs
+byte-identical** to the unfused build's from this morning, and to each
+other across passes. The fused lightning indexer is exact on V4.1, free at
+decode, and the reason 64k and 256k load. 8001 has been on that build
+since 12:45.

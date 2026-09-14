@@ -46,6 +46,9 @@ set -eu
 
 # The build is the V4.1 runtime branch merged with upstream master plus the V4.1 DSpark draft port
 # (log/2026-09-13-deepseek-v41-on-ik-llama.md, "The same draft on mainline").
+# Since 2026-09-14 12:45 the build carries 75a0eb4f1, the fused lightning indexer for V4.1: the unfused indexer
+# materialized a [positions x tokens x 32 heads] fp32 score twice, which capped the context at 16k; with the fused
+# op 64k loads at this placement and 256k at four expert layers (WKS-12). Outputs are byte-identical, decode unchanged.
 B=${B:-$HOME/llama.cpp-v41-merged/build/bin/llama-server}
 # engramQ8-tokembdBF16-attnQ8: the Q3_K_M upload with its engram tensors grafted from the Q8_0 build
 # (log/2026-09-13-engram-q8-repack.md), its token embedding kept in bf16, which the DSpark
