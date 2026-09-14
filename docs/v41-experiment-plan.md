@@ -156,6 +156,24 @@ production server, runs on port 8099, and restores it.
 | Q5 | draft precision (WKS-17): convert the DSpark draft from the fp8 originals at Q8_0 (`convert_hf_to_gguf.py --dspark`), fix `target_layers` as tl37 was fixed, run the twenty-prompt drafted pair against the MXFP4 draft on the same target | whether the 58–60 % acceptance is the draft's own ceiling or its 4-bit quantization; the no-training half of the WKS-16 question | accepted/drafted and tok/s, same target file and placement; a flat result closes WKS-16 |
 | Q6 | routed experts at MXFP4 by graft (WKS-18): the uploader's "Q8_0" set keeps the experts at MXFP4 — the native 4-bit — in shards 1–7 (289 GB, 6.72 GiB a layer against the served mix's 6.47 GB); first the on-card layers (blk 0–7, shards 1–2), then all forty | how much of the perplexity is in the lossy Q3_K/Q4_K requantization of experts that were released at 4 bits; on-card layers cost VRAM only, the rest costs +11.6 % bytes a token | 4-chunk perplexity against 1.8992; decode on the twenty prompts for the all-layer file; MXFP4 CPU kernel speed per byte checked | **Stage 1 measured 2026-09-14: 1.8964 ± 0.0491 against 1.8992 — −0.15 %, within noise; the seven-layer placement no longer loads (+5.1 GB on the cards). Stage 2 parked.** |
 | Q7 | RAM experts lower by graft (WKS-19): the uploader's Q2_K set (experts Q2_K gate/up, Q3_K down, ~2.9 bpw) into the CPU-resident layers only, attention kept at Q8_0 | the tok/s side of the precision curve, about −25 % bytes a token on 32 layers | perplexity cost and drafted decode gain as a pair |
+| Q8 | engram lazy-mode row cost (WKS-20): served placement, experts warmed on other prompts, the twenty prompts three passes with the coolant gate between them, major faults per pass as the witness | what the 30–48 random 4 KB NVMe reads a token cost against rows already cached; shi3z's runtime gathers engram rows from host RAM at ~1 ms a token, the reference | pass-1 vs pass-2/3 median; first run 2026-09-14 12:10 gave pass 1 23.26 at 28.5 faults a token and lost pass 2 to the thermal guard |
+| Q9 | fused lightning indexer on V4.1 (WKS-12 window 4): the port's indexer materialized [positions × tokens × 32 heads] fp32 twice, 135 GB at 256k and `-ub 2048`; commit 75a0eb4f1 takes `ggml_lightning_indexer` under `fused_lid` as the V4 path does | whether 256k loads at all, byte identity of twenty greedy outputs against the unfused binary, decode unchanged, then the prompt-cache prefix pair | c16k identity 20/20 and tok/s within the band; c64k, c256k KV q8_0 (code, `-ub 2048`), c256k (decode) load; `prompt_n` on the growing-prefix pair |
+| Q10 | host RAM bandwidth (WKS-22): eight channels of DDR4-3200 are populated (204.8 GB/s peak) and decode sits at 99 % of a measured 115.8 GB/s; sweep read bandwidth vs threads at the 2.7 and 3.6 GHz caps, then decode vs `-t` and `--numa`, then huge pages / `--mlock`; BIOS NPS and interleaving only if the curve points there | whether the 43 % of peak the bus is not delivering is threads, clock, TLB, or configuration — every point recovered is decode one-for-one | the bandwidth-vs-threads curve at both caps and the twenty-prompt decode at the best `-t` |
+| Q11 | PCIe corrected errors on the A6000 link (WKS-21): 115 BadTLP since the 09-12 boot, none in the three boots before, clustered in load windows | which load type produces them (decode, prefill, NVMe graft), the link state under load, whether the rate climbs — a marginal link is a reseat or a slot move before it is anything else | dmesg timestamps against runner logs; CESta before and after a window; LnkSta at 16GT/s ×16 under load |
+| Q12 | expert routing histogram (WKS-23): log the router's top-k per layer over the twenty prompts and a coding transcript; byte-hit rate of an N-experts-per-layer GPU cache vs the whole-layer placement at equal VRAM | whether expert use is skewed enough that per-expert placement beats per-layer — shi3z's single-A100 run got 40–56 % hits on 80 cached experts | the histogram; hit rate at 45 GB of cache; go/no-go on a fork-level per-expert placement |
+
+### Priority as of 2026-09-14 afternoon
+
+Running now, in chain: Q9 (fused indexer, then the prompt-cache pair) →
+Q8 (engram cost, second run). Then, in order of expected decode gain per
+hour of machine time: **Q10** (bandwidth — the wall everything else sits
+behind; a threads-and-clock sweep is one window and needs no download),
+**Q11** (AER correlation — reads only, piggybacks on any window), **Q7**
+(RAM experts Q2_K — bytes a token down 25 % on 32 layers, one download),
+**Q12** (routing histogram — instrumentation, no download), WKS-11(2)
+(intermediate engram precision), Q5 (draft precision — blocked on a V4.1
+DSpark export). Q6 stage 2 is parked on the stage-1 result. Q4 is struck.
+
 
 The likely outcome of Q2 is two serving profiles — decode (the current one)
 and coding (larger `-ub`, longer context, possibly no draft) — rather than
