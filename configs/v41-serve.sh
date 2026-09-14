@@ -47,12 +47,19 @@ set -eu
 # The build is the V4.1 runtime branch merged with upstream master plus the V4.1 DSpark draft port
 # (log/2026-09-13-deepseek-v41-on-ik-llama.md, "The same draft on mainline").
 B=${B:-$HOME/llama.cpp-v41-merged/build/bin/llama-server}
-# engramQ8-tokembdBF16: the Q3_K_M upload with its engram tensors grafted from the Q8_0 build
-# (log/2026-09-13-engram-q8-repack.md) and its token embedding kept in bf16, which the DSpark
-# draft borrows: 41 -> 45 % acceptance at block 5, 55 -> 60 % at block 3, for 1.3 GB of RAM.
-M=${M:-/models/DeepSeek-V4.1-Flash-Q3_K_M-engramQ8-tokembdBF16/DeepSeek-V4.1-Flash-Q3_K_M-00001-of-00009.gguf}
+# engramQ8-tokembdBF16-attnQ8: the Q3_K_M upload with its engram tensors grafted from the Q8_0 build
+# (log/2026-09-13-engram-q8-repack.md), its token embedding kept in bf16, which the DSpark
+# draft borrows (41 -> 45 % acceptance at block 5, 55 -> 60 % at block 3, for 1.3 GB of RAM),
+# and since 2026-09-14 its attention, shared-expert and indexer projections at Q8_0 (WKS-13,
+# log/2026-09-14-v41-gap-closed-prefill-and-queue.md): the upload had 288 of 328 of them at Q2_K.
+# Perplexity 2.1190 -> 1.8992 for 4.7 GB more VRAM, which is why the placement below is seven
+# expert layers, not eight: at seven the grafted file decodes 25.2 against 23.0 for the old file
+# at the same placement, level with the old file's eight-layer 25.6 -- the Q8_0 kernel and two
+# points of draft acceptance pay for the layer.
+M=${M:-/models/DeepSeek-V4.1-Flash-Q3_K_M-engramQ8-tokembdBF16-attnQ8/DeepSeek-V4.1-Flash-Q3_K_M-00001-of-00009.gguf}
 # The DSpark draft: block 3 measured 22.8 tok/s median against 17.7 without it (20 greedy prompts,
-# quiet box, warmed), 24.8 after the VRAM re-balance below and 25.6 with blk 7 down on the 24 GB card too; block 5 is the same within noise. The request-level speculative.n_max is
+# quiet box, warmed), 24.8 after the VRAM re-balance below, 25.6 with blk 7 on the cards too (old file, eight layers), 25.2 on the
+# attention-Q8_0 file at the seven layers below; block 5 is the same within noise. The request-level speculative.n_max is
 # disabled in this server, so the block size is set here.
 D=${D:-/models/DeepSeek-V4.1-Flash-DSpark/DeepSeek-V4.1-Flash-Fp8-128x742M-MXFP4_MOE.tl37.gguf}
 
@@ -61,7 +68,7 @@ export CUDA_DEVICE_ORDER=PCI_BUS_ID
 exec "$B" -m "$M" --alias DeepSeek-V4.1-Flash \
   -c 16384 -ngl 99 -t 32 -b 2048 -ub 512 \
   --lazy-mode auto \
-  -ot "blk\.[0-3]\.ffn_.*_exps=CUDA0,blk\.6\.ffn_down_exps=CUDA0,blk\.7\.ffn_(gate|up)_exps=CUDA0,blk\.[4-5]\.ffn_.*_exps=CUDA1,blk\.6\.ffn_(gate|up)_exps=CUDA1,blk\.7\.ffn_down_exps=CUDA1,exps=CPU" \
+  -ot "blk\.[0-3]\.ffn_.*_exps=CUDA0,blk\.6\.ffn_down_exps=CUDA0,blk\.[4-5]\.ffn_.*_exps=CUDA1,blk\.6\.ffn_(gate|up)_exps=CUDA1,exps=CPU" \
   -md "$D" --spec-type draft-dspark --spec-draft-n-max 3 -otd "output_norm=CUDA0" \
   --jinja \
   --host 127.0.0.1 --port 8001

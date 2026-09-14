@@ -283,3 +283,43 @@ perplexity change.
 So the expert layer the graft costs in VRAM is paid back by the kernel and
 the acceptance, and the served profile can move to the grafted file at
 seven layers with perplexity 1.90 instead of 2.12 and the same tok/s.
+
+## WKS-18, stage 1: the on-card experts at their native MXFP4 do not move perplexity
+
+*10:20–10:39.* The uploader's "Q8_0" set keeps the routed experts at
+MXFP4 in its first seven shards — the precision the model was released
+at — and every other quant of that set requantizes them below it. Stage 1
+of WKS-18 asked how much of the remaining perplexity is in that
+requantization, using only the eight layers that sit on the cards: shards
+1–2 (87 GB) fetched under the download guards, the 24 expert tensors of
+blk 0–7 grafted into a copy of the attention-Q8_0 file. The served
+precision was Q3_K for gate and up and Q4_K for down (Q5_K on blk 0–1);
+MXFP4 is 2.41 GB a tensor, so the eight layers grow by 5.1 GB, all of it
+VRAM, none of it CPU-side bytes. The graft took three and a half minutes;
+the shards with nothing to swap are hard links.
+
+| file | perplexity | chunks |
+|---|---:|---|
+| attention Q8_0 (WKS-13) | 1.8992 ± 0.0491 | 1.5949 / 1.4946 / 1.4904 / 1.8992 |
+| + blk 0–7 experts MXFP4 | 1.8964 ± 0.0491 | 1.5919 / 1.4841 / 1.4863 / 1.8964 |
+
+A 0.15 percent drop, one twentieth of the error bar. All four chunks are
+slightly lower, so the direction is consistent; the size is noise. And
+the decode arm never ran: the seven-layer placement fails to load, the
+24 GB card short by 515 MiB once blk 4–6 gained 2.3 GB. Getting the file
+to serve would cost a sixth expert layer, about 3 percent of decode, for
+nothing measurable.
+
+That settles stage 2 for now. Eight of forty layers is a fifth of the
+expert bytes and moved perplexity under 0.2 percent; the full graft
+extrapolates to under one percent, for 11.6 percent more bytes a token
+on every decode. The perplexity was in the Q2_K attention — WKS-13's 10
+percent — not in the experts' fp4-to-Q3_K step. The 289 GB download is
+parked, and the stage-1 file stays on disk (94 GB, mostly links) in case
+the MXFP4 CPU kernel's speed per byte becomes the question.
+
+*The serving switch.* With WKS-18 out, the choice is the WKS-13 file at
+seven layers: perplexity 1.90 instead of 2.12, drafted decode 25.2
+against the served 25.6, one expert layer of VRAM freed. The serve script
+moves to that file and the seven-layer placement; 8001 comes back on it
+when the context-length windows finish, and the rate is confirmed then.
