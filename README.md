@@ -42,7 +42,7 @@ system RAM, at 25–33 tok/s.
 | Storage | Samsung 980 PRO 2 TB NVMe (root) + Phison E18 4 TB NVMe (`/models`, added 2026-09-12) |
 | Case | 3RSYS T840 |
 | Power | Super Flower Leadex Platinum SF-2000F14HP, 2000 W |
-| Cooling | Tower air cooler on CPU_FAN (replaced the NZXT Kraken AIO on 2026-09-14 — the AIO was letting a 2.7 GHz decode reach Tctl 89 °C; the air cooler holds a 64-thread stress at 43 °C, [log](log/2026-09-14-air-cooler-swap.md)). CPU boost disabled, clock capped at 2.7 GHz (`configs/cpu-clockcap`). Fan RPM is readable only through the BMC (`ipmitool sdr type fan`), not the Super I/O |
+| Cooling | ARCTIC Freezer 4U-M tower air cooler on CPU_FAN (replaced the NZXT Kraken AIO on 2026-09-14 — the AIO was letting a 2.7 GHz decode reach Tctl 89 °C; the air cooler holds a 64-thread stress at 43 °C, [log](log/2026-09-14-air-cooler-swap.md)). CPU boost disabled, clock capped at 2.7 GHz (`configs/cpu-clockcap`). Fan RPM is readable only through the BMC (`ipmitool sdr type fan`), not the Super I/O |
 | OS | Ubuntu 24.04, kernel parameter `pci=realloc=off` (see below) |
 
 Two notes that cost a day each:

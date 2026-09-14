@@ -1,7 +1,7 @@
 # The AIO comes out, an air cooler goes in
 
 **2026-09-14, evening.** The NZXT Kraken AIO that has cooled the 5975WX since
-the build was replaced with a tower air cooler on the CPU_FAN header. The
+the build was replaced with an ARCTIC Freezer 4U-M tower air cooler on the CPU_FAN header (model name added 2026-09-15). The
 reason is in the thermal guard's own log from three hours earlier: at
 17:00, during the threshold-sweep window at the 2.7 GHz cap, it wrote
 `warn cpu=89C` twice with the coolant in the high forties — a loop that no longer
