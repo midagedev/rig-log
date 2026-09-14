@@ -259,3 +259,27 @@ compute-buffer allocation. So the price of the 10 % is one expert layer
 off the cards, about 3 % of decode, or the `-ub` headroom. Which one, and
 the drafted decode number on the grafted file, is the next window; the
 perplexity result stands on its own.
+
+*09:43–10:05, the decode window.* Both files at the seven-layer placement
+(blk 7 back on the CPU), mainline, DSpark block 3, `-ub 512` as served,
+the twenty prompts, two passes.
+
+| seven layers, block 3 | pass 1 | pass 2 | drafted / accepted | VRAM used |
+|---|---:|---:|---|---|
+| grafted (attention, shexp, indexer Q8_0) | 21.76 | **25.22** | 3533 / 2168 (61.4 %) | 46.0 + 21.9 GB |
+| served file, same placement | 21.32 | 23.00 | 3366 / 1998 (59.4 %) | 43.3 + 20.7 GB |
+
+The graft is not slower; it is faster, by 10 percent at the same placement,
+and at 25.2 it matches the served eight-layer configuration's 25.6 within
+the band. Two things add up to that. The attention projections run on the
+cards every token, and the Q8_0 matmul path is a cheaper kernel than the
+Q2_K dequantize-and-multiply it replaces — the sensitive group was also the
+slow group. And the draft agrees with the better target two points more
+often (61.4 against 59.4 percent), which is the same direction WKS-11 saw
+from the engram tables, now with a larger precision step. One of twenty
+outputs is byte-identical between the files, as expected for a 10 percent
+perplexity change.
+
+So the expert layer the graft costs in VRAM is paid back by the kernel and
+the acceptance, and the served profile can move to the grafted file at
+seven layers with perplexity 1.90 instead of 2.12 and the same tok/s.
