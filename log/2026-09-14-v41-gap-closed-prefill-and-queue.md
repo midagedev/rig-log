@@ -738,3 +738,38 @@ so if the q8_0 check fails there is a coding profile at no prefill cost.
 Decode inside the 256k profile with 300-token answers runs about 16 tok/s
 in every arm — fewer resident layers than the decode profile, and a long
 context.
+
+## The offload threshold: 768 is the whole answer
+
+The sweep from the previous section ran 16:20–17:01 on the 256k coding
+profile (four resident layers, KV q8_0, `-b/-ub 2048`), one server per
+arm with `GGML_OP_OFFLOAD_MIN_BATCH` set in the environment, coolant 44–48 °C,
+IO pressure avg10 ≤ 1.4 at every arm start. Same prompts as window 6: the
+14k wiki article cold then warm, a 257-token and a 900-token fresh prompt,
+and the five-turn chat.
+
+| min batch | wiki 14k warm | 257 fresh | 900 fresh (825 tok) | chat turn 2–5 TTFT |
+|---:|---:|---:|---:|---:|
+| 32 (default, window 6) | 115 tok/s | 10.2 s | — | 26–31 s |
+| 768 | 114.7 tok/s | 4.5 s | 11.4 s (72 tok/s) | 24.4–25.5 s |
+| 1024 | 104.8 tok/s | 4.5 s | 13.1 s (63 tok/s) | 24.5–25.3 s |
+| 2048 | 105.4 tok/s | 4.4 s | 12.9 s (64 tok/s) | 39.5–40.0 s |
+
+768 does exactly what the crossover estimate said it would. A 257-token
+prompt goes to the CPU linear path and finishes in 4.5 s instead of 10.2,
+the 825-token prompt stays above the threshold and takes the copy path at
+11.4 s, and long prefill loses nothing (114.7 against 115). At 1024 the
+825-token prompt falls below the threshold and the CPU path is slower than
+the copy would have been (13.1 against 11.4 s), which puts the real
+crossover between 768 and 825 tokens, right where the ~7.7 s fixed copy
+against ~65 tok/s of CPU linear puts it. At 2048 the chat turns pay:
+every re-prefill of ~2600 tokens leaves a sub-threshold tail and the turn
+runs at 65 tok/s end to end, TTFT 40 s instead of 25. The 14k cold rows
+are not comparable across arms (79, 56 and 59 tok/s) — the first arm
+started with the file still in page cache from normal serving, the later
+two did not — so only the warm rows are in the table.
+
+So the serving scripts get `GGML_OP_OFFLOAD_MIN_BATCH=768` and nothing else
+changes; the short-prompt floor from WKS-27 is closed at the cost of one
+environment variable. The chat turns did not move because, as the previous
+section measured, their 25 s is the checkpoint placement, not the copy.

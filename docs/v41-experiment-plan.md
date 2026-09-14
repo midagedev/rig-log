@@ -167,9 +167,10 @@ Measured since (2026-09-14 evening): chat-turn TTFT on the 256k profile is
 26–31 s and it is the checkpoint placement (WKS-12 comment, log section
 "The thirty seconds per turn are the checkpoint"); the short-prompt prefill
 floor is the per-ubatch PCIe copy of the CPU expert set and `--no-op-offload`
-beats it below ~700 tokens (WKS-27). Queue now: threshold sweep
-(`GGML_OP_OFFLOAD_MIN_BATCH` 768/1024/2048) → end-of-prompt checkpoint patch
-A/B + CUDA-path KV q8_0 check → then Q11 PCIe AER, Q7, Q12, WKS-24/25/26.
+beats it below ~700 tokens (WKS-27). Threshold sweep done: `GGML_OP_OFFLOAD_MIN_BATCH=768` closes the
+short-prompt floor (257 tok 10.2 → 4.5 s, long prefill unchanged, 1024
+and 2048 lose; log section "The offload threshold"). Queue now:
+end-of-prompt checkpoint patch A/B + CUDA-path KV q8_0 check → then Q11 PCIe AER, Q7, Q12, WKS-24/25/26.
 
 ### Priority as of 2026-09-14 afternoon
 
