@@ -688,3 +688,53 @@ to 150 tokens would have saved a second — and the recorder shows the last
 three seconds of the wait instead. 8001 went back to the normal serving
 script at 14:58; the hero script copy keeps `-ub 1024` as a harmless
 change, with this section as the record that it was not the fix.
+
+## The thirty seconds per turn are the checkpoint, not the prefill
+
+*15:17–16:14, prefill window 6 on the 256k coding profile.* The question
+from the morning was what a follow-up turn costs in a 100k-token coding
+session once the prompt cache is warm, and the estimate was "about thirty
+seconds". The window measured it on a 12k conversation: a system prompt and
+a 12k-token document, a 300-token answer at temperature 0, then four
+follow-ups of about 600 new tokens each.
+
+| arm (code4, c256k, fused) | VRAM | 14k prefill cold / warm | turn 1 TTFT | turns 2–5 re-prefill | turns 2–5 TTFT |
+|---|---|---|---|---|---|
+| ub 2048, KV q8_0 | 45.3 + 12.2 GB | 71.9 / 114.6 tok/s | 109.5 s | ~2 600 tok | 26–27 s |
+| ub 4096, KV q8_0 | 48.1 + 19.6 GB | 86.9 / 142.7 | 76.7 s | ~4 650 | 30–31 s |
+| ub 8192 | did not load | | | | |
+| ub 2048, `--no-op-offload` | 44.5 + 12.3 GB | 54.1 / 63.1 | 186.9 s | ~2 600 | 40 s |
+| three layers, ub 2048, KV f16 | 42.5 + 12.7 GB | 67.7 / 116.7 | 96.3 s | ~2 600 | 26–27 s |
+
+Thirty seconds it is, and the table says why: the new tokens in each
+follow-up are about 900, but the server re-processes 2 600 of them at a
+2048 batch and 4 650 at 4096. The re-prefill is the distance back to the
+last context checkpoint, and the checkpoint is not where one would expect.
+The server creates its "near the end of the prompt" checkpoint *before* it
+decodes the final prompt batch, so the checkpoint lands on the last batch
+boundary, 10 240 or 8 192 tokens into an 11 944-token prompt. On the next
+turn the re-rendered history diverges right after that prompt (the
+assistant's thinking and template tokens are not what was generated), the
+sliding-window state at that point is gone after 300 generated tokens, and
+the only checkpoint the server can restore is the one at the batch boundary.
+Everything after it is prefilled again. Mainline master has the same lines.
+
+The fix is twelve lines in the fork: create one more checkpoint the moment
+the prompt is fully processed. Expected, not yet measured: the re-prefill
+drops to the ~900 genuinely new tokens and the turn waits 10–14 s instead
+of 26–31. The A/B is chained (same prompts, unpatched against patched
+binary, the five answers byte-compared, the create/restore lines read from
+the trace log), and the number goes here when it lands.
+
+Two smaller findings from the same window. `-ub 4096` gives long prefill a
+quarter more throughput but leaves one GiB on the 48 GB card, so it is not
+a profile candidate, and 8192 does not fit at all. `--no-op-offload` halves
+long prefill (63 against 115 tok/s), the exact opposite of what it did to
+short prompts an hour earlier on WKS-27, which is why the answer is a
+threshold and not a switch: the tree already reads `GGML_OP_OFFLOAD_MIN_BATCH`,
+and the sweep at 768, 1024 and 2048 is the next window. Three resident layers
+with KV f16 load with room to spare and prefill like four layers with q8_0,
+so if the q8_0 check fails there is a coding profile at no prefill cost.
+Decode inside the 256k profile with 300-token answers runs about 16 tok/s
+in every arm — fewer resident layers than the decode profile, and a long
+context.

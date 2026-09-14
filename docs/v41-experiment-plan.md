@@ -162,6 +162,15 @@ production server, runs on port 8099, and restores it.
 | Q11 | PCIe corrected errors on the A6000 link (WKS-21): 115 BadTLP since the 09-12 boot, none in the three boots before, clustered in load windows | which load type produces them (decode, prefill, NVMe graft), the link state under load, whether the rate climbs — a marginal link is a reseat or a slot move before it is anything else | dmesg timestamps against runner logs; CESta before and after a window; LnkSta at 16GT/s ×16 under load |
 | Q12 | expert routing histogram (WKS-23): log the router's top-k per layer over the twenty prompts and a coding transcript; byte-hit rate of an N-experts-per-layer GPU cache vs the whole-layer placement at equal VRAM | whether expert use is skewed enough that per-expert placement beats per-layer — shi3z's single-A100 run got 40–56 % hits on 80 cached experts | the histogram; hit rate at 45 GB of cache; go/no-go on a fork-level per-expert placement |
 
+
+Measured since (2026-09-14 evening): chat-turn TTFT on the 256k profile is
+26–31 s and it is the checkpoint placement (WKS-12 comment, log section
+"The thirty seconds per turn are the checkpoint"); the short-prompt prefill
+floor is the per-ubatch PCIe copy of the CPU expert set and `--no-op-offload`
+beats it below ~700 tokens (WKS-27). Queue now: threshold sweep
+(`GGML_OP_OFFLOAD_MIN_BATCH` 768/1024/2048) → end-of-prompt checkpoint patch
+A/B + CUDA-path KV q8_0 check → then Q11 PCIe AER, Q7, Q12, WKS-24/25/26.
+
 ### Priority as of 2026-09-14 afternoon
 
 Running now, in chain: Q9 (fused indexer, then the prompt-cache pair) →
