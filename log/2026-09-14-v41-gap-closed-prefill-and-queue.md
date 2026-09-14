@@ -451,3 +451,15 @@ tokens in the graph. Failing both, `-ub` shrinks for long contexts: at
 256k, a micro-batch of 128 brings the buffer to 8.6 GB and 64 to 4.3, and
 prefill pays for it. The prompt-cache measurement is still owed; no arm
 that could carry it loaded.
+
+## The thermal guard ended two windows, and its limit moved
+
+*12:18 and 12:27.* The coolant limit in the thermal guard was 52 °C, set
+when sustained load measured 43–45. This afternoon two single-stream
+decode windows at the 2.7 GHz cap crossed 52 after about six minutes each
+— the WKS-20 second pass and the fused-indexer identity pass — and the
+guard did what it is for: stopped the server, and the run with it. Both
+are re-queued behind a coolant gate in the runner (wait for 45 °C before
+each pass). The user raised the limit to 59 °C at 12:32; the pump's rating
+is well above that, and 52 was a number chosen with headroom on a cooler
+day. The change is in `configs/thermal-guard.sh`.

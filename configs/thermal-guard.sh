@@ -4,7 +4,7 @@ LOG=/var/log/thermal-guard.log
 CRIT_CPU=93      # Tjmax 95 (5975WX). 90~93 은 하드웨어 자체 스로틀링에 맡긴다
 WARN_CPU=88
 CRIT_GPU=90      # A6000/3090 슬로우다운 시작점 위
-CRIT_LIQ=52      # AIO 펌프 규격 한참 아래. 실측 지속부하 43~45
+CRIT_LIQ=59      # raised from 52 on 2026-09-14 (user): at 2.7 GHz a six-minute decode window reached 52 twice in one afternoon; pump spec is far above
 MIN_PUMP=500     # 펌프 rpm 하한 (정상 ~2900)
 STRIKES=6        # 5초 간격 => 30초 연속 위반에만 개입
 s=0
