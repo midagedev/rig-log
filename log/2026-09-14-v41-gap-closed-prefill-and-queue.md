@@ -523,3 +523,31 @@ first fill of half an hour happens once.
 So the coding profile has a candidate: the attention-Q8_0 file, five
 expert layers, `-ub 2048`, `-c 262144`, KV q8_0, the fused indexer, cache
 on. The decode profile keeps seven layers and can take 64k for free.
+
+## WKS-20: what the engram rows cost on fresh text
+
+*12:45–13:04.* The clean version of the morning's question, with a
+coolant gate before each pass so the guard would not end it: the fused
+build at the served placement, experts warmed on five other prompts, then
+the twenty prompts three times.
+
+| pass | median tok/s | major faults a token |
+|---|---:|---:|
+| 1 — engram rows cold for this text | 23.36 | 22.1 |
+| 2 — rows cached | 25.07 | 0 |
+| 3 | 25.08 | 0 |
+
+Acceptance was identical across passes, as greedy decoding on the same
+tokens should be, so the whole difference is the rows: **6.8 percent of
+decode** goes to about 22 random 4 KB reads a token from the NVMe, which
+is 2.9 ms a token or 130 µs a read — the drive's latency, taken one read
+at a time. This is with the row prefetch already in the branch; it is the
+part prefetch does not hide. Pinning the two tables in RAM would recover
+most of it, at 84 GB of the 251 that the expert weights also want, so
+that trade is a measurement of its own. Splitting the tables across
+drives would not: 22 reads a token at 25 tok/s is 550 IOPS, and the
+latency of each is what costs, not the count.
+
+The same window answers a question about the fused indexer for free: its
+warm decode, 25.07, is the unfused build's 25.22 from this morning within
+the band. The fused op is not a decode cost.
