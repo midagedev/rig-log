@@ -81,7 +81,7 @@ each with the measured state and what would settle it; the same list is
 | issue | experiment | state at 07:50 |
 |---|---|---|
 | WKS-11 | engram quantization and quality: draft acceptance Q3_K against Q8_0 tables, then the intermediate-precision knee, then long-form quality | first question answered below: acceptance does not move with the table precision |
-| WKS-12 | prefill for a coding profile: `-ub`, host-op offload, prompt cache | two windows run; next is a placement with fewer expert layers on the 24 GB card at `-ub 2048` and 4096 |
+| WKS-12 | prefill for a coding profile: `-ub`, host-op offload, prompt cache | third window below: five expert layers at `-ub 2048` prefill the 11k prompt at 136 tok/s without the crash |
 | WKS-13 | precision on the GPU-resident tensors: attention and shared experts at Q8_0 by graft | baseline measured below: 2.1190 ± 0.059 on four chunks |
 | WKS-14 | ik against mainline with the draft, same split, after the prefetch | done below: 24.88 against 24.22 |
 | WKS-15 | per-request reasoning budget | done: wrong field name |
@@ -176,3 +176,55 @@ Yesterday's four-chunk figure for the same repack was 2.1090 ± 0.0585; today's
 that has moved since. The graft in WKS-13 (attention and shared experts to
 Q8_0) will be measured with exactly this command, and this is the number it
 has to beat by more than the error bar to be worth its 5 GB of VRAM.
+
+## WKS-12, third window: fewer expert layers on the cards, bigger micro-batch
+
+*08:57–09:15. Mainline V4.1 build, served file, no draft, `-c 16384`,
+`-b` = `-ub`. Placements: five expert layers (blk 0–3 on the 48 GB card,
+blk 4 on the 24 GB card) and four (blk 0–3 on the 48 GB card, the 24 GB
+card holding attention only). Prompts 4.8k and 11k tokens from
+`llama-context.cpp`, two passes each, then one greedy 200-token completion
+for the decode side of the trade. IO pressure on every row; PCIe gen4 x16
+on both cards during every prefill.*
+
+| placement, `-ub` | 4.8k pass 1 → 2 | 11k pass 1 → 2 | decode, no draft |
+|---|---|---|---|
+| 5 layers, 2048 | 69.0 → 125.5 | 129.8 → **136.2** | 18.4 (18 tokens, early stop) |
+| 4 layers, 2048 | 52.4 → 123.1 | 121.9 → 133.1 | 17.5 (81 tokens) |
+| 4 layers, 4096 | aborted on the first request | — | — |
+
+Yesterday the six-layer placement at `-ub 2048` reached 127.8 on the short
+prompt and aborted on the 11k prompt with the cuBLAS pool out of memory on
+the 24 GB card. Taking one expert layer off that card is enough: five layers
+at `-ub 2048` finish the 11k prompt at 136 tok/s, 2.3× the served profile's
+59.5, and the fourth layer buys nothing more (133). The prefill number is
+the same for both placements because the transfer-bound part — the CPU
+experts pulled over PCIe for every batch — is the same; the layers on the
+cards are only the ones not transferred. The pass-1 figures on the short
+prompt are first-touch faults again (69 and 52 against 125 and 123).
+
+Decode without the draft came out at 18.4 and 17.5 against about 19.8 for
+the six-layer placement measured this morning, which is the expected cost:
+each expert layer moved off the cards is about 3 % more bytes a token. The
+two decode rows here are single completions, one of them only 18 tokens
+long before the model stopped, so they bound the cost rather than measure
+it; the drafted decode for a coding profile would be measured in its own
+window.
+
+`-ub 4096` on the four-layer placement aborted in the same place as
+yesterday's `-ub 2048` at six layers — `ggml_cuda_pool_vmm::alloc` under
+`ggml_cuda_mul_mat_cublas`, out of memory — but this time on the 48 GB card,
+at the first request, with the 24 GB card nearly empty. The pool the cuBLAS
+path grows for the dequantized operands scales with the micro-batch, and
+the server neither bounds it nor recovers from the failure: the process
+aborts and takes every slot with it. That is the robustness candidate
+noted yesterday, now reproduced at a different size on a different device,
+which makes it a report rather than a configuration mistake. The user
+writes anything mainline-facing; the fact sheet is these two crashes.
+
+So the coding profile is now concrete: five expert layers, `-ub 2048`,
+`-c 16384`, the draft kept, prompt cache on. What it costs the decode
+profile is roughly one expert layer of tok/s, and what it buys is 11k
+tokens of prompt in 82 s instead of 185. Whether to run two profiles or
+one is a question of how often the box is asked long prompts, which the
+server logs answer over a week.
