@@ -130,10 +130,27 @@ architecture is added next to an existing one, `grep` the old arch's enum
 across `src/` and account for every hit — here five of six were extended
 and the sixth was the bug.
 
-## Separate item: `-ub 4096` aborts instead of failing
+## Separate item: `-ub 4096` aborts instead of failing — fork-specific, closed
 
-On the 256k coding profile, `-ub 4096` ends prefill with a cuBLAS workspace
-allocation `GGML_ABORT` rather than an out-of-memory error, reproduced on
-both cards at different sizes (WKS-12 window 3). No mainline report found
-("cuBLAS abort ubatch 4096 out of memory prefill", 2026-09-15). Needs a
-master reproduction with a backtrace before it is written up; not started.
+On the 256k coding profile of the V4.1 fork, `-ub 4096` ended prefill with
+`CUDA error: out of memory` in `ggml_cuda_pool_vmm::alloc` called from
+`ggml_cuda_mul_mat_cublas`, i.e. a run-time pool allocation that aborts the
+process (WKS-12 window 3, both cards, different sizes). Mainline measured
+2026-09-15 with V4-Flash-0731 UD-Q4_K_XL at `-ub 4096`, filling the cards
+step by step (`ub4096-master.sh`): 7 and 9 on-card expert layers prefill
+11 929 tokens at 435 and 457 tok/s with no abort; 10 layers fail at load
+with a clean `cudaMalloc failed: out of memory`. Not reproducible on
+mainline with the model it ships.
+
+The reason is in the dispatch: on Ampere every quantized type MMQ supports
+goes to MMQ (`ggml_cuda_should_use_mmq` returns true once
+`turing_mma_available`), and the cuBLAS path — the one that converts the
+whole `src0` to f16 in the pool (`src0_alloc.alloc(ggml_nelements(src0))`)
+— is taken only for f32/f16/bf16 weights. The V4.1 serving file carries a
+bf16 token embedding and f32 hyper-connection matrices that V4-Flash does
+not, so the transient exists only there. The class itself is known
+upstream: #28338 (open, 2026-09-03, top_k scratch; maintainer: reduce and
+pre-allocate pool temporaries rather than make OOM recoverable) and #28889
+(merged 2026-09-14, bounds the top_k scratch for V4 prefill). Nothing to
+report from here; if the fork's f32 matmul at large ubatch is ever worth
+bounding, that is a fork item.
