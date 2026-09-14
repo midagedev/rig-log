@@ -82,7 +82,7 @@ each with the measured state and what would settle it; the same list is
 |---|---|---|
 | WKS-11 | engram quantization and quality: draft acceptance Q3_K against Q8_0 tables, then the intermediate-precision knee, then long-form quality | first question answered below: acceptance does not move with the table precision |
 | WKS-12 | prefill for a coding profile: `-ub`, host-op offload, prompt cache | third window below: five expert layers at `-ub 2048` prefill the 11k prompt at 136 tok/s without the crash |
-| WKS-13 | precision on the GPU-resident tensors: attention and shared experts at Q8_0 by graft | baseline measured below: 2.1190 ± 0.059 on four chunks |
+| WKS-13 | precision on the GPU-resident tensors: attention and shared experts at Q8_0 by graft | grafted and measured below: 2.1190 → 1.8992, the largest quality move on this file so far |
 | WKS-14 | ik against mainline with the draft, same split, after the prefetch | done below: 24.88 against 24.22 |
 | WKS-15 | per-request reasoning budget | done: wrong field name |
 
@@ -228,3 +228,34 @@ profile is roughly one expert layer of tok/s, and what it buys is 11k
 tokens of prompt in 82 s instead of 185. Whether to run two profiles or
 one is a question of how often the box is asked long prompts, which the
 server logs answer over a week.
+
+## WKS-13: attention and shared experts at Q8_0, grafted
+
+*09:16–09:41. The graft (`tools/attn-q8-graft/graft-attn-q8.py`) rebuilt
+shards 1 and 3–9 of the served set with 328 tensors taken raw from shard
+10 of the uploader's Q8_0 build: the five attention projections, the three
+shared-expert projections and the indexer query projection of all forty
+layers. 2.19 GB became 6.93 GB. Shard 2 is a hard link; the write took
+eleven minutes at idle IO priority while the box kept serving. Then the
+same perplexity command as the baseline, 8001 down.*
+
+| file | chunk 1 | 2 | 3 | 4 | final |
+|---|---|---|---|---|---|
+| served (attention mostly Q2_K, shexp Q3_K) | 1.7335 | 1.6745 | 1.6964 | 2.1190 | 2.1190 ± 0.0591 |
+| grafted (attention, shexp, indexer Q8_0) | 1.5949 | 1.4946 | 1.4904 | 1.8992 | **1.8992 ± 0.0491** |
+
+A 10.4 % drop in perplexity, four times the error bar, every chunk in the
+same direction. For comparison the engram repack yesterday was 6 % on the
+same four chunks. The reason is in the inventory the graft printed: the
+Q3_K_M upload's attention was not Q3_K, as the plan assumed from its
+label, but **Q2_K on 288 of the 328 projections**. The most
+quantization-sensitive group in the model was the lowest-precision group
+in the file, and it costs nothing on the CPU side to fix — those tensors
+live on the cards.
+
+What it costs is VRAM, and the served eight-layer placement does not have
+it: the grafted file failed to load with the 48 GB card short by a 7.6 GB
+compute-buffer allocation. So the price of the 10 % is one expert layer
+off the cards, about 3 % of decode, or the `-ub` headroom. Which one, and
+the drafted decode number on the grafted file, is the next window; the
+perplexity result stands on its own.
