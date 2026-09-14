@@ -463,3 +463,53 @@ are re-queued behind a coolant gate in the runner (wait for 45 °C before
 each pass). The user raised the limit to 59 °C at 12:32; the pump's rating
 is well above that, and 52 was a number chosen with headroom on a cooler
 day. The change is in `configs/thermal-guard.sh`.
+
+## 256k loads, and the prompt cache works with a fixed tax
+
+*12:21–12:40.* The fused-indexer build (the V4.1 branch at 75a0eb4f1: the
+indexer scored through `ggml_lightning_indexer` under `fused_lid`, as the
+V4 and V3.2 graphs in the same tree already did) went through the arms
+that had all died before it.
+
+| arm | before (unfused) | after (fused) |
+|---|---|---|
+| seven layers, 16k, `-ub 512` | loads; compute 4297 + 2447 MiB | loads; compute 4297 + **399** MiB; VRAM 45.8 + 20.0 GB |
+| seven layers, 64k, `-ub 512` | 9.1 GB asked on the 24 GB card, dies | loads; compute 5014 + 911 MiB |
+| four layers, 256k, `-ub 2048`, KV q8_0 | 135 GB asked, dies | **loads**; compute 6252 + 6102 MiB; VRAM 45.3 + 12.2 GB |
+
+The KV cache at 256k and q8_0 is 2.7 GB on the 48 GB card — about 10.7 KB
+a token — and the 24 GB card ends the load with 12 GB free, which is room
+for a fifth expert layer at 256k. Decode on the fused build ran the twenty
+prompts at a 22.64 median on the first pass, the same band as the unfused
+build's first pass this morning; the byte-identity check against the
+unfused outputs is queued again behind a coolant gate, because the guard
+took the second pass.
+
+The prompt cache, measured on the 256k server with wiki text. The base
+prompt of 14 101 tokens took 220 s cold (64 tok/s, the experts paging
+in); every request after it ran at 111–125 tok/s.
+
+| request | new tokens | `prompt_n` | wall |
+|---|---:|---:|---:|
+| base | 14 101 | 14 101 | 222 s |
+| base again | 0 | **2 048** | 18.5 s |
+| base + 8k chars | ~1 985 | 4 033 | 35.8 s |
+| base + 16k chars | ~1 782 | 3 830 | 33.8 s |
+| other text | 13 005 | 13 005 | 118 s |
+| base + 16k again | 0 | **2 048** | 18.3 s |
+
+Two things are true at once. The cache works, and it survives a session
+switch: after 13 000 tokens of unrelated text, the first conversation
+came back at the price of 2 048 tokens, not 17 883 — the evicted state
+was kept in host memory and restored. And every hit pays exactly 2 048
+tokens, which is `-b`, whether the prefix matched in full or not. That
+looks like a restore granularity in the V4.1 cache — the compressed
+state is snapshotted at batch boundaries, and a match rounds down to the
+last one — rather than a cache miss. If so, `-b 512` turns the tax into
+four seconds, and that is the next arm. For a coding session the shape is
+right: a growing transcript costs its new tokens plus a fixed 17 s, and
+the 256k first fill of half an hour happens once.
+
+So the coding profile has a candidate: the attention-Q8_0 file, five
+expert layers, `-ub 2048`, `-c 262144`, KV q8_0, the fused indexer, cache
+on. The decode profile keeps seven layers and can take 64k for free.
