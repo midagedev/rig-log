@@ -381,7 +381,17 @@ the recording-only 3.6 GHz cap.
 | prefill | 51.8 tok/s aggregate at 279 prompt tokens a stream, TTFT 10.75 s |
 | draft | n_max 3, 52 % accepted, 4.0 tokens a verify step |
 | major faults | 4.4 a token during decode |
-| Tctl | 66 → 79 °C, cap held, IO pressure 0.00 |
+| host bytes | 394.1 GiB placed (200.8 RAM / 193.3 disk), RSS 202.2 GiB |
+| bandwidth (toktape, derived) | ≈ 115 GB/s off host RAM per verify step, 99.0 % of the 115.8 GB/s measured bus |
+| Tctl | 66 → 78 °C, cap held, IO pressure 0.00 |
+
+The clip is the toktape v0.2.0 demo, [on Drive](https://drive.google.com/file/d/1DcyQCgp0_Uo9B8lRyMvI3ZjpPOg-Xug4/view?usp=drivesdk),
+released with [toktape v0.2.0](https://github.com/midagedev/toktape/releases/tag/v0.2.0).
+The bandwidth line is the recorder's derivation — bytes of RAM-resident
+expert weight read per verify step against the wall time — and it says
+what this whole log has been circling: at this placement decode sits on
+the host memory bus, and an `-ot` change that does not move that figure
+did not move the bottleneck.
 
 Against the 07:04 take on the old file at eight layers (26.9 aggregate,
 TTFT 1.21 s at a 30-token prompt) this is lower on decode, and the reason
