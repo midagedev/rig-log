@@ -23,7 +23,10 @@ all. Both are resolved below.
 | Wake-on-LAN | Advanced → APM Configuration → Power On By PCI-E | p.34 |
 | BMC / remote KVM | Server Mgmt → BMC Support, BMC network configuration | p.67, 69 |
 | Boot watchdog (**not** a hung-OS check — see below) | Server Mgmt → OS Watchdog Timer | p.68 |
-| Fan curves | Monitor menu / `F6` Qfan Control (not documented in the manual) | — |
+| Memory clock | Advanced → AMD CBS → UMC Common Options → DDR4 Common Options → DRAM Timing Configuration → Accept → Overclock [Enabled] → Memory Clock Speed (MEMCLK, half the DDR figure) | p.42 |
+| DRAM voltage (does **not** follow the clock on Auto) | Ai Tweaker → DRAM ABCD Voltage / DRAM EFGH Voltage, type the value | p.18 |
+| Infinity Fabric clock | **no item on this firmware** — follows the memory clock 1:1 up to 1800 MHz on its own | — |
+| Fan curves | not in the BIOS on this board; the BMC drives the headers (CPU_FAN reads a constant 2200 rpm) | — |
 | Read-only fan/temp/voltage | Tool → IPMI Hardware Monitor | p.63 |
 
 ## CPU power limit — the item that is not called "power limit"
@@ -173,7 +176,50 @@ not to a hwmon the OS can write — and must be curved in firmware.
 Exact curve points are set against the live graph on the machine and are not
 transcribed here yet.
 
+## Memory clock (2026-09-14)
+
+Walked 3200 → 3400 → 3600 → 3666 with a bandwidth probe, a verifying
+memory stress, a greedy identity check and three decodes at each stop; the
+record is [`log/2026-09-14-memory-clock-3600.md`](../log/2026-09-14-memory-clock-3600.md).
+The standing configuration is **Memory Clock Speed 1800MHz (DDR4-3600) with
+DRAM ABCD/EFGH Voltage 1.30**. What settled it:
+
+- 3600 passed ten minutes of `stress-ng --vm --verify` at the Auto 1.2 V;
+  3666 at 1.3 V returned 139 wrong readbacks with MCE at zero (non-ECC, so
+  nothing else would have noticed), and lost 3 % of bandwidth because the
+  fabric stays at 1800 MHz. 3733, 3766 and 3800 do not POST.
+- Auto DRAM voltage is the SPD 1.2 V regardless of the clock chosen in AMD
+  CBS, and it does not move with load — the BMC read 1.22 V idle and under
+  stress. The manual item applies: 1.30 reads back 1.29/1.28 V.
+- 3600 is the last working step, so it gets the 0.1 V of margin.
+
+## Getting into Setup, and back out of a bad clock
+
+`sudo systemctl reboot --firmware-setup` or `sudo ipmitool chassis bootdev
+bios` (one boot only; also works over `lanplus` from outside) both land in
+Setup on the next boot. A clock that does not train is recovered with the
+**CLR CMOS button on the case** — the BMC web UI has no remote CMOS clear or
+BIOS-defaults action.
+
+### After a CMOS clear
+
+Everything resets. The list re-entered on 2026-09-14, in the order it was
+found useful:
+
+1. AMD CBS → UMC Common Options → DDR4 Common Options → DRAM Timing
+   Configuration → Accept → Overclock Enabled → Memory Clock Speed 1800MHz
+2. Ai Tweaker → DRAM ABCD Voltage 1.30, DRAM EFGH Voltage 1.30
+3. Advanced → APM Configuration → Restore AC Power Loss = Power On, ErP Ready
+   = Disabled
+4. Advanced → PCI Subsystem Settings → Above 4G Decoding = Enabled, Re-Size
+   BAR Support = Auto (both GPUs must show in `nvidia-smi` afterwards)
+5. AMD CBS → DF Common Options → Memory Addressing → NUMA nodes per socket =
+   NPS1 (`lscpu` shows one node)
+6. Server Mgmt → OS Watchdog Timer = Disabled
+7. Left at defaults on purpose: PPT (280 W), Core Performance Boost (Auto),
+   Global C-state (Auto), SMT, CSM (Disabled)
+
 ## Still to measure
 
 - tok/s at a capped PPT versus the fused 280 W, to pick the cap.
-- The Qfan curve points that hold the package under load once boost is off.
+- A clean DDR4-3200 decode row (three single-stream 400-token runs) to close the 3200 → 3600 decode delta; bandwidth is +12.6 %, decode is not yet measured against the same baseline.
