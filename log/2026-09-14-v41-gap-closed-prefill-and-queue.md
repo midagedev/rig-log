@@ -710,21 +710,34 @@ Thirty seconds it is, and the table says why: the new tokens in each
 follow-up are about 900, but the server re-processes 2 600 of them at a
 2048 batch and 4 650 at 4096. The re-prefill is the distance back to the
 last context checkpoint, and the checkpoint is not where one would expect.
-The server creates its "near the end of the prompt" checkpoint *before* it
+~~The server creates its "near the end of the prompt" checkpoint *before* it
 decodes the final prompt batch, so the checkpoint lands on the last batch
 boundary, 10 240 or 8 192 tokens into an 11 944-token prompt. On the next
 turn the re-rendered history diverges right after that prompt (the
 assistant's thinking and template tokens are not what was generated), the
 sliding-window state at that point is gone after 300 generated tokens, and
 the only checkpoint the server can restore is the one at the batch boundary.
-Everything after it is prefilled again. Mainline master has the same lines.
+Everything after it is prefilled again. Mainline master has the same lines.~~
 
-The fix is twelve lines in the fork: create one more checkpoint the moment
+~~The fix is twelve lines in the fork: create one more checkpoint the moment
 the prompt is fully processed. Expected, not yet measured: the re-prefill
 drops to the ~900 genuinely new tokens and the turn waits 10–14 s instead
-of 26–31. The A/B is chained (same prompts, unpatched against patched
-binary, the five answers byte-compared, the create/restore lines read from
-the trace log), and the number goes here when it lands.
+of 26–31.~~
+
+**Corrected 2026-09-15, measured.** The checkpoint *is* where it should be
+— the server creates one four tokens before the end of the prompt — and the
+server rejects it. Mainline hides the dsv4 memory's 128-token raw window
+from the server (`llama_model_n_swa()` returns 0 for `DEEPSEEK4`, because
+that cache cannot roll back inside the window); the V4.1 port added
+`DEEPSEEK41` without extending that one case, so the checkpoint search
+demanded a 128-token margin that an exact-position checkpoint can never
+satisfy and fell back 2 048 tokens to the previous one. Mainline master
+with V4-Flash does not have the problem (turns of 862 tokens, 5.4 s). The
+fix is one line in the fork, not twelve, and it measured: turns 2–5
+re-prefill 2 606 → 562 tokens, TTFT 21.0 → 8.8 s, all five answers
+byte-identical. The whole trail, including the server-side guard patch that
+worked for the wrong reason and was reverted, is
+[`docs/checkpoint-restore-dsv4.md`](../docs/checkpoint-restore-dsv4.md).
 
 Two smaller findings from the same window. `-ub 4096` gives long prefill a
 quarter more throughput but leaves one GiB on the 48 GB card, so it is not
