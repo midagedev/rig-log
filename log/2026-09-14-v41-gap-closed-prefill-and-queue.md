@@ -410,4 +410,4 @@ from the expert weights' drive would only matter while experts are
 paging in and queueing ahead of the row reads.
 
 8001 went back to the standard script — same file and placement, no
-reasoning budget — at 11:57.
+reasoning budget — at 11:56.
