@@ -102,10 +102,14 @@ has a way to say "no usable window", and the port simply did not use it.
 
 ## Where it goes
 
-- **To the fork**: a one-line PR against `vcruz305/llama.cpp` branch
-  `runtime/deepseek41` (the branch under mainline draft PR #28696, which
-  carries only the converter). Small, single-purpose, with the before/after
-  table above. The user decides whether and when to open it.
+- **To the fork**: [vcruz305/llama.cpp#3](https://github.com/vcruz305/llama.cpp/pull/3),
+  opened 2026-09-15 against `runtime/deepseek41` (the branch under mainline
+  draft PR #28696, which carries only the converter): one line, the
+  before/after table above, the two trace lines, and a note that the
+  server-side variant (#25592's approach) measures the same but is the
+  wrong layer here. Whether the author's name reaches mainline depends on
+  how that branch is squashed on its way up; the PR asks for the commit or
+  a `Co-authored-by` to survive.
 - **Not to mainline**: master behaves correctly for the dsv4 memory it
   ships (V4-Flash). PR #25592 is a different, more general treatment; the
   mainline run above confirms it changes nothing for V4-Flash (identical
