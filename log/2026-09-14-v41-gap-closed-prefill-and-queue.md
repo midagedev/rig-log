@@ -632,3 +632,59 @@ the 24 GB card can hold a resident coding model), WKS-25 (that coding
 model's candidates and protocol), WKS-26 (speculative decoding as the only
 lever that uses the idle GPU without more VRAM — the expert weights are read
 once per verify batch, so acceptance and draft length are the knobs).
+
+## The short-prompt prefill floor: a weight copy, not a batch boundary
+
+*14:40–14:58, for a toktape re-shoot that was then cancelled.* The 11:51 hero
+take waited 10.7 s for its first token on two 280-token prompts, and the
+recorder's session asked how to shorten it. My first answer was wrong, and
+the measurement that killed it found the real cost, so both go here.
+
+The wrong answer: two prompts of 279 and 283 tokens add to 562, past the
+`-ub 512` of the hero script, so they would run as two ubatches, and if each
+ubatch pays a fixed cost then `-ub 1024` should nearly halve the wait. The
+server was restarted that way (a copy of the hero script with the one flag
+changed; seven layers still loaded, 45.9 + 20.4 GB) and probed with two
+concurrent chat prompts of about 265 tokens each, at the 2.7 GHz cap:
+
+| case | prompt_n | prompt_ms |
+|---|---|---|
+| 2 streams, fresh text (engram rows faulting in) | 267 / 262 | 13 829 |
+| 2 streams, same text again with a changed prefix (rows cached, KV miss) | 268 / 263 | 10 353 |
+| 1 stream, fresh | 292 | 9 205 |
+| 2 streams, fresh | 262 / 254 | 11 244 |
+| 1 stream, fresh | 251 | 8 719 |
+| the 11:51 take, 3.6 GHz, `-ub 512` | 279 / 283 | 10 732 |
+
+One ubatch instead of two changed nothing. The numbers fit a fixed cost of
+about 7.7 s per prefill plus 5 ms a token, and the 11:51 take sits on the
+same line (7.7 + 0.005 × 562 = 10.5). Ubatch count, stream count and clock
+cap do not move it. The 3.5 s difference between the first two rows is the
+engram rows for fresh text, the WKS-20 cost showing up in prefill.
+
+The cause was watched directly: `nvidia-smi dmon -s tu` during a one-stream
+251-token prefill shows the 48 GB card receiving 13–19 GB/s over PCIe for
+about seven seconds, with its SMs at 50–71 % and the other card idle. That
+is the op-offload path: for any ubatch of 32 tokens or more the scheduler
+runs the CPU-resident expert matmuls on the GPU, and to do so it copies the
+expert tensors of the 37 CPU layers, about 166 GB at Q3_K_M, across the bus
+once per prefill. 166 GB at 18.5 GB/s is the 7.7 s. The bus is PCIe 4.0
+x16, whose practical ceiling is nearer 25 GB/s; the weights are memory-mapped
+pageable memory, so the copy stages through a pinned buffer and loses the
+rest.
+
+So on this placement any prompt over 32 tokens waits about seven seconds
+before its first token, and the "prefill tok/s" on a short prompt is not a
+throughput but the prompt length divided by that constant: 26 tok/s at 280
+tokens and 120 tok/s at 14k are the same hardware doing the same copy. The
+recorder's card will say so. What could lower the floor is now WKS-27: let
+the CPU compute short prompts itself (`--no-op-offload`, or the offload
+threshold raised past the prompt), which wins only if the CPU does 280
+tokens faster than 40 tok/s and loses on long prompts, so it is a study
+arm and not a serving setting; pinned weights would recover perhaps a
+quarter of the copy time but 200 GB of them do not fit beside the engram
+table. The re-shoot was cancelled on these numbers — trimming the prompts
+to 150 tokens would have saved a second — and the recorder shows the last
+three seconds of the wait instead. 8001 went back to the normal serving
+script at 14:58; the hero script copy keeps `-ub 1024` as a harmless
+change, with this section as the record that it was not the fix.
