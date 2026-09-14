@@ -502,13 +502,23 @@ Two things are true at once. The cache works, and it survives a session
 switch: after 13 000 tokens of unrelated text, the first conversation
 came back at the price of 2 048 tokens, not 17 883 — the evicted state
 was kept in host memory and restored. And every hit pays exactly 2 048
-tokens, which is `-b`, whether the prefix matched in full or not. That
+tokens, which is `-b`, whether the prefix matched in full or not. ~~That
 looks like a restore granularity in the V4.1 cache — the compressed
 state is snapshotted at batch boundaries, and a match rounds down to the
-last one — rather than a cache miss. If so, `-b 512` turns the tax into
-four seconds, and that is the next arm. For a coding session the shape is
-right: a growing transcript costs its new tokens plus a fixed 17 s, and
-the 256k first fill of half an hour happens once.
+last one — rather than a cache miss.~~ Corrected an hour later from the
+server log: the mechanism is the server's own SWA context checkpoints.
+The model has a 128-token sliding window, so a partial reuse has to
+restore a checkpoint taken at least 128 tokens before the divergence
+point, and the server takes checkpoints at batch ends — "checking
+checkpoint with [14096] against 13972 … restored context checkpoint
+(pos_min = 12052)". The tax is the distance back to that checkpoint, up
+to one `-b`. The next window tries `--swa-full`, which would make the
+reuse exact at the cost of full-context KV on the window layers, and
+`-b 512`, which caps the tax at 512 but halves prefill. `--cache-reuse` is
+a no-op here: the V4.1 cache refuses partial removals, and the server
+says so at load. For a coding session the shape is right either way: a
+growing transcript costs its new tokens plus a fixed 17 s, and the 256k
+first fill of half an hour happens once.
 
 So the coding profile has a candidate: the attention-Q8_0 file, five
 expert layers, `-ub 2048`, `-c 262144`, KV q8_0, the fused indexer, cache
