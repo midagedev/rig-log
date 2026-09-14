@@ -189,6 +189,30 @@ The likely outcome of Q2 is two serving profiles — decode (the current one)
 and coding (larger `-ub`, longer context, possibly no draft) — rather than
 one compromise.
 
+### Closed as of 2026-09-15 morning
+
+The 2026-09-14/15 stretch settled, in order: **Q10** twice over — the host
+read cap and then the memory clock itself (DDR4-3200 → 3600 at 1.30 V,
+131 → 147.7 GB/s, `log/2026-09-14-memory-clock-3600.md`); **Q2** on the
+served V4-Flash file (`-ub 1024 → 4096` is 2.1× on prefill, applied to
+serving, `log/2026-09-15-prefill-ubatch-ik-vs-mainline.md`); the checkpoint
+tax (a fork-only `n_swa` omission, vcruz305/llama.cpp#3); and a six-arm
+serving-knob sweep in which the live profile stood
+(`log/2026-09-15-serving-knob-sweep.md`). Q11 stays a watch item (two
+corrected AER events on the A6000 root port during the 3600 stress). Q7 and
+WKS-11(2) are still downloads-and-grafts waiting for a window.
+
+What comes next is not on this V4.1 list. The layer-placement results say
+the on-card tensors are free to read and the RAM experts are the whole
+decode cost, so the next program is **placement-aware quantization**: Q12's
+routing histogram first, then a per-tensor cost model (bytes × placement ×
+routing frequency × sensitivity), then a file assembled for this box rather
+than for a download size. It gets its own document when the histogram
+exists. In parallel, a second architecture — GLM-5.3-Flash on ik main,
+`log/2026-09-15-glm-5.3-flash-first-run.md` — checks whether the V4-derived
+rules generalize; the first numbers say they do not (a layer moved to a card
+buys 1 % of decode there, against 2.2 % of expert bytes).
+
 ### Q3 — raise precision where the bandwidth is not the bottleneck
 
 The user's question was whether the experts that sit in RAM could be
