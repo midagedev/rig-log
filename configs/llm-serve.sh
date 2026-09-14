@@ -9,10 +9,10 @@ M=$HOME/models/DeepSeek-V4-Flash-0731-GGUF/UD-Q4_K_XL/DeepSeek-V4-Flash-0731-UD-
 D=$HOME/models/DeepSeek-V4-Flash-0731-dspark/dspark-DeepSeek-V4-Flash-0731-Q8_0.gguf
 exec $HOME/ik_llama.cpp/build/bin/llama-server \
   -m "$M" --alias DeepSeek-V4-Flash-0731 \
-  -c 32768 -ngl 99 -ts 2,1 -mla 3 -t 32 -b 2048 -ub 1024 \
+  -c 32768 -ngl 99 -ts 2,1 -mla 3 -t 32 -b 4096 -ub 4096 \
   -ot "blk\.[0-6]\.ffn_.*_exps=CUDA0" \
   -ot "blk\.1[1-4]\.ffn_.*_exps=CUDA1" \
   -ot "exps=CPU" \
   -md "$D" -ngld 99 -cd 8192 --spec-type dspark:n_max=3 \
-  --jinja --reasoning-format deepseek \
+  --jinja --reasoning-format none \
   --host 127.0.0.1 --port 8000
