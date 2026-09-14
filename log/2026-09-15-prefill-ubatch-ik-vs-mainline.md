@@ -42,8 +42,25 @@ has been leaving half of its long-prompt prefill on the table. The card
 budget allows the change: the serving run sits at 40.3 GB on the 48 GB card
 with the draft loaded, and `-ub 4096` asks 2.8 GB more. Expected on the
 served configuration: 11.9k prompt TTFT from about 50 s to about 24 s;
-short prompts unchanged (their floor is the per-prefill expert copy, not
-the batch). Not applied yet — serving changes are the user's call.
+short prompts unchanged.
+
+**Applied 06:19 the same morning** (`configs/llm-serve.sh`, `-b 4096 -ub
+4096`, user's decision), and measured on the served configuration with the
+DSpark draft loaded:
+
+| served, ub 4096, draft on | prompt_n | prefill | TTFT | decode | VRAM after (48 / 24 GB card) |
+|---|---:|---:|---:|---:|---|
+| short prompt | 10 | — | 0.31 s | 21.0 | 42.9 / 19.4 GB at load |
+| 11.9k document | 11 929 | 476 tok/s | 25.1 s | 29.5 (64 tok) | 48.4 / 21.5 GB |
+| 18.6k document | 18 566 | 467 | 39.8 s | | 48.4 / 21.6 |
+| 26.6k document | 26 618 | 464 | 57.3 s | | 48.4 / 21.7 |
+| 400-token decode | 13 | — | 0.34 s | 26.5 | |
+
+The CUDA pool on the 48 GB card grows to 48.4 of 49.1 GB on the first long
+prefill and stays there — the same figure at 12k, 18.6k and 26.6k tokens —
+so the 700 MiB that remain are the steady state, not a margin that shrinks
+with the prompt. Decode and short-prompt latency are unchanged; a 12k
+document now waits 25 s instead of 50.
 
 The "prefill 54 tok/s" that the decode probes have been printing for the
 served model is not a prefill rate: those prompts are ~30 tokens, and the
