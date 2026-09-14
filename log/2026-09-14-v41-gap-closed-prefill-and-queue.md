@@ -559,3 +559,76 @@ byte-identical** to the unfused build's from this morning, and to each
 other across passes. The fused lightning indexer is exact on V4.1, free at
 decode, and the reason 64k and 256k load. 8001 has been on that build
 since 12:45.
+
+## WKS-22: where the host bandwidth wall actually is
+
+*13:36–14:21, 8001 down for the whole window, coolant gate 50 °C.* The
+question was why decode pulls 115.8 GB/s from eight populated channels of
+DDR4-3200 whose peak is 204.8. Three probes answer it, and the answer is in
+the CPU package, not in the software.
+
+First, a plain read probe (`tools/membw/bw.c`: each thread streams its own
+slice with 256-bit loads, 16 GiB, best of five) swept threads and clock caps:
+
+| threads | 2.7 GHz | 3.6 GHz |
+|---|---|---|
+| 4 | 85.9 | 90.5 |
+| 8 | 121.7 | 121.9 |
+| 16 | 128.6 | 128.8 |
+| 32 | 131.3 | 132.0 |
+| 64 | 132.3 | 133.1 |
+| 32, no thread binding | 131.3 | 132.2 |
+| 32, `numactl --interleave=all` | 132.1 | 132.3 |
+
+The read cap is about 132 GB/s. Eight threads already reach 92 % of it, and
+clock, binding and interleave move it by less than 1 % (one NUMA node, NPS1).
+Serving's 115.8 is 88 % of that cap, so the software side has at most 14 % to
+find, and the 204.8 figure was never on the table.
+
+Second, the per-CCD probe (`tools/membw/ccd-bw.sh`, `taskset` to one, two
+or four core complexes). The 5975WX has four CCDs of eight cores, each
+hanging off the IO die on one GMI2 link that reads 32 bytes per fabric
+clock, 51.2 GB/s at FCLK 1600. Measured: one CCD reaches 40.2 GB/s at two
+threads and stays there through eight, and through its SMT siblings; each of
+the four CCDs alone gives the same 40.2–40.3; two CCDs give 79.7; four give
+131.2. So there are two caps, and the binding one at full load is not the
+fabric link. One CCD sits at 79 % of its link, in the normal Zen 3 range,
+which also says FCLK is at 1600 and not mis-set (a 1067 fabric would have
+shown about 33). But four CCDs together stop at 131, not at four times 40,
+so the IO die or the DRAM side is the wall at full load. Public numbers for
+the same part put read bandwidth near 147 (and 137–139 for the 3975WX, 160
+for the eight-CCD 5995WX), so about 10 % of the memory-side cap is
+recoverable and it lives in memory timings, the 2Rx8 consumer UDIMMs, or the
+interleave setting rather than in any flag we can pass. The rest is
+structural: a four-CCD part cannot draw what eight channels can supply, and
+the eight-CCD parts are the ones that can.
+
+Third, decode against thread count, on the seven-layer decode profile at
+16k with the DSpark draft, two passes each, the warm pass counting:
+
+| -t | cold | warm |
+|---|---|---|
+| 16 | 17.77 | 19.77 |
+| 24 | 20.73 | 23.19 |
+| 32 | 23.36 | 25.07 |
+| 48 | 20.51 | 24.10 |
+| 64 | 13.08 | 18.88 |
+
+The physical core count wins and SMT only contends. The read probe saturates
+at eight threads but decode needs thirty-two, which says the expert kernel
+is bounded by per-thread dequantization work as much as by bandwidth: the
+Q3_K blocks have to be unpacked before they can be multiplied, and eight
+cores cannot do that at 130 GB/s. That is also why the 3.6 GHz cap helped
+the hero take: it is not moving bytes faster, it is unpacking them faster.
+
+What this changes. The BIOS plan on WKS-22 is now memory clock first with
+the fabric at 1:1 (3400, then 3600), since a fabric-only raise would lift
+the 40 GB/s per-CCD figure that is not the binding one; expected recovery is
+132 → 145–150 GB/s and, since decode tracks bandwidth nearly linearly,
+25 → about 28 tok/s. Derived, not measured, and the eight non-ECC UDIMMs
+mean every step gets a memtest pass and the twenty-prompt identity check
+before it counts. Filed alongside: WKS-24 (V4.1 on the 48 GB card alone, so
+the 24 GB card can hold a resident coding model), WKS-25 (that coding
+model's candidates and protocol), WKS-26 (speculative decoding as the only
+lever that uses the idle GPU without more VRAM — the expert weights are read
+once per verify batch, so acceptance and draft length are the knobs).
