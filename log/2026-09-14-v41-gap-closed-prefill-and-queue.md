@@ -365,3 +365,49 @@ seven expert layers with 46.0 + 21.9 GB of VRAM in use. The first
 request after load ran cold at 14.8 tok/s over 300 tokens, the same
 page-fault pass every fresh load shows; the warm number is the user's
 toktape session.
+
+## The hero take on the new serving file, and what page faults measure
+
+*11:38–11:53.* The toktape session recorded its v0.2.0 demo clip on 8001,
+recorded with [toktape](https://github.com/midagedev/toktape), after the
+serving switch: the attention-Q8_0 file at seven expert layers, DSpark
+block 3, `--reasoning-budget 64` for the take only, five 500-token warm-up
+runs (14.5, 17.8, 19.0, 18.8, 22.5 tok/s), coolant down to 40 °C, then
+the recording-only 3.6 GHz cap.
+
+| take, two streams, 30 s | value |
+|---|---|
+| decode | 22.5 tok/s aggregate, 11.2 a stream |
+| prefill | 51.8 tok/s aggregate at 279 prompt tokens a stream, TTFT 10.75 s |
+| draft | n_max 3, 52 % accepted, 4.0 tokens a verify step |
+| major faults | 4.4 a token during decode |
+| Tctl | 66 → 79 °C, cap held, IO pressure 0.00 |
+
+Against the 07:04 take on the old file at eight layers (26.9 aggregate,
+TTFT 1.21 s at a 30-token prompt) this is lower on decode, and the reason
+is not the file: the single-stream pair this morning had the grafted file
+faster at the same placement. The difference is warmth. The 11:45 probe
+right after warm-up ran at 19.4 tok/s with 36.9 major faults a token on
+fresh text, and the take on the same text after one more pass ran at 4.4.
+
+Those two numbers correct a claim made earlier in the day. The prediction
+was that warm-up would bring faults to single digits regardless of the
+prompt, because the experts are what page in; it did not, and the fault
+count that remained is the engram tables. Every token reads 48 rows from
+the two lazy-mode tables on the NVMe, each row its own page, so fresh text
+sits at a floor of 30–48 faults a token and only repeated text — the same
+rows already cached — drops under it. WKS-14's zero faults on the second
+pass were that effect, not expert warmth. Two consequences: faults a token
+is not a cold-expert witness on fresh text, and the engram row reads may
+cost a measurable share of a token — 37 random 4 KB reads at NVMe latency
+is one to four milliseconds against a 40 ms token if they are issued
+serially, a tenth of that if the threads fault in parallel. Which it is,
+and what pinning the tables in RAM or prefetching them would buy, is
+WKS-20. Splitting the tables across drives would not help: the need is
+about 1 200 IOPS against a drive good for hundreds of thousands, and the
+latency per read does not fall with more drives. Separating the engram
+from the expert weights' drive would only matter while experts are
+paging in and queueing ahead of the row reads.
+
+8001 went back to the standard script — same file and placement, no
+reasoning budget — at 11:57.
