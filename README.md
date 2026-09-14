@@ -34,7 +34,7 @@ system RAM, at 25–33 tok/s.
 | | |
 |---|---|
 | CPU | AMD Ryzen Threadripper PRO 5975WX, 32 cores / 64 threads |
-| Memory | 256 GB DDR4-3200 ECC, 8 channels populated (32 GB × 8) |
+| Memory | 256 GB DDR4-3200, 8 channels populated (32 GB × 8, Samsung M378A4G43AB2-CWE 2Rx8 UDIMM, ~~ECC~~ non-ECC — `dmidecode` reports no error correction, corrected 2026-09-14) |
 | Measured memory read | 115.8 GB/s (STREAM-style, 32 threads; 204.8 GB/s theoretical) |
 | GPU 0 | NVIDIA RTX A6000, 48 GB |
 | GPU 1 | NVIDIA GeForce RTX 3090, 24 GB |
@@ -42,7 +42,7 @@ system RAM, at 25–33 tok/s.
 | Storage | Samsung 980 PRO 2 TB NVMe (root) + Phison E18 4 TB NVMe (`/models`, added 2026-09-12) |
 | Case | 3RSYS T840 |
 | Power | Super Flower Leadex Platinum SF-2000F14HP, 2000 W |
-| Cooling | NZXT Kraken X-series AIO, pump pinned at 100%, CPU boost disabled, clock capped at 2.7 GHz (`configs/cpu-clockcap`) |
+| Cooling | Tower air cooler on CPU_FAN (replaced the NZXT Kraken AIO on 2026-09-14 — the AIO was letting a 2.7 GHz decode reach Tctl 89 °C; the air cooler holds a 64-thread stress at 43 °C, [log](log/2026-09-14-air-cooler-swap.md)). CPU boost disabled, clock capped at 2.7 GHz (`configs/cpu-clockcap`). Fan RPM is readable only through the BMC (`ipmitool sdr type fan`), not the Super I/O |
 | OS | Ubuntu 24.04, kernel parameter `pci=realloc=off` (see below) |
 
 Two notes that cost a day each:
@@ -65,6 +65,7 @@ Two notes that cost a day each:
 | 2026-09-12 | [A 347 GB model with 84 GB of it left on the drive](log/2026-09-12-deepseek-v41-first-run.md) | DeepSeek-V4.1-Flash at 20 tok/s on mainline llama.cpp, engram never loaded, and a prefill flag set wrong the whole time |
 | 2026-09-13 | [Getting ik_llama.cpp to run DeepSeek-V4.1](log/2026-09-13-deepseek-v41-on-ik-llama.md) | four graph changes, a perplexity gate that matches mainline on CPU and GPU, a quiet-box A/B that puts the port 20 % behind mainline on decode, and a DSpark draft that loads, drafts, and at a three-token block accepts 60 % once the target keeps its token embedding in bf16 (the draft borrows it; the 3-bit copy cost four to five points, the block mask and the head cost nothing); on a quiet box the three-token block decodes 19.9 tok/s against 14.1 without a draft, and pinned staging buffers change nothing; the same draft ported to mainline (three V4.1 rules, 52 lines) decodes 22.8 tok/s against 17.7, and 24.8 once the token's bytes were counted (the served path sits within 10 % of the memory wall) and the VRAM re-balanced to hold two more expert layer-equivalents, 25.6 with a third (the last step is inside the noise band), so the serving port now runs that build with the draft |
 | 2026-09-13 | [Putting the engram tables back at Q8_0](log/2026-09-13-engram-q8-repack.md) | 6 % lower perplexity for 125 GB that is never loaded; PopQA does not move; the thermal guard stops CPU decode at five minutes, and a 2.7 GHz cap fixes that for free |
+| 2026-09-14 | [The AIO comes out, an air cooler goes in](log/2026-09-14-air-cooler-swap.md) | the loop was letting a 2.7 GHz decode reach 89 °C; the air cooler holds a 64-thread stress at 43 °C; fan RPM lives in the BMC, not the Super I/O |
 
 ## Queued
 
@@ -183,6 +184,6 @@ The method, including the two mistakes that cost the most, is in
   ```
 
 - [`configs/thermal-guard.sh`](configs/thermal-guard.sh) — a watchdog that
-  reads CPU, GPU, coolant temperature and pump RPM every 5 seconds and stops
+  reads CPU and GPU temperature (and, while the AIO was fitted, coolant and pump) every 5 seconds and stops
   the inference load, and only the inference load, after 30 seconds of a
   genuine cooling problem. Written for unattended weekends.

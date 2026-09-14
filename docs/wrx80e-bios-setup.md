@@ -134,6 +134,27 @@ AMI BMC left on defaults is an open remote-power-and-console interface on the
 LAN. From there: power on/off/reset, live screen (POST codes, boot, kernel
 panics), and virtual media, all remote.
 
+
+### Reading the fans from Linux (2026-09-14)
+
+Only the BMC sees the fan headers. The Super I/O (`nct6798`, driver
+`nct6775`) reads voltages and its own temperature inputs fine, but all seven
+fan channels report 0 RPM even while it drives PWM 1–5 at 60 %; the tach
+lines go to the ASPEED BMC. `asus_ec_sensors` does not list this board and
+the DSDT has neither the `ASMX` mutex nor the `BREC` region it needs, and
+`asus_wmi_sensors` loads without creating a hwmon device. What works, from
+the host, over the in-band IPMI interface:
+
+```
+sudo ipmitool sdr type fan          # CPU_FAN 2200 RPM, SOC_FAN 2700, CHIPSET_FAN 2500
+sudo ipmitool sdr type temperature  # CPU Temp., LAN Temp., PCIE01 Temp.
+sudo ipmitool sensor get CPU_FAN    # lower critical threshold 1200 RPM
+```
+
+The BMC's CPU_FAN lower-critical threshold is 1200 RPM, so a stopped or
+unplugged CPU fan shows up in the BMC event log on its own; the host-side
+thermal guard reads k10temp `Tctl` directly.
+
 ## Fans: not in the documented menu
 
 The Tool → IPMI Hardware Monitor page (p.63) is **read-only** — it shows fan
