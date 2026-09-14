@@ -170,7 +170,7 @@ floor is the per-ubatch PCIe copy of the CPU expert set and `--no-op-offload`
 beats it below ~700 tokens (WKS-27). Threshold sweep done: `GGML_OP_OFFLOAD_MIN_BATCH=768` closes the
 short-prompt floor (257 tok 10.2 → 4.5 s, long prefill unchanged, 1024
 and 2048 lose; log section "The offload threshold"). Queue now:
-end-of-prompt checkpoint patch A/B + CUDA-path KV q8_0 check → then Q11 PCIe AER, Q7, Q12, WKS-24/25/26.
+~~end-of-prompt checkpoint patch A/B~~ **done 2026-09-15: the 26–31 s turns were the V4.1 port reporting `n_swa = 128` to the server (mainline hides it for dsv4); one-line fix in `llama_model_n_swa`, turns 21 → 8.8 s, `docs/checkpoint-restore-dsv4.md`** + CUDA-path KV q8_0 check (done, q8_0 accepted) → then Q11 PCIe AER, Q7, Q12, WKS-24/25/26.
 
 ### Priority as of 2026-09-14 afternoon
 
