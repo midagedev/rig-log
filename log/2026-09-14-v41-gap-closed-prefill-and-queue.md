@@ -421,3 +421,33 @@ paging in and queueing ahead of the row reads.
 
 8001 went back to the standard script — same file and placement, no
 reasoning budget — at 11:56.
+
+## The context ceiling, found: the indexer scores every token against every position
+
+*12:01–12:09.* The flash-attention hypothesis from the previous window
+lasted eight minutes. All three arms — seven layers at 64k, four layers at
+256k with the KV cache at q8_0, the same at f16 — logged `flash_attn =
+enabled` and then died on exactly the allocation they died on without it:
+9.1 GB at 64k and `-ub 512`, 135 GB at 256k and `-ub 2048`. Whatever
+scales with context times micro-batch, flash attention does not touch it.
+
+The source does. In this build's V4.1 graph the sparse-attention indexer
+scores each query token against every compressed position with a plain
+matrix multiply, producing a `[positions, tokens, 32 indexer heads]`
+tensor in fp32, and then copies it once more to permute it. On the layers
+whose compression ratio is one, positions equals the context. At 256k and
+a 2048 micro-batch that is 68.7 GB, twice, which is the 135 GB the loader
+asked for; at 64k and 512 it is 4.3 GB twice, which is the 9.1 GB. The
+arithmetic matches both failures to within the other buffers, and the KV
+cache, at about 20 KB a token, is a footnote.
+
+So the context ceiling on this machine is a graph shape, not a memory
+budget: the indexer materializes its scores for the whole micro-batch
+against the whole context. Three ways out, in order of value. The V3.2
+path in the same tree has a fused indexer op that never materializes the
+scores — whether it fits V4.1's compressed keys and has a CUDA kernel is
+the next read. Failing that, the scoring can be chunked over positions or
+tokens in the graph. Failing both, `-ub` shrinks for long contexts: at
+256k, a micro-batch of 128 brings the buffer to 8.6 GB and 64 to 4.3, and
+prefill pays for it. The prompt-cache measurement is still owed; no arm
+that could carry it loaded.
