@@ -55,12 +55,16 @@ absolute number changes with the bus, the efficiency does not.
 > (1.274×768 + 1.696×936) / 2.970 = 864 GB/s, and 392/864 = 46 %. The same
 > tape carries the contradiction: `placement` predicts 13.1 GiB on GPU1 while
 > `gpus_at_end` measures GPU1 at 1 MiB. Sent to the recorder, which confirmed
-> it and is fixing it at the source: an estimated placement the measured GPU
-> readings contradict stops producing a ceiling or a ratio at all — both print
-> `?` with a caveat naming the device and the two figures — while the combined
-> GB/s stays, because that one is active bytes × the measured rate and does not
-> depend on the split. The honest denominator for a single-card run is that
-> card.
+> it and closed it at the source the same night: when an *estimated* placement
+> puts at least a GiB on a device the end reading measures under a quarter of
+> that, the ratio is not printed at all and `card --explain` says why —
+> "placement ? — contradicted: GPU1 is estimated to hold 14.044 GB and held
+> 0.001 GB, so no ceiling is derived from the split" — with a caveat on the
+> card naming the device and both figures. The measured 392 GB/s stays, because
+> that one is active bytes × the measured rate and owes nothing to the split.
+> Re-rendered from these tapes on the recorder's `f592cee`, which this machine
+> has not built yet, so that rendering is theirs and not a measurement of mine.
+> The honest denominator for a single-card run is that card.
 
 ## Four streams buy 13 %, and that closes the day's argument
 
@@ -174,17 +178,27 @@ rows — in the 150 W run where the cap is demonstrably binding and in the 300 W
 run where this sweep proves it is not. A warning that fires in both cases
 carries no information; sent to the recorder with these rows as the evidence,
 suggesting draw-against-cap headroom instead of a boolean. Confirmed there and
-being fixed the same way: `sw power cap` is set on any card boosting into its
-own limit, so the card will print the draw against the sampled limit (`281 of
-300 W`) and reserve the `throttled:` verdict for the bits that mean the device
+closed the same way: `sw power cap` is set on any card boosting into its own
+limit, so the card now prints the draw against the sampled limit (`281 of
+300 W`) and reserves the `throttled:` verdict for the bits that mean the device
 was held below what its own settings allow — hardware slowdown, thermal, power
 brake, sync boost — with the full mask kept in the tape so a surprising verdict
-can be explained from the recording rather than from the box. One thing a single
-sample still cannot say is whether the headroom lasted: the 150 W row sat exactly
-on its limit for the window and the 300 W row had 19 W spare at the moment it was
-read, and those must not render alike. Filed at the recorder as TTP-102 with
-these two rows as its evidence — the samples are already in the tape, so it is a
-reduction over the decode window rather than new instrumentation.
+can be explained from the recording rather than from the box. These three tapes
+were recorded before the limit and the mask were sampled, so they cannot show
+the new row; it arrives free with the next take.
+
+That narrowing has a reading worth stating, because this sweep is the case that
+exposes it: a re-record of the 150 W arm renders `150 of 150 W · throttled: no`.
+Which is the correct implementation of the definition — a board held at exactly
+the limit its operator set is running inside its own settings — and is also the
+one run of the three that a warning would have been *right* about, since it lost
+15 % of its rate to that setting. The word does the wrong work; the row beside
+it does the right work, and `150 of 150 W` against `281 of 300 W` is the whole
+story in eight characters. So the boolean is not where this belongs: what
+separates them is whether the draw stayed pinned to the limit or merely touched
+it, which is a reduction over the decode window rather than a flag. Filed at
+the recorder as TTP-102 with these two rows as its evidence — the samples are
+already in the tape.
 
 ### It is not the expert gather either
 
