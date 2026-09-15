@@ -67,7 +67,39 @@ dynamic placement converges slowly (64 experts moved every 128 steps),
 so a 400-token probe may measure the *unconverged* state; a longer run
 (2–4k tokens) or the PR's precomputed profile is needed before calling it.
 
-## Next steps, in order
+## State after the second and third windows (15:30)
+
+Recorded in the log's ExLlamaV3 sections; short form:
+
+- `-mcs` dynamic placement works and beats ik: `-mcs 185` (103 experts a
+  layer resident, VRAM 43.5/20.5) 23.3 tok/s draft-free on one text,
+  20.7 on a five-prompt mixed cycle (`exl3-bench2.py`), prefill 361–373.
+  `-mcs 175` does not fit `-gs 44,21` with a 32k cache. Convergence takes
+  ~1.2k tokens; the run-to-run climb is placement, not warm-up.
+- `-mtp` at the default depth 3 loses (20.6, 47 % accepted); depth 1
+  (`exl3-bench3.py --draft_n 1`) gives **25.4** at 77 %. Depth 2 24.0,
+  dynamic pruning 22.4. Upstream candidate, see
+  `docs/upstream-contributions.md`.
+- `-mct 48` is slower than 32 (22.1 vs 23.3).
+- Greedy output differs between visits of the same prompt as the
+  placement moves; same class as ik's near-tie flips, not a bug.
+
+Runner copies: `tools/exl3/exl3-run5..8.sh`, bench variants
+`exl3-bench{,2,3,4}.py` (4 = mixed prompts + draft flags).
+
+## Next steps, in order (revised)
+
+1. Read `~/exl3-run8.log` (depth-1 MTP on the mixed cycle) — that is the
+   serving steady-state number to quote.
+2. PR #315 precomputed profile on top of `-mcs 185 -mtp --draft_n 1`:
+   the question is how much a profile adds over dynamic on *mixed* text.
+3. Coding prompt with depth 1 (acceptance was 97 % on ik) for the clip
+   number; a toktape take if it clears 27.
+4. Upstream: prior-art search on exllamav3 issues/PRs for draft depth
+   with `-mcs`, then file with the table.
+5. Then the original list below, where still relevant.
+
+## Next steps, original
 
 1. Read `~/exl3-run4.log`. If an `-mcs` arm loads, note VRAM and decode;
    the interesting number is decode after the placement has moved (run
