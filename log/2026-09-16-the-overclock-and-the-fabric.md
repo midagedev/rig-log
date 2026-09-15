@@ -225,12 +225,56 @@ two cards between slots.** If the errors follow the A6000, it is the card.
 If they stay on `00:03.1`, it is the slot, its traces, or that root
 complex. That needs hands on the case.
 
-Before that there is one arm that does not: force `00:03.1` to Gen3 and
-repeat the load. Zero BadTLP at 8 GT/s would confirm a signal-margin
-problem and hand over a mitigation at the same time — half the PCIe
-bandwidth, which only CPU-offload work pays for. Errors persisting at Gen3
-would mean something worse than margin, and would make the slot swap
-urgent rather than merely next.
+## Gen3 stops it dead
+
+The arm that needed no hands was to cap `00:03.1` at 8 GT/s and repeat the
+load. Three conditions, one afternoon, the same machine and the same
+two-rank NCCL all-reduces:
+
+| link | condition | window | corrected errors |
+|---|---|---:|---:|
+| Gen4 (16 GT/s) | idle | 450 s | **0** |
+| Gen4 (16 GT/s) | under load | 483 s | **27** — one every 17.9 s |
+| Gen3 (8 GT/s) | the same load | 301 s | **0** — the Gen4 rate predicts ~17 |
+
+Nothing changed but the signalling rate, and the errors stopped. Both halves
+of that matter: the link is quiet when idle *at Gen4*, so traffic is
+necessary, and it is quiet under traffic *at Gen3*, so 16 GT/s is necessary
+too. Errors that need both are an eye-margin problem — damage does not care
+what speed it runs at, and a dead lane would have shown as a width
+negotiation, not a retried packet.
+
+The RTX 3090 is the control that makes this a slot story rather than a board
+story. Same board, same Gen4, same load, driven through the same host bridge
+for the whole of every window: zero errors on its port, throughout.
+
+The speed is set through the port's Link Control 2 register and takes effect
+on a retrain, which is
+[`tools/pcie-force-speed.sh`](../tools/pcie-force-speed.sh). Like the board
+power cap before it, the speed is machine state, so it is restored on every
+exit path including a signal.
+
+It is also a mitigation, if one is ever wanted: capping that port costs half
+the PCIe bandwidth on the A6000's link, which is nothing at all for work
+that fits in VRAM and real money only for host-offload streaming. It does
+not survive a reboot, so standing use would need a unit file.
+
+## The slot, and what the owner knew that the machine did not
+
+The last piece came from the person who built it. The A6000 is in nearly the
+bottom slot, put there deliberately to keep thermal distance from the 3090 —
+and the bottom slot is the longest trace run from the CPU on this board,
+which is exactly where Gen4 margin runs out first. That turns "move it up"
+from a guess into the indicated repair, and it is worth recording that the
+measurement could not have found it: the machine can read its own link speed
+and its own error counters, but not how far the packets have to travel to
+get there.
+
+The thermal reason for the bottom slot does not look expensive to give up.
+At the end of six minutes of sustained copies the A6000 read 72 °C against a
+93 °C throttle, and the 3090 53 °C.
+
+The box was powered off at 05:47 for the move.
 
 What is not supported by anything measured here is the simplest reading of
 the symptom. A dead board, or a fault in the fabric as such, would not
