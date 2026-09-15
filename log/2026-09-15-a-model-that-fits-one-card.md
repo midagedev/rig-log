@@ -179,7 +179,12 @@ own limit, so the card will print the draw against the sampled limit (`281 of
 300 W`) and reserve the `throttled:` verdict for the bits that mean the device
 was held below what its own settings allow — hardware slowdown, thermal, power
 brake, sync boost — with the full mask kept in the tape so a surprising verdict
-can be explained from the recording rather than from the box.
+can be explained from the recording rather than from the box. One thing a single
+sample still cannot say is whether the headroom lasted: the 150 W row sat exactly
+on its limit for the window and the 300 W row had 19 W spare at the moment it was
+read, and those must not render alike. Filed at the recorder as TTP-102 with
+these two rows as its evidence — the samples are already in the tape, so it is a
+reduction over the decode window rather than new instrumentation.
 
 ### It is not the expert gather either
 
