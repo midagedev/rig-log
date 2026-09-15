@@ -1,4 +1,4 @@
-# The night of ten boots, and the errors that came back at stock
+# The night of ten boots, and a slot that was out of margin
 
 **2026-09-16, early morning.** Both GPUs came back. The machine had been
 unusable since 00:01:51, when the RTX 3090 fell off the bus with Xid 79
@@ -275,6 +275,48 @@ At the end of six minutes of sustained copies the A6000 read 72 °C against a
 93 °C throttle, and the 3090 53 °C.
 
 The box was powered off at 05:47 for the move.
+
+## The new slot is clean, and the experiment that was not run
+
+The A6000 came back at `0000:61:00.0` under root port `0000:60:01.1` — a
+different IO die quadrant altogether, not one slot up. The 3090 did not
+move. Same load, same eight minutes, Gen4:
+
+| slot | link | condition | window | corrected |
+|---|---|---|---:|---:|
+| `00:03.1` (near the bottom) | Gen4 | idle | 450 s | 0 |
+| `00:03.1` | Gen4 | under load | 483 s | **27** — one every 17.9 s |
+| `00:03.1` | Gen3 | under load | 301 s | 0 |
+| `60:01.1` (moved up) | Gen4 | under load | 502 s | **0** |
+
+Zero on every device, zero AER lines in the kernel log, no Xid, the link
+holding 16 GT/s ×16 at every twenty-second sample. The old slot's rate
+predicts 28 errors across that window. So the machine is repaired, Gen3 is
+not needed, and the full link is back.
+
+**What this cannot say, and it is my fault that it cannot.** Moving the card
+changed the slot and the seating in the same motion. The bottom slot may
+have been short of Gen4 margin, or the card may simply not have been fully
+home in it since the case was opened on 2026-09-12 to add the NVMe — the
+intervention immediately before the first boot that logged errors. Reseating
+in the same slot first would have separated those, and that was the
+suggestion; the card was already moved and booted by the time it was made.
+The distinction is now unrecoverable, and it matters for whoever next puts a
+Gen4 card in that bottom slot.
+
+There is a second thing the record cannot settle, for a duller reason: the
+journal does not reach back past 2026-09-12, and the three boots before the
+first erroring one were nine and ten minutes each and idle. Today's idle
+measurement says an idle window that short produces zero errors anyway. So
+"none in the three boots before" was never evidence that the errors were
+new. There is no loaded baseline from before the move at all.
+
+## Still open: the card that actually fell
+
+Nothing measured today explains the Xid 79. The 3090's link was the clean
+one before the reboot, stayed clean through every load after it, and did not
+move slots. The error storm and the card that fell off the bus may be one
+fault or two, and this entry has closed only the first.
 
 What is not supported by anything measured here is the simplest reading of
 the symptom. A dead board, or a fault in the fabric as such, would not
