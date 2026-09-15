@@ -84,7 +84,8 @@ Recorded in the log's ExLlamaV3 sections; short form:
 - Greedy output differs between visits of the same prompt as the
   placement moves; same class as ik's near-tie flips, not a bug.
 
-Runner copies: `tools/exl3/exl3-run5..8.sh`, bench variants
+The `exl3-run*.pid` files hold the `sudo … bash -c` wrapper's pid, not
+the runner's; the runner is its child (`pgrep -P`). Runner copies: `tools/exl3/exl3-run5..8.sh`, bench variants
 `exl3-bench{,2,3,4}.py` (4 = mixed prompts + draft flags).
 
 ## Next steps, in order (revised)
