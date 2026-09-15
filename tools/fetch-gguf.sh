@@ -22,6 +22,22 @@ API=https://huggingface.co/api/models/$REPO/tree/main
 mkdir -p "$DEST"
 say(){ echo "$(date +%H:%M:%S) $*"; }
 
+# One worker, one range, resumed until its byte count is exactly right.
+# curl exits 0 on a connection the server closes early (measured 2026-09-15: a
+# chunk came back 365 MB of 3.66 GB with rc 0), so a worker is not done when
+# curl returns -- it is done when the bytes are there.
+range_worker(){
+  local w=$1 i=$2 s=$3 e=$4 u=$5 want=$(( $4 - $3 + 1 )) got attempt
+  for attempt in 1 2 3 4 5 6; do
+    got=$(stat -c%s "$w/c$i" 2>/dev/null || echo 0)
+    [ "$got" = "$want" ] && return 0
+    if [ "$got" -gt "$want" ]; then echo "chunk $i overshot: $got > $want"; return 1; fi
+    curl -sfL --retry 5 --retry-delay 2 -r $(( s + got ))-$e "$u" >> "$w/c$i" || true
+  done
+  got=$(stat -c%s "$w/c$i" 2>/dev/null || echo 0)
+  [ "$got" = "$want" ]
+}
+
 sizes=$(curl -sf "$API") || { say "cannot read $API"; echo FETCH_FAILED; exit 1; }
 
 for FILE in "$@"; do
@@ -43,7 +59,7 @@ else: print(0)" "$FILE")
   for i in $(seq 0 $((N-1))); do
     S=$(( i * CHUNK )); E=$(( S + CHUNK - 1 )); [ $E -ge $TOTAL ] && E=$((TOTAL-1))
     [ $S -ge $TOTAL ] && break
-    curl -sL --retry 5 --retry-delay 2 -r ${S}-${E} -o "$WORK/c$i" "$URL" &
+    range_worker "$WORK" $i $S $E "$URL" &
     echo "$! $i $S $E" >> "$WORK/pids"
   done
   say "$FILE: $N workers on $TOTAL bytes"
