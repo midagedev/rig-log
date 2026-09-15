@@ -217,15 +217,31 @@ records 12.8 tok/s each and 25.7 aggregate against ~22 solo — a larger gain
 from the same move, with a different draft and a different model, so it is a
 pointer rather than a comparison. One take per row here, not a mean.
 
-The 22:03 take is also the first one whose prefill row is a measurement
-rather than a caveat: 274 prompt tokens a stream, 46.4 tok/s aggregate,
-TTFT 11.6 s. That is the short-prompt fan-out above seen from the other end —
-274 tokens draw 274 x 8 experts a layer, so the read is the whole CPU tail
-whatever the prompt length, and the per-token prefill rate improves with
-length exactly because the fixed read amortises. Its own new caveats are
-honest ones: the client measured 11.7 tok/s against the server's 11.5 (just
-over the 2 % tolerance, two streams sharing one client's clock), and
-`run_cut_by_clock`, because `--for 30s` stopped both answers mid-sentence.
+### The prefill cost is fixed, and that closes the earlier question
+
+Two takes later the prefill row became a measurement, and it answers what the
+3.5 s TTFT on a 32-token prompt was about. Prompt lengths of 32, 213 and 274
+tokens all cost the same wall clock — 3.47 s, 3.19 s and 3.52 s of engine
+prefill — so the cost of a prefill on this placement is not per token at all.
+It is the fan-out: any prompt draws top-8 experts a layer for every token it
+carries, which over 288 slots means one prefill touches essentially the whole
+98.1 GB CPU tail whatever its length. The per-token rate therefore rises with
+the prompt (9.2 tok/s at 32 tokens, 72.4 at 244) purely because a fixed read
+amortises over more tokens, and the interactive cost of a short prompt is that
+fixed 3.4 s. [WKS-27](../docs/upstream-contributions.md) wanted a sweep to
+separate a fixed fan-out from a per-token cost; three points on the same
+placement say fixed.
+
+Getting there took two reruns, and both were mine. `--prompts FILE` is
+*rounds*, not streams — every stream in a round gets that line's prompt, so
+the 22:03 take ran the same prompt twice and never reached the second line;
+repeated `--prompt` is what cycles prompts across concurrent streams. And
+that take reported `prompt_ms` 0 for both streams, which was an exl3-serve
+defect the recorder surfaced: the engine reports its prefill time only in the
+eos result, so a run the recorder's clock cut fell back to provisional
+timings that hardcoded 0. It now carries the server's own span from
+submission to the first token, which is what llama-server reports on the same
+path.
 
 The fix has a price that explains why nobody noticed the clamp: two real
 slots need more VRAM than one, and at `-gs 44,21 -mcs 185` the load failed
@@ -235,8 +251,10 @@ module inside each device's `-gs` fraction and moves to the next device on
 OOM (`model_ls.py:274`), so the batch-2 load simply runs out of room in the
 same split that batch-1 fits. The tapes are
 `assets/glm53-flash-exl3-2stream-serialized.tape` and
-`assets/glm53-flash-exl3-2stream-batched.tape`, with the 22:03 take at
-`assets/glm53-flash-exl3-2stream-real-prompts.tape`, and the two clips are on
+`assets/glm53-flash-exl3-2stream-batched.tape`, with the two long-prompt takes at
+`assets/glm53-flash-exl3-2stream-real-prompts.tape` (one prompt twice) and
+`assets/glm53-flash-exl3-2stream-two-prompts.tape` (two prompts, a real
+prefill row), and the two clips are on
 Drive — [serialized](https://drive.google.com/file/d/1Mc6uivfsJc6Q4PZP99nv3bWD4IvxEEm-/view?usp=drivesdk)
 and [concurrent](https://drive.google.com/file/d/1juhIz_HBheswUJ4Ql7csnMKSssFLibtB/view?usp=drivesdk),
 both rendered from the tapes by [toktape](https://github.com/midagedev/toktape) v0.2.2.
