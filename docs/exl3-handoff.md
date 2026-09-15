@@ -121,7 +121,7 @@ the runner's; the runner is its child (`pgrep -P`). Runner copies: `tools/exl3/e
 
 ## Machine state at 2026-09-16 05:00
 
-The 3090 fell off the bus at 00:01:51 (Xid 79) under another session's DDP run; `nvidia-smi` cannot open GPU 1 and it needs a reboot (user's call). The A6000 still runs CUDA. The fabric has logged ~1 900 corrected AER errors on the A6000's root port since boot and its link reads 2.5 GT/s downgraded at idle — read `LnkSta` under load after the reboot before trusting PCIe-bound numbers. Single-card arms (`-gs 44,0`) are possible before the reboot; two-card arms are not.
+The 3090 fell off the bus at 00:01:51 (Xid 79) under another session's DDP run; `nvidia-smi` cannot open GPU 1 and it needs a reboot (user's call). The A6000 is listed but CUDA init fails on it too (Xid 154 on both cards: recovery action OS Reboot). The fabric has logged ~1 900 corrected AER errors on the A6000's root port since boot and its link reads 2.5 GT/s downgraded at idle — read `LnkSta` under load after the reboot before trusting PCIe-bound numbers. No GPU work is possible before the reboot.
 
 ## Next steps, in order (revised)
 
