@@ -63,7 +63,7 @@ else PARGS=(--prompt "${PROMPT:?PROMPT or PROMPT_FILES required}"); fi
 $TOKTAPE record --url $URL --out $RUNS --wait 0 \
   --sessions ${SESSIONS:-1} --max-sessions ${SESSIONS:-1} \
   "${PARGS[@]}" ${NPRED:+-n $NPRED} --for ${FOR:-30s} --temp 0 \
-  ${RAMFLAGS:---ram-gbs-measured 147.7 --ram-speed DDR4-3600} \
+  ${RAMFLAGS:---ram-gbs-measured 147.7 --ram-speed DDR4-3600} ${TOKTAPE_EXTRA:-} \
   --tag "$TAG" --note "${NOTE:-}" 2>&1 | tee $OUT/take.txt
 rc=${PIPESTATUS[0]}
 say "toktape rc $rc"

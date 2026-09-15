@@ -43,9 +43,10 @@ range_worker(){
 # quant). Ask for the file's own directory.
 declare -A sizes_by_dir
 for FILE in "$@"; do
-  D=$(dirname "$FILE"); [ "$D" = "." ] && D=""
+  D=$(dirname "$FILE")   # "." for a root-level file; bash refuses an empty subscript, so "." stays the key
   if [ -z "${sizes_by_dir[$D]+x}" ]; then
-    sizes_by_dir[$D]=$(curl -sf "$API${D:+/$D}") || { say "cannot read $API${D:+/$D}"; echo FETCH_FAILED; exit 1; }
+    SUB=""; [ "$D" = "." ] || SUB="/$D"
+    sizes_by_dir[$D]=$(curl -sf "$API$SUB") || { say "cannot read $API$SUB"; echo FETCH_FAILED; exit 1; }
   fi
   sizes=${sizes_by_dir[$D]}
   TOTAL=$(printf '%s' "$sizes" | python3 -c "
