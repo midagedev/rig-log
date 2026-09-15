@@ -216,7 +216,10 @@ module inside each device's `-gs` fraction and moves to the next device on
 OOM (`model_ls.py:274`), so the batch-2 load simply runs out of room in the
 same split that batch-1 fits. The tapes are
 `assets/glm53-flash-exl3-2stream-serialized.tape` and
-`assets/glm53-flash-exl3-2stream-batched.tape`.
+`assets/glm53-flash-exl3-2stream-batched.tape`, and the two clips are on
+Drive — [serialized](https://drive.google.com/file/d/1Mc6uivfsJc6Q4PZP99nv3bWD4IvxEEm-/view?usp=drivesdk)
+and [concurrent](https://drive.google.com/file/d/1juhIz_HBheswUJ4Ql7csnMKSssFLibtB/view?usp=drivesdk),
+both rendered from the tapes by [toktape](https://github.com/midagedev/toktape) v0.2.2.
 
 The runner earned a fix of its own on the way: a failed load leaves the HTTP
 front alive answering 503 with the reason, so readiness waited out its full
