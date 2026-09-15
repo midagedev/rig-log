@@ -54,8 +54,13 @@ absolute number changes with the bus, the efficiency does not.
 > model across both cards and mixed the 3090's 936 GB/s into the denominator —
 > (1.274×768 + 1.696×936) / 2.970 = 864 GB/s, and 392/864 = 46 %. The same
 > tape carries the contradiction: `placement` predicts 13.1 GiB on GPU1 while
-> `gpus_at_end` measures GPU1 at 1 MiB. Sent to the recorder; the honest
-> denominator for a single-card run is that card.
+> `gpus_at_end` measures GPU1 at 1 MiB. Sent to the recorder, which confirmed
+> it and is fixing it at the source: an estimated placement the measured GPU
+> readings contradict stops producing a ceiling or a ratio at all — both print
+> `?` with a caveat naming the device and the two figures — while the combined
+> GB/s stays, because that one is active bytes × the measured rate and does not
+> depend on the split. The honest denominator for a single-card run is that
+> card.
 
 ## Four streams buy 13 %, and that closes the day's argument
 
@@ -102,18 +107,20 @@ all of the attention, all of the output layer, and 8 experts of 256:
 
 | per-token read, from the GGUF | UD-Q6_K | UD-Q4_K_XL |
 |---|---:|---:|
-| attention — every token | 1.02 GiB | 1.02 GiB |
-| output — every token | 0.50 | 0.50 |
-| other — every token | 0.27 | 0.27 |
-| experts, 8 of 256 | 0.78 | 0.58 |
+| attention — every token | 1.092 GB | 1.092 GB |
+| output — every token | 0.540 | 0.540 |
+| other — every token | 0.287 | 0.287 |
+| router + shared expert — every token | 0.218 | 0.218 |
+| the 8 routed experts of 256 | 0.832 | 0.615 |
+| **active bytes/token** | **2.970 GB** | **2.753 GB** |
 | the whole file on disk | 27.3 GiB | 20.8 GiB |
-| toktape's active bytes/token | 2.970 GB | 2.753 GB |
 
-The always-read tensors are byte-for-byte identical across the two quants. That
-is what "UD" means: unsloth's dynamic quant spends its bits on attention and
-output and takes them out of the experts — the right trade for quality, and
-almost no trade for speed, because at 8/256 the experts are a quarter of what a
-token reads.
+The always-read tensors are byte-for-byte identical across the two quants —
+2.138 GB of the read either way, which is 72 % of a Q6_K token and 78 % of a
+Q4_K_XL one. That is what "UD" means: unsloth's dynamic quant spends its bits on
+attention and output and takes them out of the routed experts — the right trade
+for quality, and almost no trade for speed, because the routed experts are the
+only part a smaller quant touches and they are a quarter of what a token reads.
 
 Which makes the arm a sharper test than the one I proposed. Seven percent fewer
 bytes:
@@ -129,10 +136,19 @@ same number twice. That is what bandwidth-bound looks like from the inside: not
 "the smaller quant is faster" but "the rate is bytes divided by a constant", and
 the constant is about 390 GB/s.
 
-One caveat on the absolute figure rather than the ratio. Summing the placement
-classes by hand gives 2.76 and 2.54 GB, a constant 0.21 GB below toktape's two
-numbers, so the derived GB/s may be ~8 % high. The ratio this arm turns on is
-−7.3 % either way. Asked the recorder what the extra 0.21 GB per token is.
+> ~~Summing the placement classes by hand gives 2.76 and 2.54 GB, a constant
+> 0.21 GB below toktape's two numbers, so the derived GB/s may be ~8 % high.~~
+> **Withdrawn within the hour, and the answer was on the card.** My hand sum
+> scaled the whole `experts` class by 8/256, but that class holds the per-layer
+> router and the shared expert as well, and those are read on every token
+> whichever experts the router picks. 217.9 MB of them: (1 − 8/256) × 217.9 MB
+> = 211,097,600 bytes, which is the constant gap to the byte in both tapes, and
+> reconstructing the figure that way reproduces `active_bytes_per_token`
+> exactly — 2,969,684,480 and 2,752,563,712, delta zero. `toktape card
+> --explain` prints the split (`experts sparse 19.671 GB + dense 0.218 GB
+> (router + shared expert, read in full)`); I derived a discrepancy instead of
+> reading the line that resolves it. The derived GB/s is not 8 % high, and the
+> per-token table above now carries the decomposition rather than my sum.
 
 ### It is not the power cap
 
@@ -157,7 +173,13 @@ It also says something about the flag. `throttled: yes` appears in all three
 rows — in the 150 W run where the cap is demonstrably binding and in the 300 W
 run where this sweep proves it is not. A warning that fires in both cases
 carries no information; sent to the recorder with these rows as the evidence,
-suggesting draw-against-cap headroom or a duty cycle instead of a boolean.
+suggesting draw-against-cap headroom instead of a boolean. Confirmed there and
+being fixed the same way: `sw power cap` is set on any card boosting into its
+own limit, so the card will print the draw against the sampled limit (`281 of
+300 W`) and reserve the `throttled:` verdict for the bits that mean the device
+was held below what its own settings allow — hardware slowdown, thermal, power
+brake, sync boost — with the full mask kept in the tape so a surprising verdict
+can be explained from the recording rather than from the box.
 
 ### It is not the expert gather either
 
@@ -187,8 +209,9 @@ absent, at a size that still fits one card. Named, not guessed — it is
 state and the bus probe as its second arm.
 
 What is settled is the shape of the lever. The only way to decode faster here is
-to read fewer bytes per token, and on this model 70 % of that read is the dense
-core the quant deliberately keeps wide — so a smaller expert quant buys 6 %, and
+to read fewer bytes per token, and on this model 72–78 % of that read is the
+dense core the quant deliberately keeps wide — so a smaller expert quant buys
+6 %, and
 the things that actually move it are a draft that gets more tokens per read
 (MTP: +12 % today) or more clients per read (four streams: +13 %).
 
