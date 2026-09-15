@@ -85,9 +85,11 @@ Recorded in the log's ExLlamaV3 sections; short form:
   placement moves; same class as ik's near-tie flips, not a bug.
 
 Static placement (17:40): the `can_defer_load` guard bug is confirmed
-and filed (exllamav3#376); the workstation venv's
-`block_sparse_mlp_cpu.py` is the patched file, the 1.5.0 original is
-`~/block_sparse_mlp_cpu.py.v150.bak`. The unit test lives in
+and filed (exllamav3#376). The workstation venv runs the **stock** 1.5.0
+file again (restored for the recorded take); the patched copy is
+`~/block_sparse_mlp_cpu.py.patched`, the original backup
+`~/block_sparse_mlp_cpu.py.v150.bak`. Static placement on the stock file
+needs `EXL3_MOE_CPU_SPLIT` set equal to `-mcs`. The unit test lives in
 `~/exllamav3-src/tests/` and `~/exl3-guardtest/tests/` (the second is
 what runs against the wheel; pytest is installed in the venv). Runners
 `exl3-run11..13.sh` (11: histogram + static at 185, 12: three arms at
