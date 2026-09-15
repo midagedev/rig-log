@@ -38,9 +38,16 @@ range_worker(){
   [ "$got" = "$want" ]
 }
 
-sizes=$(curl -sf "$API") || { say "cannot read $API"; echo FETCH_FAILED; exit 1; }
-
+# The tree API lists one directory at a time, so a file under UD-Q4_K_XL/ is not in the
+# root listing (measured 2026-09-16: "no size in the API listing" for every sharded unsloth
+# quant). Ask for the file's own directory.
+declare -A sizes_by_dir
 for FILE in "$@"; do
+  D=$(dirname "$FILE"); [ "$D" = "." ] && D=""
+  if [ -z "${sizes_by_dir[$D]+x}" ]; then
+    sizes_by_dir[$D]=$(curl -sf "$API${D:+/$D}") || { say "cannot read $API${D:+/$D}"; echo FETCH_FAILED; exit 1; }
+  fi
+  sizes=${sizes_by_dir[$D]}
   TOTAL=$(printf '%s' "$sizes" | python3 -c "
 import json,sys
 want=sys.argv[1]
