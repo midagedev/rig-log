@@ -107,6 +107,36 @@ doing.
   flag that nothing else reads. The number of lines changed should match
   the number of lines that were wrong.
 
+## Starting and stopping a remote server (2026-09-15)
+
+Three facts about bash, measured on the workstation after a TabbyAPI check
+runner stopped the wrong process, kept both cards held, and released the
+lease anyway:
+
+- **`$!` is the server only when the background job is a simple command.**
+  `cd dir && setsid nohup server … &` backgrounds a compound command, so
+  bash forks a subshell and `$!` is that subshell. The runner's SIGINT and
+  SIGKILL went to it; the server ran on with 46.1 GB and 18.7 GB held.
+  Launch with `cd dir` on its own line, then `ENV=… setsid nohup server … &`,
+  and assert straight after launch that `ps -o sid= -p $!` equals `$!`.
+- **A background job starts with SIGINT ignored.** A non-interactive bash
+  gives asynchronous commands SIGINT and SIGQUIT as ignored
+  (`/proc/<pid>/status` `SigIgn` ended in `7`), and Python keeps an ignored
+  SIGINT ignored. A server that installs its own handler still stops on
+  SIGINT; a plain script does not. Stop with SIGTERM.
+- **The session outlives its leader.** exllamav3's CPU expert worker is a
+  spawned child; when the leader exits, members of its session can remain
+  and hold VRAM. Teardown waits for the leader, then signals the remaining
+  members of the session it created, and never escalates to SIGKILL on its
+  own. If the cards are not back, the lease stays held and the run reports
+  failure, so the next load cannot start on top of it.
+
+The runners that follow this are `tools/tabby/tabby-check.sh` and
+`tools/exl3/exl3serve-check.sh`. The cleanup that day identified the holder
+from `nvidia-smi --query-compute-apps`, verified its working directory, user
+and start time, unloaded through the server's own API, and then signalled
+that one pid.
+
 ## What reading bought
 
 The largest saving of the day was not a tool. Three hypotheses (YaRN on the
@@ -126,3 +156,4 @@ that. Then the experiment measures a magnitude rather than an existence.
 | witness fields in rows | sweep rows carry `load1`; IO pressure, process list and page cache are to be added |
 | request failure tolerated | done in `tools/dspark/dspark-sweep.sh` |
 | grep-before-flip | rule only |
+| remote server launch and teardown | done in `tools/tabby/tabby-check.sh` and `tools/exl3/exl3serve-check.sh` (2026-09-15); the lease file there is a plain `~/gpu-lease`, not yet `lease.sh` |

@@ -1,0 +1,27 @@
+# TabbyAPI config for the #454 FAIL-first check on the workstation (same placement profile as the exl3 arms).
+network:
+  host: 127.0.0.1
+  port: 5055
+  disable_auth: true
+  api_servers: ["OAI"]
+logging:
+  log_prompt: false
+  log_generation_params: false
+  log_requests: false
+model:
+  model_dir: /models
+  inline_model_loading: false
+  model_name: GLM-5.3-Flash-exl3-4.05
+  backend: exllamav3
+  max_seq_len: 32768
+  cache_size: 32768
+  tensor_parallel: false
+  gpu_split_auto: false
+  gpu_split: [44, 21]
+  cpu_moe_split_experts: 185
+  cpu_moe_threads: 32
+  reasoning: true
+  start_in_reasoning: auto
+draft_model:
+  draft_mode: mtp
+  draft_num_tokens: 1
