@@ -50,6 +50,10 @@ say "server pid $SPID (session leader, $(ps -o comm= -p $SPID))"
 t0=$(date +%s)
 until [ "$(curl -s -o /dev/null -w '%{http_code}' $URL/props)" = "200" ]; do
   kill -0 $SPID 2>/dev/null || { say "server died during load"; tail -n 20 $OUT/server.log; finish 1; }
+  # a failed load leaves the HTTP front alive answering 503 forever, so readiness
+  # is 200 or a named failure -- never "still 503" until the timeout
+  H=$(curl -s -m 10 $URL/health)
+  case "$H" in *"load failed"*) say "load failed: $H"; tail -n 5 $OUT/server.log; finish 1;; esac
   [ $(( $(date +%s) - t0 )) -gt 900 ] && { say "not ready after 900 s"; tail -n 20 $OUT/server.log; finish 1; }
   sleep 5
 done

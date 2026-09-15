@@ -167,6 +167,62 @@ publishing), the card `assets/glm53-flash-exl3-mcs185-mtp.card.png`, the mp4
 The runner is [`tools/exl3/exl3serve-take.sh`](../tools/exl3/exl3serve-take.sh),
 the check runner's gates and teardown with a recording in place of the probe.
 
+## Two streams: the clamp, the fix, and the aggregate that does not rise
+
+The one-stream take above was one stream because `--parallel 2` did not
+produce two slots. exllamav3 builds every cache with `max_batch_size =
+args.autosplit_max_batch_size` — the `-ambs` flag, default **1** — and
+`Generator.__init__` then clamps its own batch to `cache.num_slots`
+(`model_init.py:292`, `cache.py:161`, `generator.py:233` of v1.5.0), so
+exl3-serve asked for two and got one while `/slots` honestly reported two
+free. exl3-serve now raises `-ambs` to at least `--parallel` before
+`model_init` and asserts the served batch afterwards; a clamp that still
+happens fails the load with both numbers instead of queueing and calling it
+concurrency.
+
+Both states were recorded, same prompts, same placement, toktape v0.2.2:
+
+| two streams, `-mcs 185 -mtp` | per stream | aggregate | `peak_decoding_streams` | TTFT p95 | ITL p50 |
+|---|---:|---:|---:|---:|---:|
+| one stream, for reference (20:56) | 22.0 | 22.0 | — | 3551 ms | 62 ms |
+| before the fix (21:10) | 22.2 | 21.4 | **1** | 12250 ms | 62 ms |
+| after the fix (21:44) | 11.1 | **20.3** | **2** | 4621 ms | 94 ms |
+
+The fix took: the recorder's own caveat, `the 2 streams decoded one at a
+time: the aggregate is one stream behind a queue, not 2 at once`, fires on
+the 21:10 tape and is absent from the 21:44 one, `peak_decoding_streams`
+went 1 → 2, and the second request's wait fell from 12.3 s to 4.6 s.
+
+And the throughput did not move — 20.3 aggregate against 22.0 for a single
+stream, with each stream at exactly half the solo rate. A two-token step
+costs twice a one-token step, which is the same arithmetic that held the MTP
+draft to +12 % at 97 % acceptance: decode here is the read of 98.1 GB of
+CPU-resident experts, two tokens from two streams route to different experts,
+so the bytes double with the tokens and tokens-per-byte is unchanged. What
+concurrency buys on this engine is latency fairness — 4.6 s instead of 12.3 s
+for the second client — not throughput.
+
+This is not a property of the box. ik/llama.cpp with whole expert layers on
+the cards records 12.8 tok/s each and 25.7 aggregate on two streams, a real
+gain; the per-expert CPU worker does not merge two streams' expert reads the
+way llama.cpp's expert batch does. One take each, so the 20.3 and 21.4 are
+single measurements, not a mean.
+
+The fix has a price that explains why nobody noticed the clamp: two real
+slots need more VRAM than one, and at `-gs 44,21 -mcs 185` the load failed
+with `Insufficient VRAM in split for model and cache` at both `-cs 32768`
+and `-cs 16384`, fitting only at `-cs 8192`. exllamav3 loads module by
+module inside each device's `-gs` fraction and moves to the next device on
+OOM (`model_ls.py:274`), so the batch-2 load simply runs out of room in the
+same split that batch-1 fits. The tapes are
+`assets/glm53-flash-exl3-2stream-serialized.tape` and
+`assets/glm53-flash-exl3-2stream-batched.tape`.
+
+The runner earned a fix of its own on the way: a failed load leaves the HTTP
+front alive answering 503 with the reason, so readiness waited out its full
+900 s twice. Readiness is now 200 or a named failure — the second attempt
+died at 40 s with the VRAM message on screen.
+
 ## Things that went wrong on the way
 
 The TabbyAPI runner recorded the pid of a subshell, not the server, so its

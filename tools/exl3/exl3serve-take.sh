@@ -42,7 +42,7 @@ if [ -f $LEASE ]; then say "refused: lease held: $(cat $LEASE)"; echo ${SENT}_FA
 echo "$LEASE_TAG $$ $(date +%FT%T)" > $LEASE
 say "exl3-serve at $(cat /home/user/exl3-serve/.commit 2>/dev/null); toktape $($TOKTAPE version); io avg10 $(awk '/some/{print $2}' /proc/pressure/io); gpus before: $(gpus)"
 cd /home/user
-setsid nohup /home/user/.venv-exl3/bin/exl3-serve -m /models/GLM-5.3-Flash-exl3-4.05 -gs 44,21 -mcs 185 -mct 32 -cs 32768 -mtp --port $PORT > $OUT/server.log 2>&1 < /dev/null &
+setsid nohup /home/user/.venv-exl3/bin/exl3-serve -m /models/GLM-5.3-Flash-exl3-4.05 -gs 44,21 -mcs 185 -mct 32 -cs ${CS:-32768} -mtp --parallel ${PARALLEL:-2} --port $PORT > $OUT/server.log 2>&1 < /dev/null &
 SPID=$!; echo $SPID > $OUT/server.pid
 sleep 1
 [ "$(ps -o sid= -p $SPID 2>/dev/null | tr -d ' ')" = "$SPID" ] || { say "launch assertion failed: pid $SPID is not a session leader ($(ps -o pid=,sid=,comm= -p $SPID))"; finish 1; }
@@ -50,6 +50,10 @@ say "server pid $SPID (session leader, $(ps -o comm= -p $SPID))"
 t0=$(date +%s)
 until [ "$(curl -s -o /dev/null -w '%{http_code}' $URL/props)" = "200" ]; do
   kill -0 $SPID 2>/dev/null || { say "server died during load"; tail -n 20 $OUT/server.log; finish 1; }
+  # a failed load leaves the HTTP front alive answering 503 forever, so readiness
+  # is 200 or a named failure -- never "still 503" until the timeout
+  H=$(curl -s -m 10 $URL/health)
+  case "$H" in *"load failed"*) say "load failed: $H"; tail -n 5 $OUT/server.log; finish 1;; esac
   [ $(( $(date +%s) - t0 )) -gt 900 ] && { say "not ready after 900 s"; tail -n 20 $OUT/server.log; finish 1; }
   sleep 5
 done
@@ -59,9 +63,10 @@ curl -s -m 300 -o /dev/null -X POST $URL/v1/chat/completions -H 'content-type: a
   -d '{"messages":[{"role":"user","content":"hi"}],"max_tokens":8,"temperature":0}' || { say "warm request failed"; finish 1; }
 say "warm request done; io avg10 $(awk '/some/{print $2}' /proc/pressure/io)"
 $TOKTAPE record --url $URL --out $RUNS --wait 0 \
-  --prompt "$PROMPT" -n ${NPRED:-300} --for ${FOR:-60s} --temp 0 \
+  --sessions ${SESSIONS:-1} --max-sessions ${SESSIONS:-1} \
+  --prompt "$PROMPT" ${PROMPT2:+--prompt "$PROMPT2"} -n ${NPRED:-300} --for ${FOR:-60s} --temp 0 \
   --param chat_template_kwargs='{"reasoning_effort":"low"}' \
-  --ram-speed DDR4-3600 --ram-channels 8 \
+  ${RAMFLAGS:---ram-gbs-measured 147.7 --ram-speed DDR4-3600} \
   --tag "$TAG" --note "${NOTE:-}" 2>&1 | tee $OUT/take.txt
 rc=${PIPESTATUS[0]}
 say "toktape rc $rc"
