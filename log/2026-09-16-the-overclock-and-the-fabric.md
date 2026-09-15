@@ -311,6 +311,90 @@ measurement says an idle window that short produces zero errors anyway. So
 "none in the three boots before" was never evidence that the errors were
 new. There is no loaded baseline from before the move at all.
 
+## The first real workload on the new slot, and what it costs in heat
+
+The measurements above are synthetic: an all-reduce hammer written to
+reproduce a failure. The first ordinary load across the moved card was
+another session's vocoder training, started 06:12 and still running an hour
+later with 38.7 GB resident on the A6000. The fabric is clean under it —
+zero corrected errors on every device, no AER lines, the link at 16 GT/s —
+which is the result that matters, because a training step drives the link
+differently from an all-reduce: host-to-device batches every step rather
+than symmetric peer traffic.
+
+What the run surfaced instead is heat.
+
+| | |
+|---|---:|
+| GPU temperature | 86–87 °C |
+| board's own slot sensor, `PCIE05` | 86 °C |
+| power | 296 W of a 300 W board limit |
+| SM clock | 1710–1740 MHz of 2100 |
+| fan | 72–73 % |
+
+**A correction I made within the hour.** Reading the throttle flags once
+during the run, I reported `SW Power Cap: Active` with both thermal
+slowdowns inactive, and told the user the card was power-capped rather than
+hot. Twenty minutes later `SW Thermal Slowdown` read `Active` too. The
+counters say how much that first reading was worth: sampled thirty seconds
+apart, `SW Thermal Slowdown` advanced 29.7 s and `SW Power Capping` 26.4 s,
+so both are on essentially all the time, and the totals since boot are
+1611 s and 1535 s of a 2982 s uptime. A throttle flag read once is the same
+mistake as an AER counter read once, made in the same session, about the
+same card. The flag is a state with a duty cycle; only the counter gives it.
+
+The hardware thresholds put that in proportion. `GPU Target Temperature
+Specification` is 84 °C, `Max Operating` 93, `HW Thermal Slowdown` 95,
+`Shutdown` 98. The card is three degrees over the temperature the driver
+tries to hold and eight degrees under the one the hardware acts on; every
+`HW` flag reads `Not Active`. So this is the driver trimming clocks to hold
+a target, not a card in trouble. But it is trimming them continuously, and
+because the power cap is pinned at the same time, **the clock loss cannot be
+attributed to either**. Separating them means taking the budget away — drop
+the board limit and see whether the temperature falls below the target and
+the thermal flag clears — which is the same instrument
+[`tools/ik/gpu-power-sweep.sh`](../tools/ik/gpu-power-sweep.sh) exists for,
+and it is not something to do underneath a live training run.
+
+### The board reads the slot, and it agrees
+
+`ipmitool sdr type temperature` through the BMC has a sensor per PCIe slot:
+
+| sensor | reading | what is in it |
+|---|---:|---|
+| `PCIE01 Temp.` | 34 °C | the 3090, idle |
+| `PCIE05 Temp.` | 86 °C | the A6000, under the training load |
+| `CPU Temp.` | 43 °C | |
+| `LAN Temp.` | 51 °C | |
+
+That is worth having for two reasons. It is independent of the card — 86 °C
+of slot against 87 °C of die says the air around the card really is at that
+temperature, rather than one sensor reporting a hot spot. And it is
+readable when the driver is not: during this morning's incident `nvidia-smi`
+could not open either GPU, and this channel would still have answered.
+
+### The fans, and what "Disabled" does not mean
+
+All six `CHA_FAN` headers read `Disabled` over IPMI; only `CPU_FAN`
+(2200 RPM), `SOC_FAN` (2700) and `CHIPSET_FAN` (2300) report. On this board
+the BMC is the only source for fan speed at all — the nct6798 Super I/O
+reports zero on every channel — so there is nowhere else to look.
+
+It would be wrong to read that as no chassis airflow. The case has front and
+rear fans; they are wired to the power supply directly rather than to a
+board header, so nothing reports them and nothing controls them. `Disabled`
+means no tachometer on that header, not no fan in the case. The instrument's
+silence is about the instrument. Re-routing them to the headers is on the
+list, and until it happens the chassis fans run at whatever constant speed
+the PSU gives them, with no curve and no telemetry.
+
+Which leaves the question this section opened with unanswered: whether the
+new slot runs hotter than the bottom one did. The only sustained sample from
+before the move is 72 °C at 138 W, at a fraction of this load, and the 58 °C
+at 298 W that looks comparable was decode bursts of seconds rather than an
+hour at 100 %. There is no baseline to compare against, and saying the move
+made the card hotter would be inventing one.
+
 ## Still open: the card that actually fell
 
 Nothing measured today explains the Xid 79. The 3090's link was the clean

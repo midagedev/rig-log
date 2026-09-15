@@ -158,6 +158,34 @@ The BMC's CPU_FAN lower-critical threshold is 1200 RPM, so a stopped or
 unplugged CPU fan shows up in the BMC event log on its own; the host-side
 thermal guard reads k10temp `Tctl` directly.
 
+### A temperature sensor per PCIe slot (2026-09-16)
+
+`sdr type temperature` carries `PCIE01` through `PCIE07`, one per slot, and
+the populated ones read. With the A6000 in the fifth slot under an hour of
+training and the 3090 idle:
+
+```
+PCIE01 Temp. | 34 degrees C      CPU Temp. | 43 degrees C
+PCIE05 Temp. | 86 degrees C      LAN Temp. | 51 degrees C
+```
+
+Two uses. The slot reading is independent of the card, so 86 °C of slot
+against `nvidia-smi`'s 87 °C of die is confirmation that the air around the
+card is at that temperature rather than one sensor finding a hot spot. And
+it answers when the driver cannot: on 2026-09-16 both GPUs failed CUDA init
+after an Xid 154 and `nvidia-smi` could not open either card, while this
+channel would have kept reporting.
+
+### What `Disabled` on a fan header means
+
+All six `CHA_FAN` headers on this machine read `Disabled`. That is the BMC
+saying it sees no tachometer on the header — not that the case has no
+airflow. The chassis fans here are wired to the power supply directly, so
+they run at a constant speed with no curve and nothing reporting them. Since
+the BMC is the only thing on this board that can see a fan at all, a
+PSU-wired fan is invisible to every tool on the machine. Read `Disabled` as
+"nothing is plugged into this header".
+
 ## Fans: not in the documented menu
 
 The Tool → IPMI Hardware Monitor page (p.63) is **read-only** — it shows fan
@@ -167,11 +195,17 @@ no Monitor menu at all, yet the firmware has one: fan curves are under the
 driven from Linux on this board — the headers answer to the ASUS controller,
 not to a hwmon the OS can write — and must be curved in firmware.
 
-- Radiator / chassis fans (CHA_FAN): an aggressive curve, ramping early on
+- ~~Radiator / chassis fans (CHA_FAN): an aggressive curve, ramping early on
   core temperature, because the AIO coolant has little thermal headroom before
-  it plateaus.
-- The Kraken pump is USB, not a fan header — pinned to 100 % from Linux with
-  liquidctl, independent of these curves.
+  it plateaus.~~
+- ~~The Kraken pump is USB, not a fan header — pinned to 100 % from Linux with
+  liquidctl, independent of these curves.~~
+
+  **Both stale since 2026-09-14**, when the AIO came out for an ARCTIC
+  Freezer 4U-M on `CPU_FAN` and liquidctl lost its device
+  ([log](../log/2026-09-14-air-cooler-swap.md)). There is no radiator to
+  curve now, and as of 2026-09-16 no chassis fan is on a header at all, so
+  the CHA_FAN curves drive nothing.
 
 Exact curve points are set against the live graph on the machine and are not
 transcribed here yet.
