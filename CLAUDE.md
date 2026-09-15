@@ -96,6 +96,13 @@ assets/     the clips and sheets
   and link, so a 29 GB model is six minutes rather than seventeen. Do not hand-roll
   a `curl` for a model again; a half-written `.gguf` where a loader can see it is
   the failure this prevents.
+- **A `throttled` flag is a question, not a finding.** Every card this machine
+  records says `throttled: yes`, at 150 W and at 300 W alike, so the flag cannot
+  tell a binding cap from a cap that was brushed once. Answer it by taking the
+  budget away: [`tools/ik/gpu-power-sweep.sh`](tools/ik/gpu-power-sweep.sh) runs
+  the same take at several board limits and restores the default on every exit
+  path. Measured 2026-09-15: 47 % less power cost 15 % of the rate, so the flag
+  had been pointing at the wrong thing all day.
 - **Benchmarks need a quiet machine, and "quiet" is a protocol**: one lease,
   IO pressure rather than load average, the witness recorded in every row,
   and delegates get the runner script rather than an instruction. The method

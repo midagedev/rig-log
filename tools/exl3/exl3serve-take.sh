@@ -34,7 +34,8 @@ finish(){ rc=$1
   fi
   [ $rc -eq 0 ] && echo ${SENT}_DONE || echo ${SENT}_FAILED
   exit $rc; }
-[ -n "${PROMPT:-}" ] || { say "refused: PROMPT unset"; echo ${SENT}_FAILED; exit 1; }
+[ -n "${PROMPT:-}${PROMPTS:-}${PROMPT_FILES:-}" ] || { say "refused: none of PROMPT, PROMPTS, PROMPT_FILES set"; echo ${SENT}_FAILED; exit 1; }
+[ -z "${PROMPTS:-}" ] || [ -f "$PROMPTS" ] || { say "refused: PROMPTS file not found: $PROMPTS"; echo ${SENT}_FAILED; exit 1; }
 [ -x "$TOKTAPE" ] || { say "refused: no toktape at $TOKTAPE"; echo ${SENT}_FAILED; exit 1; }
 [ "$(date +%H%M)" -lt 2330 ] || { say "refused: after 23:30 KST"; echo ${SENT}_FAILED; exit 1; }
 [ "$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | sort -n | tail -n1)" -lt 2000 ] || { say "refused: GPUs busy: $(gpus)"; echo ${SENT}_FAILED; exit 1; }
@@ -62,9 +63,27 @@ say "ready in $(( $(date +%s) - t0 )) s; gpus loaded: $(gpus)"
 curl -s -m 300 -o /dev/null -X POST $URL/v1/chat/completions -H 'content-type: application/json' \
   -d '{"messages":[{"role":"user","content":"hi"}],"max_tokens":8,"temperature":0}' || { say "warm request failed"; finish 1; }
 say "warm request done; io avg10 $(awk '/some/{print $2}' /proc/pressure/io)"
+# Loading 150+ GiB leaves the disk busy for a while, and a take that starts
+# there records machine_contended against its own load (measured 2026-09-15:
+# 0.00 before launch, 6.94 after the warm request, nothing else on the box).
+for i in $(seq 60); do
+  p=$(awk '/some/{print $2}' /proc/pressure/io | cut -d= -f2)
+  awk -v p="$p" 'BEGIN{exit !(p<3)}' && break
+  sleep 2
+done
+say "io settled to $(awk '/some/{print $2}' /proc/pressure/io) before recording"
+# an array, because ${PROMPTS:---prompt "$PROMPT"} passes the file path as a bare argument
+# --prompts is rounds (every stream gets that line); repeated --prompt is what
+# cycles different prompts across concurrent streams
+if [ -n "${PROMPT_FILES:-}" ]; then
+  PARGS=(); OIFS=$IFS; IFS=','
+  for f in $PROMPT_FILES; do IFS=$OIFS; PARGS+=(--prompt "$(cat "$f")"); IFS=','; done
+  IFS=$OIFS
+elif [ -n "${PROMPTS:-}" ]; then PARGS=(--prompts "$PROMPTS")
+else PARGS=(--prompt "$PROMPT"); [ -z "${PROMPT2:-}" ] || PARGS+=(--prompt "$PROMPT2"); fi
 $TOKTAPE record --url $URL --out $RUNS --wait 0 \
   --sessions ${SESSIONS:-1} --max-sessions ${SESSIONS:-1} \
-  --prompt "$PROMPT" ${PROMPT2:+--prompt "$PROMPT2"} -n ${NPRED:-300} --for ${FOR:-60s} --temp 0 \
+  "${PARGS[@]}" ${NPRED:+-n $NPRED} --for ${FOR:-60s} --temp 0 \
   --param chat_template_kwargs='{"reasoning_effort":"low"}' \
   ${RAMFLAGS:---ram-gbs-measured 147.7 --ram-speed DDR4-3600} \
   --tag "$TAG" --note "${NOTE:-}" 2>&1 | tee $OUT/take.txt
