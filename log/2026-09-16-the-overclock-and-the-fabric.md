@@ -1,4 +1,4 @@
-# The night of ten boots, and a link that was never damaged
+# The night of ten boots, and the errors that came back at stock
 
 **2026-09-16, early morning.** Both GPUs came back. The machine had been
 unusable since 00:01:51, when the RTX 3090 fell off the bus with Xid 79
@@ -50,7 +50,9 @@ Under "Two things seen in passing":
 > clock.
 
 Two events during the 3600 stress became 630 corrected errors on that port
-over the following day, arriving whether or not anything was running.
+over the following day. Whether that was the clock is the question this
+entry set out to answer, and the answer below is no — or at least not by
+itself.
 
 The mechanism is available. This firmware has no Infinity Fabric item at all
 — established by trying, in the same entry — and the fabric follows the
@@ -85,11 +87,17 @@ per-device counters, read before the reboot, say something else:
 | `0000:2b:00.0` | 5 | RxErr 5 |
 
 The timeouts are on the card and its audio function; the port's errors are
-almost entirely BadTLP, which is a CRC failure on a packet — physical-layer
-signal integrity, not a device that answered late. That fits a fabric
-running out of margin better than the timeout reading did, and it is the
-reading that should have been taken first: the log lines are a sample, the
-sysfs counters are the population.
+almost entirely BadTLP, which is a CRC failure on a received packet —
+signal integrity, not a device that answered late.
+
+Half of that correction was itself wrong, and the half that was wrong was
+mine. The kernel prints **`aer_layer=Data Link Layer`** for a BadTLP as
+well, because BadTLP *is* a data link layer error in the AER taxonomy —
+`aer_status 0x40`, bit 6. So "Data Link Layer" was never the mistake. Only
+"timeouts" was: the layer is right, the type is not, and the log line is
+simply coarser than the counter. The lesson is narrower than the one I drew
+— not that log lines are a sample and counters are the population, but that
+a log line names the layer and only the counter names the type.
 
 ## The two things changed in firmware
 
@@ -154,24 +162,83 @@ host↔device copies on every visible GPU while the link state is read. Its
 both directions share the link and the loop synchronizes every iteration.
 It exists to make the link busy.
 
-## Errors since the reboot
+## Errors since the reboot: they came back
 
-Zero, so far, on every device: none at 72 seconds, none across the 12-second
-load, none after it. That is not yet an answer. On the boot being replaced,
-the first corrected error arrived about three minutes in and the count grew
-all day with both GPUs idle, so the test is a quiet soak and not a snapshot.
-The machine is being left idle — `llm.service` down, and the other session
-on this box has removed its crontab so that its midnight job cannot start
-inside the window — and the counters get re-read on a clock.
+Zero at 72 seconds, zero across the first 12-second load, zero at five
+minutes idle. Then, eight and a half minutes into the boot and with the
+fabric under a real load, the same port logged the same thing:
 
-**Update to follow.** Whatever the counters say, the next arm is already
-named: if they stay at zero, the memory clock is the cause and the standing
-question becomes whether DDR4-3400 is available as a compromise; if they do
-not, the clock is exonerated and the remaining candidates are physical —
-reseat the A6000 and its riser, then a slot move.
+```
+Sep 16 05:21:47 kernel: pcieport 0000:00:03.1: AER: aer_status: 0x00000040
+Sep 16 05:21:47 kernel: pcieport 0000:00:03.1: AER: aer_layer=Data Link Layer,
+                                                    aer_agent=Receiver ID
+```
 
-The tool for both is [`tools/pcie-aer-snapshot.sh`](../tools/pcie-aer-snapshot.sh),
-which is yesterday's hand-rolled probe promoted: it reads the counters, the
-link state idle and under a load it starts itself, and it is meant to be run
-twice, because a counter that is cumulative since boot says nothing on its
-own.
+`aer_status 0x40` is BadTLP: the same device and the same error type as the
+boot that was replaced, on stock DDR4-3200 with the DRAM voltage back on
+Auto. Sampled every twenty seconds through ten minutes of two-rank NCCL
+all-reduces, the count went 3 → 30, about **200 corrected errors an hour
+under load**, with all four links holding 16 GT/s ×16 at every sample and no
+Xid at all.
+
+**So the memory clock is not the cause on its own.** It may still be a
+contributor — the idle rate at 3200 is being measured now and is the number
+that would say, because a fabric coupled to an over-clocked memory controller
+would be expected to produce errors with nothing running, which is what the
+old boot did, while a physical margin problem produces them under traffic,
+which is what this one does. Until that soak reports, the honest statement
+is that DDR4-3600 is not sufficient to explain the errors, not that it is
+innocent.
+
+The load was a reproduction rather than a training job: two ranks, one per
+card, back-to-back 256 MB NCCL all-reduces. It is worth saying what that
+actually exercises, because the assumption everyone on this machine started
+from was wrong. `nvidia-smi topo -p2p rw` reads **GNS**, "GPU not
+supported", in both directions — GeForce has had peer-to-peer removed since
+Ampere, and this is a GeForce paired with a workstation card. The DDP run
+that preceded the crash was therefore never doing card-to-card DMA. NCCL
+staged every transfer through pinned host memory: both links saturated in
+both directions at once, through the host bridge. Still the heaviest fabric
+pattern this box had seen; not the one it was described as.
+
+## Two problems, and only one of them is measured
+
+The card that fell off the bus is not the card with the errors. Every
+corrected error in this machine's history is on the A6000's link; the
+3090's root port has three, total, ever. So the chronic AER story and the
+Xid 79 may be two unrelated things, and the entry above measures only the
+first.
+
+For the second, the capacity explanation is out: the power supply is a
+2000 W unit, against a peak draw of roughly 1000 W with both cards and the
+CPU at full tilt, and the DDP run was plausibly the first time both cards
+drew full *compute* power at once — LLM decode on this box is bandwidth
+bound, not power bound. A 2000 W supply at half load does not sag. That
+leaves the 3090's own link, its seating, or the load itself, and none of
+those has been tested.
+
+## What discriminates the remaining candidates
+
+The A6000 sits directly in its slot — no riser, which the exl3 handoff had
+assumed — so the classic test is available and it is decisive: **swap the
+two cards between slots.** If the errors follow the A6000, it is the card.
+If they stay on `00:03.1`, it is the slot, its traces, or that root
+complex. That needs hands on the case.
+
+Before that there is one arm that does not: force `00:03.1` to Gen3 and
+repeat the load. Zero BadTLP at 8 GT/s would confirm a signal-margin
+problem and hand over a mitigation at the same time — half the PCIe
+bandwidth, which only CPU-offload work pays for. Errors persisting at Gen3
+would mean something worse than margin, and would make the slot swap
+urgent rather than merely next.
+
+What is not supported by anything measured here is the simplest reading of
+the symptom. A dead board, or a fault in the fabric as such, would not
+confine itself to one of two root complexes while the other stays clean
+through the same load.
+
+The tool for all of it is
+[`tools/pcie-aer-snapshot.sh`](../tools/pcie-aer-snapshot.sh) for the
+before-and-after pair and `tools/fabric-sample.sh` for the line-per-tick
+view through a window, both of which exist because a counter that is
+cumulative since boot says nothing on its own.
