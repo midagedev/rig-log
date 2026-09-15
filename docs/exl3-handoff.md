@@ -121,7 +121,7 @@ the runner's; the runner is its child (`pgrep -P`). Runner copies: `tools/exl3/e
 
 ## Machine state at 2026-09-16 05:00
 
-The 3090 fell off the bus at 00:01:51 (Xid 79) under another session's DDP run; `nvidia-smi` cannot open GPU 1 and it needs a reboot (user's call). The A6000 is listed but CUDA init fails on it too (Xid 154 on both cards: recovery action OS Reboot). The fabric has logged ~1 900 corrected AER errors on the A6000's root port since boot and its link reads 2.5 GT/s downgraded at idle — read `LnkSta` under load after the reboot before trusting PCIe-bound numbers. No GPU work is possible before the reboot.
+The 3090 fell off the bus at 00:01:51 (Xid 79) under another session's DDP run; `nvidia-smi` cannot open GPU 1 and it needs a reboot (user's call). The A6000 is listed but CUDA init fails on it too (Xid 154 on both cards: recovery action OS Reboot). The fabric has logged ~1 900 corrected AER errors on the A6000's root port since boot and its link reads 2.5 GT/s downgraded at idle — ~~read `LnkSta` under load after the reboot before trusting PCIe-bound numbers~~ **done 2026-09-16: the 2.5 GT/s is idle downclocking, all four GPU links read 16 GT/s ×16 under load on a clean boot, so PCIe-bound numbers stand** (`log/2026-09-16-the-overclock-and-the-fabric.md`). ~~No GPU work is possible before the reboot.~~ **Rebooted 2026-09-16 05:13; both cards initialize, `device_count 2`.**
 
 ## Next steps, in order (revised)
 
