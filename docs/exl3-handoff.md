@@ -99,6 +99,20 @@ what runs against the wheel; pytest is installed in the venv). Runners
 250, 13: the real patch). Open: a static profile at `-mcs 185` needs
 `-gs` headroom for the router tensors — sweep `-gs`.
 
+Serving surface (19:30): exl3-serve, a llama-server-compatible front over
+exllamav3, lives at `~/exl3-serve` on the workstation (source repo on the Mac,
+not published) and is installed editable into `~/.venv-exl3` (adds aiohttp;
+torch/exllamav3/triton unchanged, compared before and after). Real-model check
+and trial take: `~/exl3serve-trial.sh <tag>` (verify script
+`~/exl3serve-verify2.py`), results under `~/exl3serve-check/<tag>/`. TabbyAPI
+main is at `~/tabbyAPI` (53da791) with a patch worktree `~/tabbyAPI-patch`, in
+its own `~/.venv-tabby` with the same torch and exllamav3 builds; runner
+`~/tabby-check.sh <tag> <tree> <requests dir>`, config
+`~/tabbyAPI-config.yml`. Both runners take the GPU lease file `~/gpu-lease`,
+refuse after 23:30, launch the server as a simple command and keep the lease
+if the cards do not come back. The recorder build for these takes is
+`~/toktape-0719fec`. Copies of all of it are in `tools/tabby/` and `tools/exl3/`.
+
 The `exl3-run*.pid` files hold the `sudo … bash -c` wrapper's pid, not
 the runner's; the runner is its child (`pgrep -P`). Runner copies: `tools/exl3/exl3-run5..8.sh`, bench variants
 `exl3-bench{,2,3,4}.py` (4 = mixed prompts + draft flags).
