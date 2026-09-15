@@ -160,8 +160,16 @@ The 3090 fell off the bus at 00:01:51 (Xid 79) under another session's DDP run; 
 
 - `-np 2` with ik's MTP draft (PR #2399 merged locally in
   `~/ik-glm53-mtp`) kills the server at load; reproduce with the log kept.
-- Graft files `/models/GLM-5.3-Flash-graft{B,C,D}/` (184 GiB each) exist;
+- ~~Graft files `/models/GLM-5.3-Flash-graft{B,C,D}/` (184 GiB each) exist;
   B is the one with a use (Q6_K on-card, KLD 0.013); C and D were
-  ablation arms and can go when disk is needed — user's call.
+  ablation arms and can go when disk is needed — user's call.~~
+  **Deleted 2026-09-16**, along with `/models/GLM-5.3-Flash-UD-Q4_K_XL/`
+  (186 GiB), in a storage pass that kept only files an open or candidate
+  upstream PR needs. Every number they produced is in the GLM log; none of
+  it can be re-measured without re-downloading. What survives is
+  `/models/GLM-5.3-Flash-exl3-4.05/` (154 GiB), kept because the MTP
+  draft-depth candidate in `upstream-contributions.md` still owes a
+  reproducer on a second placement. The ik arms of the table above — the
+  17.0 and 18.7 tok/s rows — are no longer reproducible on this box.
 - The NVMe write crawl after half a terabyte of writes is unexplained
   (not thermal; counters in the log).

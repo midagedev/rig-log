@@ -12,7 +12,14 @@ set -u
 BRANCH=$1; TAG=$2; DRAFT=${3:-}
 TREE=${TREE:-/home/user/ik_llama.cpp}; BIN=${BIN:-build/bin/llama-server}; OUT=/home/user/ik-v41/$TAG; LEASE=/home/user/gpu-lease; PORT=8011
 PLAIN=/models/DeepSeek-V4.1-Flash-Q3_K_M/DeepSeek-V4.1-Flash-Q3_K_M-00001-of-00009.gguf
-BF16=/models/DeepSeek-V4.1-Flash-Q3_K_M-engramQ8-tokembdBF16/DeepSeek-V4.1-Flash-Q3_K_M-00001-of-00009.gguf
+# 2026-09-16: the draft arm's file, `-engramQ8-tokembdBF16`, was deleted in the storage
+# pass. It is re-graftable in about forty minutes from the two sources that were kept
+# (`-Q3_K_M` and `-Q8_0-engram-src`, tools/engram-repack/repack_all.sh). Until it is,
+# the draft arm runs against the served file below, which is that file plus the WKS-13
+# attention graft: its decode is about 10 % higher, so a number from this arm is NOT
+# comparable to the 20.4-20.7 tok/s rows recorded for PR #2455 on 2026-09-15.
+# The perplexity claim is unaffected — it uses PLAIN, which is still on disk.
+BF16=/models/DeepSeek-V4.1-Flash-Q3_K_M-engramQ8-tokembdBF16-attnQ8/DeepSeek-V4.1-Flash-Q3_K_M-00001-of-00009.gguf
 DMODEL=/models/DeepSeek-V4.1-Flash-DSpark/DeepSeek-V4.1-Flash-Fp8-128x742M-MXFP4_MOE.tl37.gguf
 OT='blk\.[0-3]\.ffn_.*_exps=CUDA0,blk\.[4-5]\.ffn_.*_exps=CUDA1,exps=CPU'
 mkdir -p $OUT

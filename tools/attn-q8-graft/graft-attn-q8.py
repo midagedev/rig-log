@@ -10,6 +10,9 @@ import argparse, fcntl, os, re, sys, time
 sys.path.insert(0, "~/llama.cpp-v41/gguf-py")
 from gguf import GGUFReader, GGUFWriter, GGUFValueType
 
+# 2026-09-16: SRC_DIR was deleted in the storage pass; the graft's output (DST_DIR) is
+# the served file and was kept. To re-run this, rebuild SRC_DIR first from the kept
+# sources with tools/engram-repack/repack_all.sh.
 SRC_DIR = "/models/DeepSeek-V4.1-Flash-Q3_K_M-engramQ8-tokembdBF16"
 DST_DIR = "/models/DeepSeek-V4.1-Flash-Q3_K_M-engramQ8-tokembdBF16-attnQ8"
 DONOR = "/models/DeepSeek-V4.1-Flash-Q8_0-engram-src/DeepSeek-V4.1-Flash-Q8_0-00010-of-00010.gguf"

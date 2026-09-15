@@ -213,6 +213,22 @@ exists. In parallel, a second architecture — GLM-5.3-Flash on ik main,
 rules generalize; the first numbers say they do not (a layer moved to a card
 buys 1 % of decode there, against 2.2 % of expert bytes).
 
+**Storage pass, 2026-09-16.** `/models` went from 3.1 TB to 1.9 TB. The rule
+applied was to keep a file only if an open or candidate upstream PR needs it,
+plus whatever gets served. Kept: the fp8 originals and the Q8_0 engram source
+(every future graft starts from these), the published `Q3_K_M` upload (every
+number in PR #2455 is measured on it, and the rebase promised there has to be
+re-measured on it), the served attention-Q8_0 file, the stage-1 MXFP4 file, the
+EXL3 4.05 bpw GLM (the exllamav3 MTP draft-depth candidate still owes a
+reproducer on a second placement), the DSpark drafts and the two small models.
+Deleted: the six engram and head/embedding ablation arms, and the whole ik-side
+GLM set — `graft{B,C,D}` and `UD-Q4_K_XL`. Their numbers are in the logs and
+stay there; what is gone is the ability to re-measure them. The engram arms are
+re-graftable from the kept sources in under an hour each
+(`tools/engram-repack/repack_all.sh`); the GLM ik arms are a 186 GB download.
+The GLM half of the paragraph above is therefore closed unless that file comes
+back.
+
 ### Q3 — raise precision where the bandwidth is not the bottleneck
 
 The user's question was whether the experts that sit in RAM could be
