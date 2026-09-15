@@ -116,6 +116,57 @@ finish chunk (`backends/exllamav3/model.py:1229`, `:1255`), so `timings` has a
 `stream_options.include_usage` is set; and the last streamed chunk carries
 `finish_reason` and `usage` together, on both trees.
 
+## The take: ExLlamaV3 recorded by a llama-server recorder
+
+20:56, the first toktape take of an engine that is not llama.cpp. exl3-serve
+6a7358d loaded `/models/GLM-5.3-Flash-exl3-4.05` at the serving profile
+(`-gs 44,21 -mcs 185 -mct 32 -cs 32768 -mtp`, ready in 121 s), one warm request
+outside the take, then toktape v0.2.1-5-g0719fec attached over `/props` and
+recorded one greedy stream. The prompt is the one the 13:08 ik graft B take
+used, read back out of that tape so the two clips are on the same axis: the
+merge-two-sorted-lists request at `reasoning_effort: low`, 32 tokens in.
+
+| 20:56 take, `contended: no` | exl3-serve + ExLlamaV3 | ik graft B + MTP (13:08) |
+|---|---|---|
+| file | EXL3 4.05 bpw, 153.8 GiB | Q6_K graft, 184.3 GiB |
+| placement | per-expert, `-mcs 185` | ten whole layers on the cards |
+| decode | **22.0 tok/s** | 24.2 tok/s |
+| draft | mtp n_max 1, 96 % accepted (116/121) | mtp n_max 2, 97 % (153/157) |
+| TTFT, 32 prompt tokens | 3551 ms | 768 ms |
+| VRAM | 43.5 / 19.4 GiB | 29.5 / 20.9 GiB |
+| host RSS | 99.1 GiB | 156.4 GiB |
+| major faults | 0.0 / token | 0.0 / token |
+| context | 32 in / 237 out | 32 in / 238 out |
+
+Two of those rows are the day's arithmetic coming back. Decode 22.0 against
+24.2 is ExLlamaV3 9 % behind ik on this box while reading 30 GiB less file,
+which is the same trade the placement sweep found at `-mcs 195` (19.1-22.2
+against ik's 18.7) and not a new fact. The host RSS is: per-expert placement
+keeps 92.5 GiB in the CPU worker instead of the whole remainder, so the
+process is 57 GiB smaller than the one serving the GGUF.
+
+The TTFT is the row worth an experiment. 3551 ms to the first token of a
+32-token prompt is not a prefill measurement — the card says so itself — but
+ik answers the same prompt in 768 ms, and 2.8 s of per-request startup would
+dominate any interactive use. Where it goes was not measured: the CPU worker's
+first touch of a new sequence, the tokenizer and template render on the engine
+thread (exl3-serve runs one, so encoding waits behind decode steps), or the
+job enqueue itself are the candidates, and the per-step deltas the amended
+probe would have printed are still missing. Filed as its own experiment.
+
+The clip is one stream because it has to be: `--parallel 2` does not yet
+produce two slots (exllamav3 clamps the generator's batch to the cache's slot
+count, which `-ambs` sets to 1 by default), so a two-stream take would record
+serialization and call it concurrency.
+
+Recorded with [toktape](https://github.com/midagedev/toktape): the tape is
+`assets/glm53-flash-exl3-mcs185-mtp.tape` (hostname replaced with
+"workstation" by [`tools/tape-sanitize.py`](../tools/tape-sanitize.py) before
+publishing), the card `assets/glm53-flash-exl3-mcs185-mtp.card.png`, the mp4
+[on Drive](https://drive.google.com/file/d/1XsINW_aOqHPCsafa4d2ITu6T_hFoTBPO/view?usp=drivesdk).
+The runner is [`tools/exl3/exl3serve-take.sh`](../tools/exl3/exl3serve-take.sh),
+the check runner's gates and teardown with a recording in place of the probe.
+
 ## Things that went wrong on the way
 
 The TabbyAPI runner recorded the pid of a subshell, not the server, so its
