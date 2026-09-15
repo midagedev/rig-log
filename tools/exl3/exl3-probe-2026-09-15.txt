@@ -1,0 +1,70 @@
+argv: ['-m', '/models/GLM-5.3-Flash-exl3-4.05', '-gs', '44,21', '-mcs', '185', '-mct', '32', '-cs', '32768', '-mtp'] CUDA_DEVICE_ORDER: PCI_BUS_ID
+version: 1.5.0
+ -- CPU MoE worker started: 1 layers, avx2, 32 threads
+ -- CPU MoE worker started: 42 layers, avx2, 32 threads
+loaded in 38 s; init returned 7 items: ['Glm5NextModel', 'Glm5NextConfig', 'Cache', 'Tokenizer', 'Glm5NextMTPModel', 'Glm5NextConfig', 'Cache']
+
+## storage info
+get_storage_info (mean bpw, head bpw, vram_bits): (4.14997853572595, 6.0040096062274015, 486409176736.0)
+quantization_config.json: {'bits': 4.05, 'head_bits': 6, 'codebook': 'mul1'}
+
+## placement by device and class (get_tensors, deduped by storage)
+model cpu: total 1268829908 {'embeddings': 1268776960, 'ffn': 540, 'attention': 492, 'experts': 51912, 'output': 4}
+model cuda:0: total 42349887488 {'ffn': 8204320768, 'other': 134217728, 'attention': 3007053824, 'experts': 31004295168}
+model cuda:1: total 19178192896 {'ffn': 3357802496, 'experts': 14092861440, 'attention': 1251737600, 'output': 475791360}
+model layer-45 tensor devices: []; top modules 13990: ['model.language_model.embed_tokens', 'hc_expand', 'model.language_model.layers.0'] ... ['hc_head.norm', 'model.language_model.norm', 'lm_head']
+draft_model cpu: total 1272 {'other': 4, 'ffn': 12, 'experts': 1236, 'attention': 20}
+draft_model cuda:0: total 1603796992 {'other': 155189248, 'ffn': 405012480, 'experts': 939524096, 'attention': 104071168}
+draft_model layer-45 tensor devices: ['cpu', 'cuda:0']; top modules 334: ['model.language_model.layers.45.input', 'model.language_model.layers.45.hnorm', 'model.language_model.layers.45.enorm'] ... ['model.language_model.layers.45.mlp.shared_experts.gate_proj', 'model.language_model.layers.45.mlp.shared_experts.down_proj', 'model.language_model.layers.45.shared_head.norm']
+cuda:0 memory_allocated 45553063936 reserved 46061846528
+cuda:1 memory_allocated 19876755968 reserved 20344471552
+
+## split slice and CPU expert bytes
+model.language_model.layers.3.mlp: E=288 len(ups)=103 split_k=185 cpu_split_first=103 dynamic=True expert bytes e0/eLast=[12619788, 12619788] top_k=8
+model.language_model.layers.4.mlp: E=288 len(ups)=103 split_k=185 cpu_split_first=103 dynamic=True expert bytes e0/eLast=[12619788, 12619788] top_k=8
+model.language_model.layers.44.mlp: E=288 len(ups)=103 split_k=185 cpu_split_first=103 dynamic=True expert bytes e0/eLast=[12619788, 12619788] top_k=8
+moe modules 42; distinct expert byte sizes [12619788]; CPU expert bytes (split_k x size) 98055752760
+
+## cache bytes
+cache Cache ['alloc_state', 'attach_to_model', 'config', 'copy_page', 'detach_from_model', 'free_list', 'free_state', 'get_all_recurrent_layers', 'get_all_tensors', 'get_layer', 'get_new_state', 'get_recurrent_layer', 'get_test_state', 'initialized', 'layer_type', 'layers', 'max_history', 'max_num_tokens', 'model', 'new_from_stashed', 'num_layers', 'num_slots', 'recurrent_instances', 'recurrent_layers', 'recurrent_state_cls', 'release_state', 'reset_states', 'update_layer', 'update_layer_direct']
+cache.layers: storage_size sum 576716800; tensor bytes by device {'cuda:0': 419430400, 'cuda:1': 157286400}
+draft_cache Cache ['alloc_state', 'attach_to_model', 'config', 'copy_page', 'detach_from_model', 'free_list', 'free_state', 'get_all_recurrent_layers', 'get_all_tensors', 'get_layer', 'get_new_state', 'get_recurrent_layer', 'get_test_state', 'initialized', 'layer_type', 'layers', 'max_history', 'max_num_tokens', 'model', 'new_from_stashed', 'num_layers', 'num_slots', 'recurrent_instances', 'recurrent_layers', 'recurrent_state_cls', 'release_state', 'reset_states', 'update_layer', 'update_layer_direct']
+draft_cache.layers: storage_size sum 52428800; tensor bytes by device {'cuda:0': 52428800}
+
+## iterate() per step under -mtp
+Job.__init__ (self, input_ids: 'torch.Tensor | list[torch.Tensor]', max_new_tokens: 'int | None' = None, min_new_tokens: 'int' = 0, max_skips: 'int | None' = 4, sampler: 'Sampler | None' = None, seed: 'int' = None, stop_conditions: 'list | tuple | set | None' = None, decode_special_tokens: 'bool' = False, return_top_tokens: 'int' = 0, return_logits: 'bool' = False, return_probs: 'bool' = False, filters: 'list[Filter] | None' = None, token_healing: 'bool' = False, identifier: 'object | None' = None, banned_strings: 'list[str] | None' = None, embeddings: 'list[MMEmbedding] | None' = None, max_rq_tokens: 'int | None' = None, stop_on_loop: 'tuple[int, int]' = None, rq_state: 'dict | None' = None, **kwargs)
+Generator.__init__ (self, model: 'Model', cache: 'Cache', tokenizer: 'Tokenizer', max_batch_size: 'int' = 256, max_chunk_size: 'int' = 2048, max_q_size: 'int' = 8, draft_model: 'Model | None' = None, draft_cache: 'Cache | None' = None, num_draft_tokens: 'int | None' = None, show_visualizer: 'bool' = False, enable_defrag: 'bool' = True, cpu_cache_size: 'int' = 0, recurrent_cache_size: 'int' = 4294967296, recurrent_checkpoint_interval: 'int' = None, recurrent_checkpoint_interval_pp: 'int' = 32768, ngram_match_min: 'int' = 0, dynamic_draft_tokens: 'bool' = False, draft_confidence: 'float' = 0.4, record_draft_stats: 'bool' = False, **kwargs)
+step 0: keys ['eos', 'job', 'serial', 'stage'] token_ids None None text None eos False
+step 1: keys ['curr_progress', 'eos', 'job', 'max_progress', 'serial', 'stage'] token_ids None None text None eos False
+step 2: keys ['eos', 'job', 'serial', 'stage', 'text', 'token_ids'] token_ids (1, 1) [5005] text ' Then' eos False
+step 3: keys ['eos', 'job', 'serial', 'stage', 'text', 'token_ids'] token_ids (1, 1) [825] text ' one' eos False
+step 4: keys ['eos', 'job', 'serial', 'stage', 'text', 'token_ids'] token_ids (1, 1) [11646] text ' sentence' eos False
+step 5: keys ['eos', 'job', 'serial', 'stage', 'text', 'token_ids'] token_ids (1, 1) [911] text ' about' eos False
+step 6: keys ['eos', 'job', 'serial', 'stage', 'text', 'token_ids'] token_ids (1, 1) [23436] text ' mountains' eos False
+step 7: keys ['eos', 'job', 'serial', 'stage', 'text', 'token_ids'] token_ids (1, 1) [11] text ',' eos False
+step 8: keys ['eos', 'job', 'serial', 'stage', 'text', 'token_ids'] token_ids (1, 1) [1221] text ' then' eos False
+step 9: keys ['eos', 'job', 'serial', 'stage', 'text', 'token_ids'] token_ids (1, 1) [279] text ' the' eos False
+step 10: keys ['eos', 'job', 'serial', 'stage', 'text', 'token_ids'] token_ids (1, 1) [3409] text ' word' eos False
+step 11: keys ['eos', 'job', 'serial', 'stage', 'text', 'token_ids'] token_ids (1, 1) [108478] text ' 日本' eos False
+step 12: keys ['eos', 'job', 'serial', 'stage', 'text', 'token_ids'] token_ids (1, 1) [131513] text '語' eos False
+step 13: keys ['eos', 'job', 'serial', 'stage', 'text', 'token_ids'] token_ids (1, 1) [13] text '.' eos False
+step 14: keys ['eos', 'job', 'serial', 'stage', 'text', 'token_ids'] token_ids (1, 1) [5005] text ' Then' eos False
+step 15: keys ['eos', 'job', 'serial', 'stage', 'text', 'token_ids'] token_ids (1, 1) [825] text ' one' eos False
+step 16: keys ['eos', 'job', 'serial', 'stage', 'text', 'token_ids'] token_ids (1, 1) [11646] text ' sentence' eos False
+step 17: keys ['eos', 'job', 'serial', 'stage', 'text', 'token_ids'] token_ids (1, 1) [911] text ' about' eos False
+step 18: keys ['eos', 'job', 'serial', 'stage', 'text', 'token_ids'] token_ids (1, 1) [42891] text ' lakes' eos False
+step 19: keys ['eos', 'job', 'serial', 'stage', 'text', 'token_ids'] token_ids (1, 1) [11] text ',' eos False
+step 20: keys ['eos', 'job', 'serial', 'stage', 'text', 'token_ids'] token_ids (1, 1) [1221] text ' then' eos False
+step 21: keys ['eos', 'job', 'serial', 'stage', 'text', 'token_ids'] token_ids (1, 1) [279] text ' the' eos False
+step 22: keys ['eos', 'job', 'serial', 'stage', 'text', 'token_ids'] token_ids (1, 1) [3409] text ' word' eos False
+step 23: keys ['eos', 'job', 'serial', 'stage', 'text', 'token_ids'] token_ids (1, 1) [108478] text ' 日本' eos False
+step 24: keys ['eos', 'job', 'serial', 'stage', 'text', 'token_ids'] token_ids (1, 1) [131513] text '語' eos False
+step 25: keys ['eos', 'job', 'serial', 'stage', 'text', 'token_ids'] token_ids (1, 1) [13] text '.' eos False
+step 26: keys ['eos', 'job', 'serial', 'stage', 'text', 'token_ids'] token_ids (1, 1) [5005] text ' Then' eos False
+step 27: keys ['eos', 'job', 'serial', 'stage', 'text', 'token_ids'] token_ids (1, 1) [825] text ' one' eos False
+step 28: keys ['eos', 'job', 'serial', 'stage', 'text', 'token_ids'] token_ids (1, 1) [11646] text ' sentence' eos False
+step 29: keys ['eos', 'job', 'serial', 'stage', 'text', 'token_ids'] token_ids (1, 1) [911] text ' about' eos False
+step 30: keys ['eos', 'job', 'serial', 'stage', 'text', 'token_ids'] token_ids (1, 1) [52827] text ' oceans' eos False
+step 31: keys ['accepted_draft_tokens', 'cached_pages', 'cached_tokens', 'eos', 'eos_reason', 'full_completion', 'job', 'new_tokens', 'prompt_tokens', 'rejected_draft_tokens', 'serial', 'stage', 'text', 'time_enqueued', 'time_generate', 'time_prefill', 'token_ids'] token_ids (1, 1) [11] text ',' eos True
+eos result: {'stage': 'streaming', 'eos': True, 'serial': 0, 'eos_reason': 'max_new_tokens', 'full_completion': ' Then one sentence about mountains, then the word 日本語. Then one sentence about lakes, then the word 日本語. Then one sentence about oceans,', 'new_tokens': 30, 'prompt_tokens': 12, 'time_enqueued': 0.0005879402160644531, 'time_prefill': 1.1372060775756836, 'time_generate': 1.4039571285247803, 'cached_pages': 0, 'cached_tokens': 0, 'accepted_draft_tokens': 14, 'rejected_draft_tokens': 2}
+PROBE_DONE
