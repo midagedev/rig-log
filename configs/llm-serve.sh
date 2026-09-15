@@ -4,7 +4,7 @@
 #   expert 층 일부 = A6000(CUDA0) / 3090(CUDA1), 나머지 = CPU+RAM
 #   DSpark 투기 디코딩(초안 모델 10.9GB, 깊이 3)
 set -eu
-export CUDA_DEVICE_ORDER=PCI_BUS_ID
+. /home/user/gpu-order.env   # CUDA0 = A6000 by UUID (2026-09-16, slot move flipped PCI order)
 M=$HOME/models/DeepSeek-V4-Flash-0731-GGUF/UD-Q4_K_XL/DeepSeek-V4-Flash-0731-UD-Q4_K_XL-00001-of-00005.gguf
 D=$HOME/models/DeepSeek-V4-Flash-0731-dspark/dspark-DeepSeek-V4-Flash-0731-Q8_0.gguf
 exec $HOME/ik_llama.cpp/build/bin/llama-server \

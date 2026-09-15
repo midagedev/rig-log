@@ -395,6 +395,60 @@ at 298 W that looks comparable was decode bursts of seconds rather than an
 hour at 100 %. There is no baseline to compare against, and saying the move
 made the card hotter would be inventing one.
 
+## DDR4-3600 goes back on, and the moved link stays clean under the load that broke the old one
+
+*07:12–07:24.* The memory clock had been dropped to 3200 during the night as one of
+the suspects. The errors returned at 3200, so it was cleared, and once the slot move
+answered the question it went back up: BIOS to DDR4-3600 at 1.30 V, the BMC reading
+the rails at `+VDDIO_ABCD 1.29 V` / `+VDDIO_EFGH 1.28 V` (`dmidecode` still says
+1.2 V, which is the SPD nominal and not a measurement). `Configured Memory Speed:
+3600 MT/s`, host read 144.8 GB/s in each of three runs against 144.6 recorded on
+09-14 and 131.2 at 3200.
+
+Then the same two-rank NCCL all-reduce that produced 27 corrected errors in 483 s
+in the old slot ran for 480 s at 3600 in the new one, with the throttle counters and
+both temperature channels sampled beside the AER count
+([`tools/mem3600-load.sh`](../tools/mem3600-load.sh)):
+
+| 480 s at DDR4-3600, A6000 in the moved slot | |
+|---|---:|
+| corrected errors on the A6000's link (`60:01.1` / `61:00.0`) | **0** (old slot: 27 in 483 s) |
+| corrected errors, all four ports | 1 — one `BadTLP` on `40:01.1`, the root port above the **3090**, at 07:21:19 |
+| Xid | 0 |
+| `SW Thermal Slowdown` counter delta | 0 s |
+| `SW Power Capping` counter delta | 5 s |
+| A6000 die / slot sensor `PCIE05` | 72 °C / 72 °C at 137 W |
+| 3090 die / `PCIE01` | 58 °C / 58 °C at 179 W |
+| all-reduces completed | 10 213, 10.9 GB/s a rank |
+
+So the moved link is clean at 3600 as it was at 3200 this morning, and "3600 is
+innocent" is now a measurement rather than an inference from the 3200 run. The one
+event on the 3090's port is recorded and not attributed: a single count in 480 s
+cannot be assigned to the memory clock, and the 502 s Gen4 run at 3200 earlier
+today had zero on that port too. If it recurs, it is the 3090's link that gets the
+four-condition experiment next. The temperatures do not bear on the 87 °C of the
+training run above — this hammer draws 137 W on the A6000, that job drew 296.
+
+### The slot move flipped the device order, and every placement assumed the old one
+
+The first thing the kept-model re-verification found was not in a model. With
+`CUDA_DEVICE_ORDER=PCI_BUS_ID`, which every serving script and runner in this repo
+exported, CUDA0 is the lowest bus address. The A6000 used to be at bus 01 and the
+3090 at 41; the A6000 is now at 61. So **CUDA0 became the 3090**, and every `-ot`
+string that puts four expert layers and the compute buffer on CUDA0, the `-ts 2,1`
+split, and the ExLlamaV3 `-gs 44,21` were about to load 44–46 GB onto a 24 GB card.
+The training job on this box found it first, the hard way: its launcher had
+`CUDA_VISIBLE_DEVICES=0` and put a 38 GB run on the 3090, which OOMed at step 52000.
+
+The fix is one file, [`configs/gpu-order.env`](../configs/gpu-order.env), sourced by
+every runner: `CUDA_VISIBLE_DEVICES=<A6000 UUID>,<3090 UUID>`. CUDA enumerates the
+listed devices in list order and accepts UUIDs, so one line pins the index for
+llama.cpp, ik_llama.cpp, ExLlamaV3 and torch alike, and survives the next slot move
+or a third card. Two things the fix does not do: `nvidia-smi` ignores
+`CUDA_VISIBLE_DEVICES` and is addressed with `-i <UUID>`; and reading the file is
+not the test. The test was the first load: the served file with its seven-layer
+placement put **45.8 GB on the A6000 and 20.0 GB on the 3090**, read back by UUID.
+
 ## Still open: the card that actually fell
 
 Nothing measured today explains the Xid 79. The 3090's link was the clean

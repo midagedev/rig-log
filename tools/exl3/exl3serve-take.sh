@@ -42,7 +42,7 @@ finish(){ rc=$1
 if [ -f $LEASE ]; then say "refused: lease held: $(cat $LEASE)"; echo ${SENT}_FAILED; exit 1; fi
 echo "$LEASE_TAG $$ $(date +%FT%T)" > $LEASE
 say "exl3-serve at $(cat /home/user/exl3-serve/.commit 2>/dev/null); toktape $($TOKTAPE version); io avg10 $(awk '/some/{print $2}' /proc/pressure/io); gpus before: $(gpus)"
-cd /home/user
+cd /home/user; . /home/user/gpu-order.env   # device 0 = A6000 for -gs 44,21
 setsid nohup /home/user/.venv-exl3/bin/exl3-serve -m /models/GLM-5.3-Flash-exl3-4.05 -gs 44,21 -mcs 185 -mct 32 -cs ${CS:-32768} -mtp --parallel ${PARALLEL:-2} --port $PORT > $OUT/server.log 2>&1 < /dev/null &
 SPID=$!; echo $SPID > $OUT/server.pid
 sleep 1

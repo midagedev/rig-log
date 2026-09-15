@@ -21,7 +21,7 @@ PLAIN=/models/DeepSeek-V4.1-Flash-Q3_K_M/DeepSeek-V4.1-Flash-Q3_K_M-00001-of-000
 # The perplexity claim is unaffected — it uses PLAIN, which is still on disk.
 BF16=/models/DeepSeek-V4.1-Flash-Q3_K_M-engramQ8-tokembdBF16-attnQ8/DeepSeek-V4.1-Flash-Q3_K_M-00001-of-00009.gguf
 DMODEL=/models/DeepSeek-V4.1-Flash-DSpark/DeepSeek-V4.1-Flash-Fp8-128x742M-MXFP4_MOE.tl37.gguf
-OT='blk\.[0-3]\.ffn_.*_exps=CUDA0,blk\.[4-5]\.ffn_.*_exps=CUDA1,exps=CPU'
+OT=${OT:-'blk\.[0-3]\.ffn_.*_exps=CUDA0,blk\.[4-5]\.ffn_.*_exps=CUDA1,exps=CPU'}
 mkdir -p $OUT
 say(){ echo "$(date +%H:%M:%S) $*"; }
 gpus(){ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | tr '\n' ' '; }
@@ -69,18 +69,19 @@ cmake --build build -j 32 --target llama-server llama-perplexity > $OUT/build.lo
 say "build ok"
 fi
 
-if [ -z "${SKIP_PPL:-}" ]; then
+if [ -z "${SKIP_PPL:-}" ]; then  # SKIP_PPL / SKIP_DECODE pick one gate (2026-09-16)
 say "gate 1: wikitext-2, 4 chunks, CPU only (reference 2.2258 +/- 0.0622)"
 CUDA_VISIBLE_DEVICES="" ./build/bin/llama-perplexity -m $PLAIN -f /home/user/eval/wiki.test.raw \
   -c 2048 --chunks 4 -b 2048 -ngl 0 -t 32 > $OUT/ppl.log 2>&1
 grep -E "^\[[0-9]\]|Final estimate" $OUT/ppl.log | tail -3
 fi
 
+[ -n "${SKIP_DECODE:-}" ] && finish 0
 M=$PLAIN; EXTRA=""
 if [ -n "$DRAFT" ]; then M=$BF16; EXTRA="-md $DMODEL --spec-type draft-dspark --spec-draft-n-max 3 -otd output_norm=CUDA0"; fi
 say "gate 2: decode at the published split${DRAFT:+ with the DSpark draft}"
 # -ot to the CPU drops mmap, and 283 GiB of pinned weights do not fit 251 GB of RAM (#2444)
-CUDA_DEVICE_ORDER=PCI_BUS_ID GGML_CUDA_NO_PINNED_WEIGHTS=1 setsid nohup ./$BIN -m $M -c 16384 -ngl 99 -t 32 -b 2048 -ub 512 \
+. /home/user/gpu-order.env; GGML_CUDA_NO_PINNED_WEIGHTS=1 setsid nohup ./$BIN -m $M -c 16384 -ngl 99 -t 32 -b 2048 -ub 512 \
   -ot "$OT" ${EXTRA_FLAGS:-} $EXTRA --host 127.0.0.1 --port $PORT > $OUT/server.log 2>&1 < /dev/null &
 SPID=$!; echo $SPID > $OUT/server.pid; sleep 1
 if ! kill -0 $SPID 2>/dev/null; then say "server exited immediately: $(head -1 $OUT/server.log)"; SPID=""; finish 1; fi

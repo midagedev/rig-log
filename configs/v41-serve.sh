@@ -66,7 +66,7 @@ M=${M:-/models/DeepSeek-V4.1-Flash-Q3_K_M-engramQ8-tokembdBF16-attnQ8/DeepSeek-V
 # disabled in this server, so the block size is set here.
 D=${D:-/models/DeepSeek-V4.1-Flash-DSpark/DeepSeek-V4.1-Flash-Fp8-128x742M-MXFP4_MOE.tl37.gguf}
 
-export CUDA_DEVICE_ORDER=PCI_BUS_ID
+. /home/user/gpu-order.env   # CUDA0 = A6000 by UUID (2026-09-16, slot move flipped PCI order); configs/gpu-order.env
 
 exec "$B" -m "$M" --alias DeepSeek-V4.1-Flash \
   -c 16384 -ngl 99 -t 32 -b 2048 -ub 512 \

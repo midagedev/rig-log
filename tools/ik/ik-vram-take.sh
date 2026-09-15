@@ -39,7 +39,7 @@ echo "$LEASE_TAG $$ $(date +%FT%T)" > $LEASE
 cd $TREE || finish 1
 say "$TAG at $(git log -1 --format='%h %s' | cut -c1-60); toktape $($TOKTAPE version); io avg10 $(awk '/some/{print $2}' /proc/pressure/io); gpus before: $(gpus)"
 # one card, everything resident: no -ot, no CPU tail, nothing streamed from RAM
-CUDA_VISIBLE_DEVICES=${CVD:-0} CUDA_DEVICE_ORDER=PCI_BUS_ID setsid nohup ./build/bin/llama-server -m "$M" \
+. /home/user/gpu-order.env; CUDA_VISIBLE_DEVICES=${CVD:-$A6000_UUID} setsid nohup ./build/bin/llama-server -m "$M" \
   -c ${CTX:-32768} -ngl 99 -fa on -t ${THREADS:-32} -b 2048 -ub ${UB:-512} ${EXTRA_FLAGS:-} \
   --host 127.0.0.1 --port $PORT > $OUT/server.log 2>&1 < /dev/null &
 SPID=$!; echo $SPID > $OUT/server.pid; sleep 1
