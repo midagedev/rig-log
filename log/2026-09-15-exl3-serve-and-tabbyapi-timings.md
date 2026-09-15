@@ -232,7 +232,20 @@ fixed 3.4 s. [WKS-27](../docs/upstream-contributions.md) wanted a sweep to
 separate a fixed fan-out from a per-token cost; three points on the same
 placement say fixed.
 
-Getting there took two reruns, and both were mine. `--prompts FILE` is
+A fourth point landed with the clip take: 252 tokens, 3046 ms. And that one
+is the clean take of the day — two caveats, neither about the run (exllamav3's
+CPU worker makes the memory figure a four-process sum, and Tctl drifted 54 →
+68 °C), both answers complete, decode 11.6 tok/s a stream and 19.4 aggregate
+over a window whose tail has one stream left in it, prefill 82.5 tok/s a
+stream with `engine prefill 3046 ms · queue 1558 ms` — the queue being the
+second stream waiting for the first's prefill, because exl3-serve has one
+engine thread. Tape `assets/glm53-flash-exl3-2stream-complete.tape`, clip
+[on Drive](https://drive.google.com/file/d/1nxcZKbgU_A82Cf2940cYY0n0soqgnKEL/view?usp=drivesdk),
+48.3 s. What finally stopped the clock cutting the answers was bounding both
+prompts to 200 words: at 11.6 tok/s a 45 s window is about 520 tokens and the
+unbounded answers wanted more.
+
+Getting there took three reruns, and two were mine. `--prompts FILE` is
 *rounds*, not streams — every stream in a round gets that line's prompt, so
 the 22:03 take ran the same prompt twice and never reached the second line;
 repeated `--prompt` is what cycles prompts across concurrent streams. And
