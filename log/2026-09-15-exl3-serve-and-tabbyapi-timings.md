@@ -167,7 +167,7 @@ publishing), the card `assets/glm53-flash-exl3-mcs185-mtp.card.png`, the mp4
 The runner is [`tools/exl3/exl3serve-take.sh`](../tools/exl3/exl3serve-take.sh),
 the check runner's gates and teardown with a recording in place of the probe.
 
-## Two streams: the clamp, the fix, and the aggregate that does not rise
+## Two streams: the clamp, the fix, and what concurrency actually buys
 
 The one-stream take above was one stream because `--parallel 2` did not
 produce two slots. exllamav3 builds every cache with `max_batch_size =
@@ -182,31 +182,50 @@ concurrency.
 
 Both states were recorded, same prompts, same placement, toktape v0.2.2:
 
-| two streams, `-mcs 185 -mtp` | per stream | aggregate | `peak_decoding_streams` | TTFT p95 | ITL p50 |
-|---|---:|---:|---:|---:|---:|
-| one stream, for reference (20:56) | 22.0 | 22.0 | — | 3551 ms | 62 ms |
-| before the fix (21:10) | 22.2 | 21.4 | **1** | 12250 ms | 62 ms |
-| after the fix (21:44) | 11.1 | **20.3** | **2** | 4621 ms | 94 ms |
+| `-mcs 185 -mtp`, toktape v0.2.2 | prompt | per stream | aggregate | wall | `peak_decoding_streams` | TTFT p50 |
+|---|---:|---:|---:|---:|---:|---:|
+| one stream (20:56) | 32 | 21.96 | 22.1 | 14.3 s | — | 3551 ms |
+| two, before the fix (21:10) | 32 / 26 | 22.04 / 22.41 | 21.4 | 26.0 s | **1** | 893 ms |
+| two, after the fix (21:44) | 32 / 26 | 10.64 / 11.57 | 20.3 | 27.0 s | **2** | 759 ms |
+| two, after, real prompts (22:03) | 274 / 274 | 11.49 / 11.58 | **23.5** | 29.9 s | **2** | 11652 ms |
 
 The fix took: the recorder's own caveat, `the 2 streams decoded one at a
 time: the aggregate is one stream behind a queue, not 2 at once`, fires on
 the 21:10 tape and is absent from the 21:44 one, `peak_decoding_streams`
 went 1 → 2, and the second request's wait fell from 12.3 s to 4.6 s.
 
-And the throughput did not move — 20.3 aggregate against 22.0 for a single
-stream, with each stream at exactly half the solo rate. A two-token step
-costs twice a one-token step, which is the same arithmetic that held the MTP
-draft to +12 % at 97 % acceptance: decode here is the read of 98.1 GB of
-CPU-resident experts, two tokens from two streams route to different experts,
-so the bytes double with the tokens and tokens-per-byte is unchanged. What
-concurrency buys on this engine is latency fairness — 4.6 s instead of 12.3 s
-for the second client — not throughput.
+What concurrency does to throughput is almost nothing, and the sign depends
+on the window. ~~The aggregate did not move — 20.3 against 22.0.~~ Too strong,
+struck the same hour: the 21:44 take says 20.3 and the 22:03 take, two real
+274-token prompts over a 30 s window, says 23.5 against the single stream's
+22.1. The stable quantity across all three is the per-stream rate: exactly
+half of solo, every time, because a two-token step measured 87 ms against
+45.5 ms for a one-token step. Summed, two streams deliver 23.1 tok/s against
+21.96 — **5 %**, and the aggregate figure moves between 20.3 and 23.5 with how
+much of the window both streams are actually decoding in.
 
-This is not a property of the box. ik/llama.cpp with whole expert layers on
-the cards records 12.8 tok/s each and 25.7 aggregate on two streams, a real
-gain; the per-expert CPU worker does not merge two streams' expert reads the
-way llama.cpp's expert batch does. One take each, so the 20.3 and 21.4 are
-single measurements, not a mean.
+Five per cent is the arithmetic working out, not a disappointment. Decode here
+is the read of 98.1 GB of CPU-resident experts; two tokens from two streams
+route to different experts, so the bytes double with the tokens and
+tokens-per-byte barely improves. It is the same reason the MTP draft bought
++12 % at 97 % acceptance. A compute-bound engine batching two streams would
+show close to 2×; this one shows 1.05×, and what it really buys is that both
+clients are answered at once instead of one waiting 12.3 s for the other.
+
+For contrast, ik/llama.cpp on V4.1-Flash with whole expert layers on the cards
+records 12.8 tok/s each and 25.7 aggregate against ~22 solo — a larger gain
+from the same move, with a different draft and a different model, so it is a
+pointer rather than a comparison. One take per row here, not a mean.
+
+The 22:03 take is also the first one whose prefill row is a measurement
+rather than a caveat: 274 prompt tokens a stream, 46.4 tok/s aggregate,
+TTFT 11.6 s. That is the short-prompt fan-out above seen from the other end —
+274 tokens draw 274 x 8 experts a layer, so the read is the whole CPU tail
+whatever the prompt length, and the per-token prefill rate improves with
+length exactly because the fixed read amortises. Its own new caveats are
+honest ones: the client measured 11.7 tok/s against the server's 11.5 (just
+over the 2 % tolerance, two streams sharing one client's clock), and
+`run_cut_by_clock`, because `--for 30s` stopped both answers mid-sentence.
 
 The fix has a price that explains why nobody noticed the clamp: two real
 slots need more VRAM than one, and at `-gs 44,21 -mcs 185` the load failed
@@ -216,7 +235,8 @@ module inside each device's `-gs` fraction and moves to the next device on
 OOM (`model_ls.py:274`), so the batch-2 load simply runs out of room in the
 same split that batch-1 fits. The tapes are
 `assets/glm53-flash-exl3-2stream-serialized.tape` and
-`assets/glm53-flash-exl3-2stream-batched.tape`, and the two clips are on
+`assets/glm53-flash-exl3-2stream-batched.tape`, with the 22:03 take at
+`assets/glm53-flash-exl3-2stream-real-prompts.tape`, and the two clips are on
 Drive — [serialized](https://drive.google.com/file/d/1Mc6uivfsJc6Q4PZP99nv3bWD4IvxEEm-/view?usp=drivesdk)
 and [concurrent](https://drive.google.com/file/d/1juhIz_HBheswUJ4Ql7csnMKSssFLibtB/view?usp=drivesdk),
 both rendered from the tapes by [toktape](https://github.com/midagedev/toktape) v0.2.2.
