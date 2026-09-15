@@ -182,8 +182,9 @@ The control is also a different quantisation family (Q3_K against Q4_K/Q6_K), so
 "the k-quant dequantisation path" and "this engine's batch-1 ceiling on this
 card" are both still standing and this arm cannot separate them. The experiment
 that would: the same weights at Q8_0 or fp16, where dequantisation is cheap or
-absent, at a size that still fits one card. Named, not guessed — it is the next
-window's first row.
+absent, at a size that still fits one card. Named, not guessed — it is
+[WKS-30](../docs/v41-experiment-plan.md), with these three rows as its measured
+state and the bus probe as its second arm.
 
 What is settled is the shape of the lever. The only way to decode faster here is
 to read fewer bytes per token, and on this model 70 % of that read is the dense
