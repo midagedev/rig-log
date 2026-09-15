@@ -89,6 +89,13 @@ assets/     the clips and sheets
   witness it asked us for by hand, a mode it lacks), send the request to the
   toktape session directly rather than working around it (user instruction
   2026-09-14).
+- **Model files come down with [`tools/fetch-gguf.sh`](tools/fetch-gguf.sh)** —
+  parallel range workers, the expected size read from the API, and a file that
+  only appears at its final path when its byte count matches. Measured
+  2026-09-15: one connection 28 MB/s against eight at 80 MB/s on the same file
+  and link, so a 29 GB model is six minutes rather than seventeen. Do not hand-roll
+  a `curl` for a model again; a half-written `.gguf` where a loader can see it is
+  the failure this prevents.
 - **Benchmarks need a quiet machine, and "quiet" is a protocol**: one lease,
   IO pressure rather than load average, the witness recorded in every row,
   and delegates get the runner script rather than an instruction. The method
