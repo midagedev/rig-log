@@ -30,8 +30,11 @@ competing baseline gets measured on this box.
 
 - Model: `/models/GLM-5.3-Flash-exl3-4.05/` — turboderp/GLM-5.3-Flash-exl3,
   branch `4.05bpw`, 23 files, 154 GiB, every file size-checked against the
-  HF manifest and sha256-verified before rename (`fetch_one.sh` in that
-  directory; the `.log` per file in `logs/`). Experts uniform 4 bpw, mul1
+  HF manifest and sha256-verified before rename (`logs/fetch_one.sh`; the
+  fetch scripts, shard lists and per-file `.log`s all live in `logs/` since
+  2026-09-15 evening, so the top-level non-hidden files are exactly the
+  published repo: 30 files, 165 151 541 665 bytes. The hidden entries are
+  the downloader's 0-byte `.lock` files and `.gitattributes`). Experts uniform 4 bpw, mul1
   codebook (36 288 modules, 142 GiB); attention/shared 5–6 bpw, 5.5 GiB.
 - Engine: `~/.venv-exl3` — exllamav3 1.5.0 (GitHub wheel `+cu128.torch2.10.0`),
   torch 2.10.0+cu128, jinja2. Source checkout for the examples:
