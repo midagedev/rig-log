@@ -60,7 +60,9 @@ competing baseline gets measured on this box.
 | ik main, UD-Q4_K_XL, L7+3 | 10 layers on cards | 18.7 | 353 | 32 / 23 |
 | exl3 1.5.0, `-gs 44,21 -mcl 30 -mct 32` | first 30 of 42 MoE layers on CPU, 12 on GPU 0 | 16.9 / 17.5 / 17.5 | 241 | 42.8 / 8.6 (3090 unused) |
 | exl3 `-mcs 170` | 118 experts a layer on GPU | did not load: "Insufficient VRAM in split for model and cache" (118/288 × 142 GiB = 58 GiB) | | |
-| exl3 `-mcs 230 / 210 / 195` | 58 / 78 / 93 experts a layer on GPU, dynamic placement | running at handoff (`~/exl3-run4.log`) | | |
+| exl3 `-mcs 230` | 58 experts a layer on GPU, dynamic | 16.9 → 18.1 → 19.6 (climbing) | 322 | 38.1 / 0.0 |
+| exl3 `-mcs 210` | 78 | 18.1 → 19.5 → 20.9 | 339 | 42.5 / 7.0 |
+| exl3 `-mcs 195` | 93 | 19.1 → 20.5 → **22.2** | **356** | 42.7 / 14.3 |
 
 Reading so far: the layer-split mode lands in ik's league (17.5 vs
 17.0–18.7) on an AVX2-only CPU (5975WX has no AVX-512; the cited 33 tok/s
@@ -116,6 +118,10 @@ if the cards do not come back. The recorder build for these takes is
 The `exl3-run*.pid` files hold the `sudo … bash -c` wrapper's pid, not
 the runner's; the runner is its child (`pgrep -P`). Runner copies: `tools/exl3/exl3-run5..8.sh`, bench variants
 `exl3-bench{,2,3,4}.py` (4 = mixed prompts + draft flags).
+
+## Machine state at 2026-09-16 05:00
+
+The 3090 fell off the bus at 00:01:51 (Xid 79) under another session's DDP run; `nvidia-smi` cannot open GPU 1 and it needs a reboot (user's call). The A6000 still runs CUDA. The fabric has logged ~1 900 corrected AER errors on the A6000's root port since boot and its link reads 2.5 GT/s downgraded at idle — read `LnkSta` under load after the reboot before trusting PCIe-bound numbers. Single-card arms (`-gs 44,0`) are possible before the reboot; two-card arms are not.
 
 ## Next steps, in order (revised)
 
