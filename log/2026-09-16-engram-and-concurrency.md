@@ -123,11 +123,15 @@ across every arm here is 17.9 to 19.1 tok/s, under 7 %. What it buys is that the
 model fits: without it the tables are either on a card that cannot hold them or
 in a host budget that cannot either.
 
-The `off` arm's own numbers explain it: asking for the whole table resident
-places 394 GiB on a 251 GB host, so the page cache holds half of it and thrashes
-for the rest — 66.2 faults a token against the 22.6 the row-wise path pays for
-the same work. Reading 110-byte rows on demand is not a compromise forced by
-the drive; it is cheaper than mapping the table and hoping.
+~~The `off` arm's own numbers explain it: 66.2 faults a token against the 22.6
+the row-wise path pays for the same work.~~ Struck within the hour of being
+written, and it is the error this entry is otherwise about: 66.2 and 22.6 are
+not the same configuration. The 22.6 arm does not name `engram_embd` and the
+66.2 arm does, so that comparison credits lazy mode with a threefold fault
+reduction that belongs to the placement instead. **In the matched pair, lazy
+mode has more faults, not fewer**: 108.4 against 66.2, for 4 % more decode.
+The other rig-log session made the same unmatched comparison from the same two
+numbers and retracted it too, which is what made me re-read this paragraph.
 
 ## Pinning the tables in RAM is arithmetic, not an experiment
 
