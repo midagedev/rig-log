@@ -36,14 +36,25 @@ speculative draft. This model is twice that rate with no draft at all, which is
 what 6B activated against V4.1's larger active set buys.
 
 > ~~at a similar file size.~~ **Struck 2026-09-16, later the same day**, while
-> this comparison was being carried into the README. The two files are not a
-> similar size and it is not close: `du --apparent-size` reads **110.1 GiB** for
-> this model's directory against **444.2 GiB** for the served V4.1 (324 G for
-> the plain Q3_K_M before the engram graft). Four times, not alike. The clause
-> made the sentence claim more than the runs support — *same size, double the
-> rate* is a much stronger statement than *a quarter of the size, double the
-> rate*, and only the second one was measured. The rate comparison and the
-> reason for it stand; the size equivalence was never measured and is withdrawn.
+> this comparison was being carried into the README, and verified twice over by
+> two sessions independently. The two files are not a similar size and it is not
+> close. `du --apparent-size`, in the GiB that `du -h` prints as `G`:
+>
+> | | |
+> |---|---:|
+> | the four UD-Q4_K_XL shards measured above | **103.7 GiB** |
+> | the whole `Qwen3.8-Flash-Next` directory (shards + the MTP pack) | 110.1 GiB |
+> | the served V4.1, `…-engramQ8-tokembdBF16-attnQ8` | **444.2 GiB** |
+> | the plain `Q3_K_M` before the engram graft | 324 GiB |
+>
+> Four times on either reading, so the clause was claiming something that was
+> never measured — and claiming it in this model's favour. *Same size, double
+> the rate* is a much stronger statement than *a quarter of the size, double the
+> rate*, and only the second one happened. The rate comparison and the reason
+> given for it stand; the size equivalence is withdrawn. Worth recording that
+> the sentence survived four copies — the entry, its commit message, a report to
+> a user, and a peer message arguing from it — before anyone divided the two
+> numbers.
 
 The n-gram table behaves exactly like the engram tables did (WKS-20): reading
 its rows off NVMe costs about 5 % of decode, 48.7 against 51.1, and the cost is
