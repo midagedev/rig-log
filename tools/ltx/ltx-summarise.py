@@ -36,7 +36,7 @@ def stamps(run_log):
 
 
 def witness(dmon_csv, uuid):
-    """second -> (watts, sm_mhz, celsius, util, mib, mem_mhz) for one card, numerically.
+    """second -> (watts, sm_mhz, celsius, util, mib, mem_mhz, fan_pct) for one card.
 
     mem_mhz is absent from takes recorded before 2026-09-16 12:50, when the memory
     clock joined the query; those rows report it as 0 rather than failing to parse.
@@ -50,7 +50,8 @@ def witness(dmon_csv, uuid):
         try:
             rows[int(hms[0]) * 3600 + int(hms[1]) * 60 + int(hms[2])] = (
                 float(f[2]), float(f[3]), float(f[4]), float(f[6]), float(f[5]),
-                float(f[8]) if len(f) > 8 and f[8].isdigit() else 0.0)
+                float(f[8]) if len(f) > 8 and f[8].isdigit() else 0.0,
+                float(f[9]) if len(f) > 9 and f[9].isdigit() else -1.0)
         except ValueError:
             continue  # nvidia-smi prints "[N/A]" for a field it cannot read
     return rows
@@ -124,6 +125,7 @@ def main():
                   f"{sum(x[1] for x in win) / n:4.0f} MHz sm  "
                   f"{sum(x[5] for x in win) / n:4.0f} MHz mem  "
                   f"{max(x[2] for x in win):3.0f} C  "
+                  f"{max(x[6] for x in win):3.0f}% fan  "
                   f"{sum(x[3] for x in win) / n:3.0f}% util")
         rss = re.search(r"Maximum resident set size \(kbytes\):\s*(\d+)",
                         (d / "run.log").read_text(errors="replace"))
