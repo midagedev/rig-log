@@ -25,6 +25,7 @@ TAG=${1:?a unique tag}
 GPU=${GPU:-$GF3090_UUID}
 BURN_MIN=${BURN_MIN:-30}
 MEMTEST_PASSES=${MEMTEST_PASSES:-3}
+# CUDA_ARCH: 86 for the 3090 and the A6000 (both GA102); cmake cannot detect it headless here
 OUT=/home/user/gpu-check/$TAG; LEASE=/home/user/gpu-lease; LEASE_TAG="gpucheck-$TAG"
 TOOLS=/home/user/gpu-check-tools
 mkdir -p $OUT $TOOLS
@@ -66,7 +67,7 @@ fi
 if [ ! -x $TOOLS/cuda_memtest ]; then
   say "building cuda_memtest"
   ( cd $TOOLS && [ -d cuda_memtest ] || git clone -q https://github.com/ComputationalRadiationPhysics/cuda_memtest.git ) && \
-  ( cd $TOOLS/cuda_memtest && mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release > $OUT/build-memtest.log 2>&1 && make -j8 >> $OUT/build-memtest.log 2>&1 && cp cuda_memtest $TOOLS/ ) || { say "cuda_memtest build failed (see build-memtest.log)"; cleanup 1; }
+  ( cd $TOOLS/cuda_memtest && mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc -DCMAKE_CUDA_ARCHITECTURES=${CUDA_ARCH:-86} > $OUT/build-memtest.log 2>&1 && make -j8 >> $OUT/build-memtest.log 2>&1 && cp cuda_memtest $TOOLS/ ) || { say "cuda_memtest build failed (see build-memtest.log)"; cleanup 1; }
 fi
 
 # --- witness ---
