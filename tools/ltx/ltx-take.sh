@@ -15,6 +15,7 @@ PIPE=${PIPE:-distilled}          # distilled | dfr | distilled_mgpu | ti2vid_two
 # puts stage 1 on that bucket. The prompt is two-part: "Reference sheet: ... Generated video: ...".
 LORAS=${LORAS:-}                 # "PATH STRENGTH" groups separated by ";", passed as --lora
 VIDCOND=${VIDCOND:-}             # "PATH STRENGTH" for --video-conditioning (required by ic_lora)
+EXTRA=${EXTRA:-}                 # extra pipeline flags appended verbatim, e.g. "--skip-stage-2" (ic_lora: stage 1 only, output at half size = the trained 768x448 bucket)
 FRAMES=${FRAMES:-121}
 SEED=${SEED:-42}
 # Guided pipelines only. Guidance lives in stage 1: stage 2 upsamples with the distilled
@@ -133,6 +134,7 @@ if [ "$PIPE" = ic_lora ]; then
   [ $# -eq 2 ] && [ -f "$1" ] || { say "refused: ic_lora needs VIDCOND=\"PATH STRENGTH\" with an existing reference video"; echo LTX_FAILED; exit 1; }
   ARGS+=(--video-conditioning "$1" "$2"); say "  reference video $1 strength $2 ($(ffprobe -v error -count_frames -select_streams v:0 -show_entries stream=nb_read_frames,width,height -of csv=p=0 "$1" 2>/dev/null | tr "\n" " "))"
 fi
+if [ -n "$EXTRA" ]; then ARGS+=($EXTRA); say "  extra flags: $EXTRA"; fi
 if [ $GUIDED -eq 1 ]; then
   ARGS+=(--distilled-lora "$LORA" "$LORA_STRENGTH")
   [ -z "$STEPS" ]   || ARGS+=(--num-inference-steps $STEPS)

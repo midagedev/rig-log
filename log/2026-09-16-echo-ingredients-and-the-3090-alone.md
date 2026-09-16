@@ -112,11 +112,43 @@ panels that read as bounded frames. FAIL-first on the actual files:
 | catalogue orange, all four candidates | 39–41 % | 0–1 · 0 · 0 · 52–59 | 1 | pass |
 
 The chain ([`tools/ltx/ingredients-chain-example.sh`](../tools/ltx/ingredients-chain-example.sh))
-runs the gate over the four candidates and takes the first that passes. A
+runs the gate over the four candidates and takes the first that passes. ~~A
 second mechanical check on the clips — fully black interior columns and rows
 in a mid frame — reads 26 columns and 20 rows on a split-screen clip and 0
-and 0 on both catalogue-sheet clips. Whether the two giants actually collide
-is the user's judgement from the clips, not the gate's.
+and 0 on both catalogue-sheet clips.~~ **Struck 2026-09-16, 20:15.** The user
+looked at the two catalogue-sheet clips and they were split four ways too. The
+column check had missed it because the boundaries were content edges (black
+void above a lit street, a dark panel beside a bright one), not black stripes,
+so a detector for black stripes fires on nothing. And the panel-count theory
+behind the gate does not hold either: the catalogue sheets read as one
+bounded frame, passed the gate, and were still copied as a grid, and a fresh
+sheet made from the *working* take's own prompt with only the cat's colour
+changed (gate: 2 panels, same as the working sheet) produced a 2×2 split with
+black gutters in all three sampled frames. The gate stays in the tree as a
+measurement of the sheet, not as a predictor of the clip.
+
+What the isolating arms then said (one change each against the split
+catalogue-sheet clip, a vision judge on frames 5/60/115 of each):
+
+| arm | changed | layout | the two giants |
+|---|---|---|---|
+| stage 1 only (768×448 output) | skip stage 2 | split to the end | separate |
+| the working take's *prompt* | prompt text | split at f5, one street by f60 | same space, cat far too small |
+| the working take's *sheet* (grey cat) | reference sheet | one scene (an inset at f5, gone by f60) | same space, cat closes on the mecha |
+| reference attention 0.5 | attention scale | one scene | **one body**: cat head on a mecha |
+| reference attention 0.25 | attention scale | one scene | cat gone after f5 |
+
+So the grid is made in stage 1, at the LoRA's own trained bucket; the two
+levers that dissolve it are the prompt and the sheet, and the one knob that
+looks like it should help — scaling the reference tokens' attention — trades
+the split for a fusion of the two identities, worse the lower it goes. The
+reference *strength* runs the other way from what its name suggests: 1.0
+keeps the reference latents clean, lower values denoise them into the target,
+and 0.75 was a more literal copy of the sheet than 1.0. Which sheets get
+copied and which get composed is not yet a rule this log can state; the
+first working take is, on the evidence so far, the outlier. Measured next:
+three more seeds of the same recipe, and a first-frame image pinned at
+frame 0 beside the sheet.
 
 A chain-script mistake cost 17 minutes earlier in the same round: a
 `until grep … take.log` wait on a sentinel file that the sheet runner never
