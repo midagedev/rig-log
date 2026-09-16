@@ -14,6 +14,7 @@ QUANT=${QUANT:-}                 # empty | fp8-cast
 MBS=${MBS:-}                     # --max-batch-size
 WH=${WH:-}                       # e.g. "1024 1536" -> --width 1024 --height 1536
 PROMPT=${PROMPT:-"A close-up of a mechanical watch movement on a matte black surface, the balance wheel oscillating steadily. A jeweller in a grey apron lowers a brass tweezer into frame and sets a ruby jewel into its setting with a faint metallic tick. The camera pushes in slowly, shallow depth of field, cold key light from the left and a warm practical lamp behind, the brass catching a highlight as it moves. Dust motes drift through the beam. The room is quiet except for the ticking and one soft breath."}
+IMAGE=${IMAGE:-}                 # "PATH FRAME_IDX STRENGTH" for --image conditioning
 PLIM=${PLIM:-}                   # board power limit in W for this take (restored on exit)
 mkdir -p $OUT
 say(){ echo "$(date +%T) $*"; }
@@ -74,6 +75,13 @@ ARGS=(--transformer-path $M/diffusion_models/ltx-2.5-22b-distilled-transformer-b
 [ -z "$QUANT" ] || ARGS+=(--quantization $QUANT)
 [ -z "$MBS" ] || ARGS+=(--max-batch-size $MBS)
 [ -z "$WH" ] || ARGS+=(--width ${WH% *} --height ${WH#* })
+# word-split on purpose: --image takes PATH FRAME_IDX STRENGTH as three arguments
+if [ -n "$IMAGE" ]; then
+  set -- $IMAGE
+  [ $# -eq 3 ] || { say "refused: IMAGE wants exactly \"PATH FRAME_IDX STRENGTH\", got $# word(s)"; echo LTX_FAILED; exit 1; }
+  [ -f "$1" ] || { say "refused: no conditioning image at $1"; echo LTX_FAILED; exit 1; }
+  ARGS+=(--image "$1" "$2" "$3")
+fi
 printf "%s\n" "${ARGS[@]}" > $OUT/args.txt
 t0=$(date +%s)
 cd $R || finish 1
