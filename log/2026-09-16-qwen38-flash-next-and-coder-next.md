@@ -117,3 +117,13 @@ because a tape is gzipped, and reported "IDENTICAL" — a parser that read
 nothing looking exactly like agreement. The check above fails loudly when
 either side is empty. Same class of mistake as reading a throttle flag once,
 found the same day.)*
+
+## The clips
+
+Both models recorded with [toktape](https://github.com/midagedev/toktape)
+`0.2.3-2-g0f88bd3`; tapes sanitized into `assets/`.
+
+| clip | what it shows |
+|---|---|
+| `qwen3-coder-next-iq4xs-131tps-1stream-38s.mp4` | the fast model writing a design document at 131 tok/s, 4096 tokens in 38 s |
+| `qwen3.8-flash-next-q4kxl-51tps-1stream-47s.mp4` | the 125B model at 51.5 tok/s with the table pinned, 2048 tokens in 47 s |
