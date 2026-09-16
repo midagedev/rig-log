@@ -20,8 +20,7 @@ and the record of what was sent.
 what the served DeepSeek-V4.1 manages with one, out of a quarter of the bytes.
 It still does not fit on the cards: 20.5 GiB is on the 3090, 46.6 on the A6000
 and 39.7 in system RAM, which is what the panel on the right is showing while
-it runs. [The uncut 48-second run](https://drive.google.com/file/d/184g2eB9-DQfKuo21NXd4nNd4NgFnES23/view)
-· [full write-up](log/2026-09-16-qwen38-flash-next-and-coder-next.md)*
+it runs. [Full write-up.](log/2026-09-16-qwen38-flash-next-and-coder-next.md)*
 
 ![Qwen3-Coder-Next answering a coding prompt at 133 tok/s from a single card](assets/qwen3-coder-next-iq4xs-1stream-tail14s-0.2.3-5.gif)
 
@@ -29,8 +28,7 @@ it runs. [The uncut 48-second run](https://drive.google.com/file/d/184g2eB9-DQfK
 Qwen3-Coder-Next at IQ4_XS is 39.7 GiB, fits one A6000 with 32k of context, and
 decodes **133 tok/s** — 297 GB/s of derived read, 39 % of the card. The 3090 is
 at 0.0 GiB in that frame; nothing was split.
-[The uncut 37-second run](https://drive.google.com/file/d/12x0vW8O2Z6Pc-Utwt_9M7ExRsGhTbVsQ/view)
-· [full write-up](log/2026-09-16-qwen38-flash-next-and-coder-next.md)*
+[Full write-up.](log/2026-09-16-qwen38-flash-next-and-coder-next.md)*
 
 Both clips are the **closing window** of their run — the last 20 and 14 seconds
 of a 48- and a 37-second recording, ending on the card that carries the numbers.
