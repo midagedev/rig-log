@@ -49,18 +49,57 @@ Three models were asked to put two giants of the same scale in one frame today. 
 video) merged them. Z-Image-Turbo (24 GB transformer) merged them. Krea-2-Turbo (26 GB
 transformer, repo created 2026-06-18) did not.
 
-**So "two subjects of comparable size, in contact, in one frame" is a capability boundary
-rather than a prompt bug.** That reframes the morning's work: the prompt rewrite that put a
-cat on screen in LTX was real, but it was finding the one phrasing that got a model past a
-boundary it sits near, not fixing a mistake in the prompt. The durable fix is to let a model
-that is on the right side of the boundary make the frame, and ask the video model only to move
-what is already there.
+~~**So "two subjects of comparable size, in contact, in one frame" is a capability boundary
+rather than a prompt bug.**~~ **Struck within the hour, by the round below.** Asked for the
+same impossible scene in a *shonen anime* style instead of photographically, Z-Image separated
+the two bodies in **4 of 4 seeds** — the same model, the same seeds, the same scene, zero
+fusions. So the boundary is not in the model. It is in the **collision between the requested
+style and the requested content**: asked for a photograph of something that cannot be
+photographed, the model reconciled it by making one creature; given a drawn idiom where a
+skyscraper-sized cat is native, it drew two. The correction is recorded below rather than
+edited in, because I published the wrong version first.
+
+What survives is the practical half: let an image model settle the frame, and ask the video
+model only to move what is already there.
 
 It also gives the merge a name to watch for. The signature is consistent across all three
 models: the *smaller-cued* subject does not vanish, it is absorbed as **features on the
 surviving body** — ears on a helmet, a head on a torso, a tail added to a robot. A frame that
 reads as one creature with borrowed parts is the diagnostic, and it means the round needs a
 different model, not a different seed.
+
+## The same model, the same seeds, a different style: no fusions
+
+The user asked to drop photorealism and go for shonen anime — Jujutsu Kaisen, Naruto — because
+the joke is the gap between an adorable cat and total narrative gravity, and photoreal was
+landing as neither. Rerunning the identical pair (same two models, same seeds 23–26, same
+1536×1024) on an anime key-visual prompt produced the correction above:
+
+| | Krea-2-Turbo | Z-Image-Turbo |
+|---|---:|---:|
+| per image | 20.1 s (19.8–20.3) | 11.2 s (11.0–11.6) |
+| peak allocated | 39.6 GB | 23.4 GB |
+| **two separate bodies, photoreal prompt** | 4 of 4 | **0 of 4** |
+| **two separate bodies, anime prompt** | 4 of 4 | **4 of 4** |
+
+The per-image seconds are identical to the photoreal round on both models, to within the
+spread — so **generation time is a function of geometry and step count, not of content or
+style.** One fewer thing to wonder about when a round is slow.
+
+The fusion is gone, but a difference remains and it is a layout one: Z-Image stacks the two
+subjects on a single vertical axis with the mecha centred behind the cat and occluded from the
+hips down, both facing camera, while Krea-2 puts them side by side at equal height facing each
+other. So the anime style fixed Z-Image's outlines without fixing its staging — which is why
+the chosen frame is still Krea-2's, this time `k03-seed26`. A vision round also found Z-Image's
+cat to be the cutest of the eight by a wide margin, with nothing in the frame opposing it:
+drama as atmosphere rather than stakes, and a chibi cat that sits on the city instead of in it.
+
+The style verdict went the same way for a separate reason. Krea-2 draws bold uniform ink
+outlines, hatched fur, flat fills with hard shadow edges and screentone-style radial lines;
+Z-Image is cleaner but vector-like — airbrush glow, gradient sky, gradient metallic highlights
+— and renders the cat as flat unshaded grey with an orange edge-glow over a painted
+background, so the subject and the plate sit in two different rendering registers. A frame
+whose subject already reads as pasted on is a bad frame 0, because motion will peel it off.
 
 ## And the composition survives being animated
 
