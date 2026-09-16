@@ -367,3 +367,35 @@ landed or is open:
   genuine cooling problem. Written for unattended weekends. Note its blind
   spot for the queue above: it reads die temperature, and GDDR6X memory
   junction is not exposed through `nvidia-smi` on a consumer card.
+
+## Projects this log produced
+
+Measuring this machine kept running into the absence of a tool, and twice the
+tool became its own repository. Both are MIT and neither is a fork.
+
+- **[toktape](https://github.com/midagedev/toktape)** — the black-box tape for
+  local LLM serving. It attaches to a `llama-server` that is already running,
+  records one run into a `.tape` file, and prints a card that says where the
+  model sits, what the process actually touched, and how fast the request
+  really was. Every clip in this README was recorded with it, and the reason it
+  exists is in the log: a tok/s figure with no witness beside it — placement,
+  page faults, the clock the card was actually holding — cannot be checked by
+  anyone, including its author a week later. This repo is the demanding
+  downstream user rather than a co-maintainer: when a round here needs a
+  witness we are gathering by hand, the requirement goes to toktape instead of
+  into a local workaround.
+- **[exl3-serve](https://github.com/midagedev/exl3-serve)** — a
+  `llama-server`-compatible HTTP front for
+  [ExLlamaV3](https://github.com/turboderp-org/exllamav3). It exists because of
+  a dependency in the sentence above: ExLlamaV3 ships no server, so nothing
+  written against `llama-server` can drive an EXL3 model, and that includes the
+  recorder. Serving one EXL3 model on that surface — `/props`, `/health`,
+  `/slots`, `/v1/chat/completions` with llama-server's `timings` object filled
+  from exllamav3's own job results — was what made the engine measurable here
+  at all. [What it cost to get right](log/2026-09-15-exl3-serve-and-tabbyapi-timings.md):
+  four defects that only the real model exposed, and a `time_generate` that had
+  to be measured rather than assumed before the rate meant anything.
+
+The tracker and the wiki this log files against are also local software, but
+they are a general-purpose tool that predates the machine rather than something
+it produced, so they are named in [`CLAUDE.md`](CLAUDE.md) and not here.
