@@ -53,6 +53,10 @@ beats did not land. That is the LTX-2.3 base and the 8-step distillation, not
 a knob. The first LTX-2.5 take on the same concept was judged much better,
 so the afternoon moved back to LTX-2.5.
 
+The two Echo clips the judgement was made from, as uploaded:
+[the duel, concept slots](https://drive.google.com/file/d/1sSN_pkisoXmD8MxiVCta1DkSM11B3jXi/view) (1.83 MB) and
+[the kaiju stand-off](https://drive.google.com/file/d/1zxd1JwfVGTjEz6q-RSp0ejGGGqPAiheN/view) (3.82 MB).
+
 One gap found on the way: **ffmpeg was not installed on the box.** Echo's
 audio mux failed quietly and wrote the wav beside the silent mp4; installed
 6.1.1 from apt and muxed the first clip by hand.
@@ -69,13 +73,16 @@ the sheet itself is rendered by Krea-2 Turbo from a prompt and looped into
 121 frames with ffmpeg. `ic_lora.py` is the two-stage distilled pipeline, so
 `WH="1536 896"` puts stage 1 on the LoRA's trained 768×448 bucket.
 
-| take | wall incl. load, `--offload disk` | VRAM peak | host RSS | output |
-|---|---:|---:|---:|---|
-| first sheet, grey cat between buildings | 145 s | 29.2 GB | 43.6 GB | 1536×896, 5.04 s, with audio |
-| Ultraman-scale sheet, grey cat | 130 s | | | judged: **quad split screen** |
-| same sheet style, orange cat | 131 s | | | **quad split screen** |
-| catalogue sheet, orange cat, ref 1.0 | 147 s | | | single frame |
-| catalogue sheet, orange cat, ref 0.75 | 132 s | | | single frame |
+| take | wall incl. load, `--offload disk` | VRAM peak | host RSS | output | sheet · clip |
+|---|---:|---:|---:|---|---|
+| first sheet, grey cat between buildings | 145 s | 29.2 GB | 43.6 GB | 1536×896, 5.04 s, with audio — one scene | [sheet](https://drive.google.com/file/d/14-s6UHCkcMJdRqlOseBX4w_BKO9a_yVP/view) · [clip](https://drive.google.com/file/d/1kf7x_8WZngmZqgcdsq-i16UY47u3V_3X/view) |
+| Ultraman-scale sheet, grey cat | 130 s | | | judged: **quad split screen** | [sheet](https://drive.google.com/file/d/1kxHgZwdpndAImDUaXbBV9hB3v3GZeDfq/view) · [clip](https://drive.google.com/file/d/1wbb5CzZOgKle4OpYI6luDIIxt24nV67K/view) |
+| same sheet style, orange cat | 131 s | | | **quad split screen** | [sheet](https://drive.google.com/file/d/1cHxTSpkXk7z8hO8wfAOxbgi6ZS5YYtC5/view) · [clip](https://drive.google.com/file/d/1aL2_FhQHYSNsVQwlTkAtK5wp2QLEUChH/view) |
+| catalogue sheet, orange cat, ref 1.0 | 147 s | | | ~~single frame~~ split four ways (struck below) | [sheet](https://drive.google.com/file/d/1zTlEeUIfU5jX-lWa5ZlTcbkeBnp7QzFN/view) · [clip](https://drive.google.com/file/d/1PvTO3fhPlDG6MngTzDfk4CPMc-tfq3m2/view) |
+| catalogue sheet, orange cat, ref 0.75 | 132 s | | | ~~single frame~~ split four ways (struck below) | same sheet · [clip](https://drive.google.com/file/d/1UC54djC20-aNxKE1D21EBG-gpQlMhfFi/view) |
+
+Every clip in this section is on the user's Drive under the name the runner
+gave it; the sheets are the four-candidate contact sheets Krea-2 produced.
 
 ### The sheet got copied as a split screen, and why
 
@@ -133,8 +140,8 @@ catalogue-sheet clip, a vision judge on frames 5/60/115 of each):
 | arm | changed | layout | the two giants |
 |---|---|---|---|
 | stage 1 only (768×448 output) | skip stage 2 | split to the end | separate |
-| the working take's *prompt* | prompt text | split at f5, one street by f60 | same space, cat far too small |
-| the working take's *sheet* (grey cat) | reference sheet | one scene (an inset at f5, gone by f60) | same space, cat closes on the mecha |
+| the working take's *prompt* ([clip](https://drive.google.com/file/d/16EosVn0AyhLczgVbLFUCN1UkR9nfR95t/view)) | prompt text | split at f5, one street by f60 | same space, cat far too small |
+| the working take's *sheet* (grey cat, [clip](https://drive.google.com/file/d/1PKD8Lxe-4w_gxHHs0qFbTe1A0s4nt_C3/view)) | reference sheet | one scene (an inset at f5, gone by f60) | same space, cat closes on the mecha |
 | reference attention 0.5 | attention scale | one scene | **one body**: cat head on a mecha |
 | reference attention 0.25 | attention scale | one scene | cat gone after f5 |
 
@@ -149,14 +156,15 @@ copied and which get composed is not yet a rule this log can state; the
 first working take is, on the evidence so far, the outlier — measured: the
 working take's own sheet prompt and video prompt with only the cat's colour
 changed, seeds 23, 24, 25, 26, gave split / split / one body (cat-headed
-mecha, after a split first frame) / split. **Zero of four composed.**
+mecha, after a split first frame) / split. **Zero of four composed**
+([sheet](https://drive.google.com/file/d/1vlNHlRkMJ4naBewMe9EcVfn-8vZEq5Ov/view), [seed 23 clip](https://drive.google.com/file/d/1SWUZ6HbjUG4kLnu1YhPhJFGe_i1zRlT4/view)).
 
 What did compose, every sampled frame, was pinning frame 0: the same recipe
 with `IMAGE="<composed keyframe> 0 1.0"` beside the sheet (the keyframe is a
 Krea-2 still of both giants in the street, made earlier for the Echo
 attempt). One continuous street-level shot, both giants at six to ten
 storeys against the facades, the cat's paw on the mecha's chest at frame 5,
-a recoil at 60, a grapple at 115. The cat came out grey because the keyframe
+a recoil at 60, a grapple at 115 ([clip](https://drive.google.com/file/d/1Uwan0irUgPxlUuLcXZBGcbNdna7mUvF3/view)). The cat came out grey because the keyframe
 was grey — the pinned image, not the prompt, decides the look of frame 0, so
 the sheet's job shrinks to holding identity through the motion. That is the
 recipe going forward: **compose with a keyframe, hold identity with the
@@ -164,7 +172,8 @@ sheet.** Confirmed with an orange keyframe (the same keyframe prompt, colour
 only, Krea-2, candidate 1 of 4): one continuous shot in every sampled frame,
 both giants at eight to nine storeys, paw on the shoulder at frame 5, a guard
 at 60, a crouched clinch at 115, the cat orange and the same cat throughout,
-the mecha the same design throughout; 132 s. The `IMAGE=` first-frame
+the mecha the same design throughout; 132 s
+([keyframe candidates](https://drive.google.com/file/d/1GJwMaV5j1_Y1KIL8bcrI6NFgqvycYhS2/view), [clip](https://drive.google.com/file/d/107s9bm6W4MIbEHioIe1yfGqGvFNgNRQ1/view)). The `IMAGE=` first-frame
 conditioning and `EXTRA=` passthrough are in
 [`tools/ltx/ltx-take.sh`](../tools/ltx/ltx-take.sh).
 
