@@ -141,6 +141,68 @@ the next arm doubles the duration rather than quadrupling it: 241 frames at the 
 resolution, which keeps the validated keyframe and separates "does the composition hold" from
 "does the drift compound".
 
+## A conditioning frame lasts the whole clip, so it must not contain a one-frame device
+
+This one came from the user's eye, not from an instrument, and it is the most useful thing in
+the entry.
+
+The brief moved from photoreal kaiju to a shonen-anime duel between a house cat and an
+android, and the clips came back static — "the action has no continuity", "too Ghibli when I
+wanted Naruto, moving fast with distortion while it moves". Two of those three were mine to
+fix by vocabulary: my motion prompt literally said "slow heavy motion" twice, carried over
+from the Pacific-Rim brief, and my style block asked for "soft watercolour, gouache, gentle
+painterly linework rather than hard cel outlines" — Ghibli is fluid and never distorts, which
+is the opposite of what was wanted.
+
+The third was structural, and the user named it before I saw it: **the impact effects I was
+asking the image model to draw are manga conventions, not animation ones.** In animation a
+smear frame, an impact frame, a radial speed-line burst and a debris ring each exist for a
+single frame and are gone. Combine that with what was measured above — a conditioning frame's
+composition carries through the whole clip — and the consequence is exact:
+
+**a device that exists for 1/24 s in animation is held for the clip's entire length when it
+is the conditioning frame.** An impact frame at frame 0 of a 25-frame cut is not a hit, it is
+a frozen manga panel held for a second. A smeared limb is worse: held, it is not speed, it is
+a deformed cat.
+
+So the storyboard panels were rewritten to contain none of it — the prompt now says, in the
+shared block, "a single clean readable drawing of a body in a pose, with no motion effects
+drawn into it: no speed lines, no smeared or stretched limbs, no flash shapes, no impact
+stars, no debris rings, no afterimages, no motion blur. Every limb is drawn whole and in
+correct anatomy." The two impact panels became clean drawings of the *moment of contact*: a
+paw pressed into a ceramic forearm with the plating cracking under it, which is a pose that
+can be animated into an impact rather than a picture of one.
+
+The sakuga register stays in the drawing, because ink-weight variation, flat cel shading,
+wide-angle perspective, extreme foreshortening and diagonal composition are properties of a
+drawing and not artefacts of motion. The distortion stays in the motion prompt, where the
+video model can produce it while moving.
+
+The general form, which applies to any image-conditioned video model: **the conditioning frame
+should hold what is true for the whole shot, and nothing that is true for one frame of it.**
+
+## Cut lengths, because four equal clips read wrong
+
+Four five-second cuts came to 20 s and the user's objection was that the uniformity itself was
+the problem. The reference numbers: a TV anime episode runs about 300 cuts over roughly 22
+minutes of content, so the average cut is about 4.4 s; one dataset measures anime shots at
+3.85 s against 4–6 s for live action; and action sequences cut far shorter, with most action
+shots under 2 s. Ghibli pulls the other way and holds a landscape for its own sake.
+
+Both traditions the user named are in the shot list rather than averaged into it. LTX only
+allows `num_frames = 8k + 1`, so at 24 fps the available lengths are 25, 49, 73, 97 and 121
+frames — 1.04, 2.04, 3.04, 4.04 and 5.04 s. The eight-cut sequence is 73 / 49 / 25 / 73 / 49 /
+49 / 25 / 121, which is 19.32 s: two runs that accelerate into a one-second impact, and a
+five-second hold at the end where the motion drains out.
+
+Generation cost is close to linear in frames, measured on the first four-cut chain: 97 frames
+in 103 s, 49 in 71 s, 25 in 58 s, 121 in 125 s. The intercept is the 42 GB transformer load,
+which is why a one-second cut costs more per frame than a five-second one and still costs less
+in absolute terms. Prompt length is matched to cut length for a measured reason rather than a
+stylistic one: given several beats the model picks one moment and spends the frames on it, so
+the one-second impact cut gets a 70-word prompt naming one event and the five-second hold gets
+136 words of settling dust.
+
 ## Method notes
 
 - **Peak VRAM comes from torch's allocator here, not the witness.** The 1 Hz `nvidia-smi`
