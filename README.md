@@ -13,7 +13,7 @@ untested paths, so the second half of this log is what got sent back:
 [how a failure here becomes an upstream report](docs/upstream-contributions.md),
 and the record of what was sent.
 
-![Qwen3.8-Flash-Next decoding at 51 tok/s with both cards and system RAM in the panel beside it](assets/qwen38-flash-next-q4kxl-1stream-tail20s-0.2.3-5.gif)
+![Qwen3.8-Flash-Next decoding at 51 tok/s with both cards and system RAM in the panel beside it](assets/qwen38-flash-next-q4kxl-1stream-tail-0.2.3-5.gif)
 
 *Qwen3.8-Flash-Next on this machine: 125 B parameters plus a 51 B n-gram table,
 103.7 GiB at UD-Q4_K_XL, decoding **51.0 tok/s with no draft model** — twice
@@ -22,7 +22,7 @@ It still does not fit on the cards: 20.5 GiB is on the 3090, 46.6 on the A6000
 and 39.7 in system RAM, which is what the panel on the right is showing while
 it runs. [Full write-up.](log/2026-09-16-qwen38-flash-next-and-coder-next.md)*
 
-![Qwen3-Coder-Next answering a coding prompt at 133 tok/s from a single card](assets/qwen3-coder-next-iq4xs-1stream-tail14s-0.2.3-5.gif)
+![Qwen3-Coder-Next answering a coding prompt at 133 tok/s from a single card](assets/qwen3-coder-next-iq4xs-1stream-tail-0.2.3-5.gif)
 
 *The other end of the same box, and the fast half of the pair it can serve:
 Qwen3-Coder-Next at IQ4_XS is 39.7 GiB, fits one A6000 with 32k of context, and
@@ -30,13 +30,17 @@ decodes **133 tok/s** — 297 GB/s of derived read, 39 % of the card. The 3090 i
 at 0.0 GiB in that frame; nothing was split.
 [Full write-up.](log/2026-09-16-qwen38-flash-next-and-coder-next.md)*
 
-Both clips are the **closing window** of their run — the last 20 and 14 seconds
-of a 48- and a 37-second recording, ending on the card that carries the numbers.
-They are cut, never sped up: every frame is at 1:1 and the tail was removed from
-the finished GIF frame by frame, because compressing a run into a shorter clip
-would hide a stall and is a lie about the machine. Recorded and rendered with
-[toktape](https://github.com/midagedev/toktape) `0.2.3-5-g9bf4e52`, which is
-what the filenames say — a clip's name carries the recorder build, not the rate.
+Both clips are the **closing window** of their run, ending on the card that
+carries the numbers: **21.8 s of a 47.7-second recording** for the first and
+**15.9 s of a 37.2-second one** for the second, measured by summing the stored
+per-frame delays rather than dividing frames by a nominal rate — the frames do
+not run at a uniform 1/30, so the two are not the 20 and 14 seconds a frame
+count suggests. They are cut, never sped up: every frame is at 1:1 and the head
+was removed from the finished GIF frame by frame, because compressing a run into
+a shorter clip would hide a stall and is a lie about the machine. Recorded and
+rendered with [toktape](https://github.com/midagedev/toktape) `0.2.3-5-g9bf4e52`,
+which is what the filenames carry — the recorder build, not the rate and not a
+duration, both of which belong in prose where they can be corrected.
 
 Before those two there was a 347 GB model with 84 GB of it never read into
 memory at all, served off an NVMe a few dozen rows at a time at about 20 tok/s,
@@ -48,35 +52,45 @@ and [what its conditional-memory tables cost](log/2026-09-16-engram-and-concurre
 
 ## The machine
 
+Current state. What each of these used to be, and the run that changed it, is
+in [`docs/machine-changes.md`](docs/machine-changes.md).
+
 | | |
 |---|---|
-| CPU | AMD Ryzen Threadripper PRO 5975WX, 32 cores / 64 threads |
-| Memory | 256 GB DDR4, 8 channels populated, running at ~~3200~~ **3600 MT/s, DRAM 1.30 V** since 2026-09-14 (3666 returned wrong bytes under a verifying stress, 3733+ does not POST — [log](log/2026-09-14-memory-clock-3600.md)) (32 GB × 8, Samsung M378A4G43AB2-CWE 2Rx8 UDIMM, ~~ECC~~ non-ECC — `dmidecode` reports no error correction, corrected 2026-09-14) |
-| Measured memory read | ~~115.8~~ 147.7 GB/s at DDR4-3600 (read probe, 32 threads, 8 GiB; 131.2 at 3200; 230.4 GB/s theoretical at 3600). A second probe reads **144.8** GB/s at the same clock, three runs alike ([log](log/2026-09-16-the-overclock-and-the-fabric.md)); that is the figure toktape's host percentages are derived against, so the two are 2 % apart and it matters which one a ratio used |
-| GPU 0 | NVIDIA RTX A6000, 48 GB — CUDA0 **by UUID**, not by slot: since the 2026-09-16 slot move the A6000 sits on a higher bus than the 3090, so `CUDA_DEVICE_ORDER=PCI_BUS_ID` makes it device 1. Every runner sources [`configs/gpu-order.env`](configs/gpu-order.env), which pins the order through `CUDA_VISIBLE_DEVICES=<A6000 UUID>,<3090 UUID>`; `nvidia-smi` does not honour that and is addressed with `-i <UUID>` |
-| GPU 1 | NVIDIA GeForce RTX 3090, 24 GB (bus 41, the lower address) |
+| CPU | AMD Ryzen Threadripper PRO 5975WX, 32 cores / 64 threads. Boost disabled, no clock cap |
+| Memory | 256 GB DDR4-3600 at DRAM 1.30 V — 32 GB × 8, all 8 channels, Samsung M378A4G43AB2-CWE 2Rx8 UDIMM, **non-ECC** |
+| Measured memory read | **147.7 GB/s** (32-thread, 8 GiB read probe); 230.4 GB/s theoretical. A second probe reads 144.8, and that is the one toktape's host percentages are derived against |
+| GPU 0 | NVIDIA RTX A6000, 48 GB, bus 61 |
+| GPU 1 | NVIDIA GeForce RTX 3090, 24 GB, bus 41 |
+| Device order | **By UUID, never by slot.** Every runner sources [`configs/gpu-order.env`](configs/gpu-order.env), which pins `CUDA_VISIBLE_DEVICES=<A6000 UUID>,<3090 UUID>` so CUDA0 is the 48 GB card whatever the bus addresses are. `nvidia-smi` does not honour that variable and is addressed with `-i <UUID>` |
 | Board | ASUS Pro WS WRX80E-SAGE SE WIFI |
-| Storage | Samsung 980 PRO 2 TB NVMe (root) + Phison E18 4 TB NVMe (`/models`, added 2026-09-12) |
+| Storage | Samsung 980 PRO 2 TB NVMe (root) + Phison E18 4 TB NVMe (`/models`) |
 | Case | 3RSYS T840 |
-| Power | Super Flower Leadex Platinum SF-2000F14HP, 2000 W. Its published spec is ATX12V 2.2 / EPS12V, i.e. no native 12V-2x6 connector — read off the vendor sheet, not measured here, and worth confirming by eye before any card that wants one |
-| Cooling | ARCTIC Freezer 4U-M tower air cooler on CPU_FAN (replaced the NZXT Kraken AIO on 2026-09-14 — the AIO was letting a 2.7 GHz decode reach Tctl 89 °C; the air cooler holds a 64-thread stress at 43 °C, [log](log/2026-09-14-air-cooler-swap.md)). CPU boost disabled; the 2.7 GHz clock cap was retired with the AIO on 2026-09-15 ([log](log/2026-09-15-clock-cap-removed.md)). **No chassis fan is on a header**: the case fans are wired to the PSU, so all six `CHA_FAN` channels read `Disabled` and nothing on the machine can see or curve them. That is not cosmetic — a sustained training load holds the A6000 at 86–87 °C with `SW Thermal Slowdown` on ~100 % of the time, so any workload with a 100 % duty cycle is throttled before it starts. Fan RPM and per-slot temperature are readable only through the BMC (`ipmitool sdr type fan`, `sdr type temperature` — the latter has a `PCIE0n` sensor per slot, which reads when the GPU driver cannot), not the Super I/O |
-| OS | Ubuntu 24.04, kernel parameter `pci=realloc=off` (see below) |
+| Power | Super Flower Leadex Platinum SF-2000F14HP, 2000 W |
+| Cooling | ARCTIC Freezer 4U-M tower air cooler on CPU_FAN. **No chassis fan is on a header** — the case fans are wired to the PSU, so all six `CHA_FAN` channels read `Disabled`. Fan RPM and per-slot temperature are readable only through the BMC (`ipmitool sdr type fan`, `sdr type temperature`; the `PCIE0n` sensors read when the GPU driver cannot) |
+| OS | Ubuntu 24.04, kernel parameter `pci=realloc=off` |
 
-Two notes that cost a day each:
+Four things about it that cost a day each, and are still true:
 
-- This board needs `pci=realloc=off` on the kernel command line. Without it
-  the kernel reassigns PCI resources, the chipset USB controller fails with
-  `xhci init -16`, and the 10 GbE ports go down. `pci=nocrs` "fixes" USB and
-  breaks the NVIDIA driver instead.
-- The X550 10 GbE ports hit `Tx Unit Hang` under sustained load until GRO,
+- **`pci=realloc=off` is required.** Without it the kernel reassigns PCI
+  resources, the chipset USB controller fails with `xhci init -16`, and the
+  10 GbE ports go down. `pci=nocrs` "fixes" USB and breaks the NVIDIA driver
+  instead.
+- **The X550 10 GbE ports hit `Tx Unit Hang`** under sustained load until GRO,
   TSO, GSO and LRO are disabled on the interface.
+- **Nothing on this machine can curve a fan**, per the cooling row, and that is
+  a capability limit rather than a cosmetic one: a sustained load holds the
+  A6000 at 86–87 °C with `SW Thermal Slowdown` on ~100 % of the time, so any
+  workload with a 100 % duty cycle is throttled before it starts.
+- **The PSU's published spec is ATX12V 2.2 / EPS12V**, i.e. no native 12V-2x6
+  connector. Read off the vendor sheet, not measured here — worth confirming by
+  eye before buying a card that wants one.
 
-And one that is still open: the 3090 fell off the bus at 00:01 on 2026-09-16
-under another job's DDP (Xid 79, then Xid 154 on both cards) and **why has not
-been established**. Its own link was clean throughout; the A6000's marginal
-slot, which the same night's experiment did explain, was a different card. One
-`BadTLP` has been recorded on the 3090's root port since
-([log](log/2026-09-16-the-overclock-and-the-fabric.md)).
+And one open question: **why the 3090 fell off the bus** on 2026-09-16 under
+another job's DDP. Its own link was clean throughout and the marginal slot that
+night belonged to the other card.
+[The investigation](log/2026-09-16-the-overclock-and-the-fabric.md),
+[what is and is not established](docs/machine-changes.md#still-open).
 
 ## Log
 
