@@ -42,9 +42,10 @@ finish(){ rc=$1
 echo "$LEASE_TAG $$ $(date +%FT%T)" > $LEASE
 say "$TAG: $(cd $(dirname $B)/../.. && git -c safe.directory='*' log -1 --format='%h %s' | cut -c1-70); toktape $($TOKTAPE version); io avg10 $(awk '/some/{print $2}' /proc/pressure/io); gpus before: $(gpus)"
 say "OT=$OT"
+say "lazy-mode=${LZM:-server default}; note: with lazy mode off, engram_embd is an ordinary layer tensor and -ngl 99 sends 195 GiB of it to a card -- the OT must name it"
 DRAFT=(); [ -z "$D" ] || DRAFT=(-md "$D" --spec-type ${SPEC:-draft-dspark} --spec-draft-n-max ${NMAX:-5} ${OTD:+-otd "$OTD"})
 . /home/user/gpu-order.env
-setsid nohup "$B" -m "$M" --alias DeepSeek-V4.1-Flash -c ${CTX:-16384} -ngl 99 -t ${THREADS:-32} -b 2048 -ub ${UB:-512} --lazy-mode ${LZM:-auto} \
+setsid nohup "$B" -m "$M" --alias DeepSeek-V4.1-Flash -c ${CTX:-16384} -ngl 99 -t ${THREADS:-32} -b 2048 -ub ${UB:-512} ${LZM:+--lazy-mode $LZM} \
   -ot "$OT" "${DRAFT[@]}" ${EXTRA_FLAGS:-} --jinja --host 127.0.0.1 --port $PORT > $OUT/server.log 2>&1 < /dev/null &
 SPID=$!; echo $SPID > $OUT/server.pid; sleep 1
 kill -0 $SPID 2>/dev/null || { say "server exited immediately: $(grep -m2 -i "error\|fail" $OUT/server.log | cut -c1-200)"; SPID=""; finish 1; }
