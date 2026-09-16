@@ -20,6 +20,9 @@
 #
 # Sentinel GPUCHECK_DONE / GPUCHECK_FAILED. Signals only pids recorded at spawn.
 set -u
+# bash reads a script incrementally, so a deploy over a running copy kills it mid-statement (measured
+# 2026-09-16 23:xx: a smoke run died at a heredoc after an scp). Run from a private copy instead.
+if [ -z "${GPUCHECK_SELF:-}" ]; then cp "$0" "/tmp/gpucheck.$$.sh" && GPUCHECK_SELF=1 exec bash "/tmp/gpucheck.$$.sh" "$@"; fi
 TAG=${1:?a unique tag}
 . /home/user/gpu-order.env
 GPU=${GPU:-$GF3090_UUID}
