@@ -29,7 +29,17 @@ QUANT=${QUANT:-}                 # empty | fp8-cast
 MBS=${MBS:-}                     # --max-batch-size
 WH=${WH:-}                       # e.g. "1024 1536" -> --width 1024 --height 1536
 PROMPT=${PROMPT:-"A close-up of a mechanical watch movement on a matte black surface, the balance wheel oscillating steadily. A jeweller in a grey apron lowers a brass tweezer into frame and sets a ruby jewel into its setting with a faint metallic tick. The camera pushes in slowly, shallow depth of field, cold key light from the left and a warm practical lamp behind, the brass catching a highlight as it moves. Dust motes drift through the beam. The room is quiet except for the ticking and one soft breath."}
-IMAGE=${IMAGE:-}                 # "PATH FRAME_IDX STRENGTH" for --image conditioning
+IMAGE=${IMAGE:-}                 # "PATH FRAME_IDX STRENGTH [CRF]" for --image conditioning
+# IMAGES is the same thing repeated: groups separated by ";", because --image can be given
+# more than once and keyframe_interpolation is the pipeline that wants it that way — pin
+# frame 0 and the last frame and let the model fill the motion between them. That is the
+# storyboard shape, and it is the answer to the staging failure measured 2026-09-16: the
+# model decides poorly what is in the frame and animates well, so the frames are given.
+#   IMAGES="/path/a.png 0 1.0 ; /path/b.png 120 1.0"
+IMAGES=${IMAGES:-}
+# The 4th field is CRF, which is worth knowing about: DEFAULT_IMAGE_CRF is 33 for LTX-2.5,
+# so a conditioning still is re-encoded through H.264 at CRF 33 before the model sees it,
+# matching the compression its training clips had. A clean PNG is not what it expects.
 PLIM=${PLIM:-}                   # board power limit in W for this take (restored on exit)
 mkdir -p $OUT
 say(){ echo "$(date +%T) $*"; }
@@ -69,7 +79,7 @@ trap "finish 1" INT TERM
 # stage 1, the distilled ones run the distilled checkpoint, and the two are the same size.
 LORA=$M/loras/ltx-2.5-22b-distilled-lora-450-bf16.safetensors
 case "$PIPE" in
-  ti2vid_two_stages|ti2vid_two_stages_hq)
+  ti2vid_two_stages|ti2vid_two_stages_hq|keyframe_interpolation)
     GUIDED=1; XFORM=$M/diffusion_models/ltx-2.5-22b-dev-transformer-bf16.safetensors
     [ -f "$LORA" ] || { say "refused: guided pipe needs the distilled LoRA at $LORA"; echo LTX_FAILED; exit 1; } ;;
   *)
@@ -117,12 +127,20 @@ if [ $GUIDED -eq 1 ]; then
       > $OUT/neg-prompt.txt 2>/dev/null || say "could not record the default negative prompt"
   fi
 fi
-# word-split on purpose: --image takes PATH FRAME_IDX STRENGTH as three arguments
-if [ -n "$IMAGE" ]; then
-  set -- $IMAGE
-  [ $# -eq 3 ] || { say "refused: IMAGE wants exactly \"PATH FRAME_IDX STRENGTH\", got $# word(s)"; echo LTX_FAILED; exit 1; }
-  [ -f "$1" ] || { say "refused: no conditioning image at $1"; echo LTX_FAILED; exit 1; }
-  ARGS+=(--image "$1" "$2" "$3")
+# word-split on purpose: --image takes PATH FRAME_IDX STRENGTH [CRF] as separate arguments.
+# One group per --image; IMAGES holds several separated by ";". A bad group is refused before
+# the lease is spent rather than discovered forty seconds into a model load.
+add_image(){
+  set -- $1
+  [ $# -eq 3 ] || [ $# -eq 4 ] || { say "refused: image group wants \"PATH FRAME_IDX STRENGTH [CRF]\", got $# word(s): $*"; return 1; }
+  [ -f "$1" ] || { say "refused: no conditioning image at $1"; return 1; }
+  ARGS+=(--image "$@"); say "  conditioning on $1 at frame $2 strength $3${4:+ crf $4}"; }
+[ -z "$IMAGE" ] || add_image "$IMAGE" || { echo LTX_FAILED; exit 1; }
+if [ -n "$IMAGES" ]; then
+  # IFS on ';' only, so the paths and numbers inside a group stay together for add_image
+  OLD_IFS=$IFS; IFS=';'
+  for g in $IMAGES; do IFS=$OLD_IFS; add_image "$g" || { echo LTX_FAILED; exit 1; }; IFS=';'; done
+  IFS=$OLD_IFS
 fi
 printf "%s\n" "${ARGS[@]}" > $OUT/args.txt
 t0=$(date +%s)
