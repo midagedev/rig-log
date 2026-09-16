@@ -169,8 +169,66 @@ the one that mattered). The installer failed once on `Failed to write to the
 distribution cache`: `~/.cache/uv/builds-v0` and some archive entries were
 root-owned from earlier `uv` runs over root ssh; `chown -R user:user` and a
 rerun fixed it. Hermes reached the server during load (`HTTP 503: Loading
-model`) — the wiring is right; the first tool-using turn is measured below
-when the load finishes.
+model`) — the wiring was right. The first tool-using turn was not: **every tool
+call came back as plain text**, and the reason is an upstream defect, below.
+
+## DeepSeek V4.1 changed its tool-call markup, and llama.cpp had not noticed
+
+With tools in the request the model answered
+
+```
+<｜DSML｜ calls>
+<｜DSML｜ invoke name="get_weather">
+<｜DSML｜ parameter name="city" string="true">Seoul</｜DSML｜ parameter>
+```
+
+and the server returned all of it as `content`, `tool_calls: null`, even with
+`tool_choice: required`. Hermes saw zero tool calls. What was ruled out, in
+order, each by a measurement: the DSpark draft (token ids identical with the
+draft on and off), the GGUF vocabulary (ids 10699/34756/10767 are `Ġcalls`,
+`Ġinvoke`, `Ġparameter` in the release `tokenizer.json` too), the tokenizer
+(five strings, HF `tokenizers` against `/tokenize`, identical ids), and the
+pre-tokenizer preset (`joyai-llm`'s three regexes are byte-for-byte the
+release's). The model was right. The release ships `encoding/encoding.py`
+with `tool_calls_block_name = " calls"`, and its README opens with: *"DSML tag
+names use a leading space … The V4 format used `<｜DSML｜tool_calls>` without a
+space."* The chat template embedded in the GGUF is the V4 one (it is one byte
+away from `models/templates/deepseek-ai-DeepSeek-V4.jinja`), and
+`common/parsers/deepseek.cpp` hard-codes the V4 names, in the fork and on
+`ggml-org/llama.cpp` master alike. No issue or PR mentions it.
+
+The fix is three files on a branch of the engine fork: the V4 template with
+the three tag names changed
+(`models/templates/deepseek-ai-DeepSeek-V4.1-Flash.jinja`), a V4.1 branch in
+the parser keyed on the `' calls>` literal that template builds, and four
+parser tests mirroring the V4 block. FAIL-first held: with template and tests
+in and the parser untouched, `test-chat` aborted on the V4.1 tool-call case;
+with the parser patched, `test-chat` passed. Cherry-picked onto upstream
+master (59 commits ahead of the fork base) without conflict. The server takes
+the template as a file (`--chat-template-file`) because the GGUF's embedded
+one is wrong; the convert PR (#28696) is where the embedded template should
+be fixed.
+
+| after the patch | result | tok/s |
+|---|---|---:|
+| `tool_choice` auto, weather question | `get_weather({"city":"Seoul"})` parsed | 26.6 |
+| `tool_choice` required, terminal | `terminal({"command":"ls -la /tmp"})` | 27.7 |
+| no tool needed | `391`, no call | 17.1 |
+| tool result in history | prose answer using it | 16.2 |
+
+Hermes then ran a real turn: eight tool calls in 7 min 8 s, reading
+`nvidia-smi`, the process list, `/v1/models` and the server command line, and
+answering that its model sits on GPU 0, the 3090, with the caveat — correct —
+that the expert tensors are on the host under `-ot exps=CPU` and the 22.6 GB
+on the card is attention, dense weights and the 64k KV cache. Decode ran at
+27 tok/s through DSML boilerplate (the draft accepts nearly all of it) and
+16–17 through prose.
+
+Not settled: with the *wrong* template, `tool_choice: required` did not
+constrain sampling either, although a GBNF grammar and a JSON schema on
+`/completion` both constrained fine on the same server. Whether the PEG-native
+parser's grammar reaches the sampler under the dflash draft path is a
+separate question, left open.
 
 ## A 48 GB card for two million won, researched and declined
 
