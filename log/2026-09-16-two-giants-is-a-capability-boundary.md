@@ -62,6 +62,46 @@ surviving body** — ears on a helmet, a head on a torso, a tail added to a robo
 reads as one creature with borrowed parts is the diagnostic, and it means the round needs a
 different model, not a different seed.
 
+## And the composition survives being animated
+
+The chosen frame went to LTX-2.5 as `--image <path> 0 1.0` on the distilled pipeline, with a
+**motion-only** prompt: the text describes what moves and never names the subjects, because
+naming them again invites the model to re-invent them. 121 frames, 126 s, 31 GB peak.
+
+A vision round compared the source still against nine frames of the result:
+
+- **Frame 0 is pinned faithfully.** The first sampled frame is the source in every detail that
+  matters — both bodies, their contact point, the traffic signal, the searchlight beams, the
+  fire on the right, the foreground cars, the centre line, the lighting. The only nameable
+  differences are a thicker smoke column and marginally deeper contrast.
+- **Two separate bodies stay identifiable to the last sampled frame.** No merge, no subject
+  leaving frame, no dissolve into spray, no cut. Crops of the two heads at the eighth and
+  ninth samples show fur, ears and whiskers on one and a helmet with an orange visor on the
+  other, with no crossed features in either direction.
+- **The scale references survive too** — the signal grows and slides left as the camera pushes
+  in but is still there at the end, as are the streetlights, the fire and the centre line.
+- **And the prompted straining actually happens.** The cat leans in on both forepaws and from
+  the sixth sample closes its eyes and lowers its head; the mecha tilts back and *loses
+  height*, its head level with the cat's in the source and below the cat's by the last frame;
+  the spray at their feet swells; the camera dollies in slowly.
+
+So the morning's negative result was a scale error, not a property of the mechanism. Four
+small Hangul glyphs given as frame 0 did not carry forward; a composition occupying half the
+frame does. What conditioning cannot preserve is fine detail, and the earlier entry's
+sentence should be read that narrowly.
+
+It also fixed a second problem for free. The unconditioned take of this scene spent the last
+four of nine sampled frames on subjectless aftermath — half the clip. The conditioned take
+keeps its subjects to the end.
+
+One honest defect: from the sixth sample on, **the mecha's own silhouette reorganises** — its
+head sinks below its shoulder plates and the armour layering reshuffles. That is one subject
+deforming rather than two merging, so it is a different failure from the one this entry is
+about, but it is drift that has four times as long to run in a twenty-second clip. That is why
+the next arm doubles the duration rather than quadrupling it: 241 frames at the same
+resolution, which keeps the validated keyframe and separates "does the composition hold" from
+"does the drift compound".
+
 ## Method notes
 
 - **Peak VRAM comes from torch's allocator here, not the witness.** The 1 Hz `nvidia-smi`
