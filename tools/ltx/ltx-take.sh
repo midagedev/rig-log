@@ -6,7 +6,15 @@
 set -u
 TAG=$1; OUT=/home/user/ltx-runs/$TAG; LEASE=/home/user/gpu-lease
 R=/home/user/LTX-2; M=/models/LTX-2.5
-PIPE=${PIPE:-distilled}          # distilled | dfr | distilled_mgpu | ti2vid_two_stages[_hq]
+PIPE=${PIPE:-distilled}          # distilled | dfr | distilled_mgpu | ti2vid_two_stages[_hq] | ic_lora
+# IC-LoRA takes (PIPE=ic_lora): the adapter and the reference video it reads in-context.
+# The Ingredients adapter (Lightricks, 2026-09-10) reads a *reference sheet* — one still with a
+# panel per character, prop and location — supplied as a static video of >= 121 frames at the
+# output geometry, and carries those identities into the clip. Its trained bucket is 768x448 at
+# 121 frames; the two-stage pipeline runs stage 1 at half the requested size, so WH="1536 896"
+# puts stage 1 on that bucket. The prompt is two-part: "Reference sheet: ... Generated video: ...".
+LORAS=${LORAS:-}                 # "PATH STRENGTH" groups separated by ";", passed as --lora
+VIDCOND=${VIDCOND:-}             # "PATH STRENGTH" for --video-conditioning (required by ic_lora)
 FRAMES=${FRAMES:-121}
 SEED=${SEED:-42}
 # Guided pipelines only. Guidance lives in stage 1: stage 2 upsamples with the distilled
@@ -44,7 +52,8 @@ PLIM=${PLIM:-}                   # board power limit in W for this take (restore
 mkdir -p $OUT
 say(){ echo "$(date +%T) $*"; }
 gpus(){ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | tr "\n" " "; }
-maxgpu(){ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | sort -n | tail -n1; }
+# idle means the card THIS runner uses is idle: the 3090 may hold the served LLM (configs/llm-3090.service, 2026-09-16)
+maxgpu(){ . /home/user/gpu-order.env; nvidia-smi -i $A6000_UUID --query-gpu=memory.used --format=csv,noheader,nounits; }
 LEASE_TAG="ltx-$TAG"; SPID=""; SMPID=""; PLIM_OLD=""
 finish(){ rc=$1
   [ -n "$SMPID" ] && kill $SMPID 2>/dev/null
@@ -112,6 +121,18 @@ ARGS=(--transformer-path $XFORM
 [ -z "$QUANT" ] || ARGS+=(--quantization $QUANT)
 [ -z "$MBS" ] || ARGS+=(--max-batch-size $MBS)
 [ -z "$WH" ] || ARGS+=(--width ${WH% *} --height ${WH#* })
+if [ -n "$LORAS" ]; then
+  OLD_IFS=$IFS; IFS=';'
+  for g in $LORAS; do IFS=$OLD_IFS; set -- $g
+    [ $# -eq 2 ] && [ -f "$1" ] || { say "refused: LoRA group wants \"PATH STRENGTH\" with an existing file, got: $g"; echo LTX_FAILED; exit 1; }
+    ARGS+=(--lora "$1" "$2"); say "  lora $1 strength $2"; IFS=';'; done
+  IFS=$OLD_IFS
+fi
+if [ "$PIPE" = ic_lora ]; then
+  set -- $VIDCOND
+  [ $# -eq 2 ] && [ -f "$1" ] || { say "refused: ic_lora needs VIDCOND=\"PATH STRENGTH\" with an existing reference video"; echo LTX_FAILED; exit 1; }
+  ARGS+=(--video-conditioning "$1" "$2"); say "  reference video $1 strength $2 ($(ffprobe -v error -count_frames -select_streams v:0 -show_entries stream=nb_read_frames,width,height -of csv=p=0 "$1" 2>/dev/null | tr "\n" " "))"
+fi
 if [ $GUIDED -eq 1 ]; then
   ARGS+=(--distilled-lora "$LORA" "$LORA_STRENGTH")
   [ -z "$STEPS" ]   || ARGS+=(--num-inference-steps $STEPS)

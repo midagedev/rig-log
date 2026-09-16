@@ -13,7 +13,8 @@ ABC=${ABC:-}
 PLAN_ONLY=${PLAN_ONLY:-}
 mkdir -p $OUT
 say(){ echo "$(date +%T) $*"; }
-maxgpu(){ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | sort -n | tail -n1; }
+# idle means the card THIS runner uses is idle: the 3090 may hold the served LLM (configs/llm-3090.service, 2026-09-16)
+maxgpu(){ . /home/user/gpu-order.env; nvidia-smi -i $A6000_UUID --query-gpu=memory.used --format=csv,noheader,nounits; }
 gpus(){ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | tr "\n" " "; }
 LEASE_TAG="music-$TAG"; SPID=""; SMPID=""
 finish(){ rc=$1

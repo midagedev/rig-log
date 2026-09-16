@@ -1,0 +1,17 @@
+[Unit]
+Description=DeepSeek-V4.1-Flash on the 3090 alone (configs/v41-3090-serve.sh); the A6000 stays free
+After=network-online.target thermal-guard.service
+Wants=network-online.target
+Conflicts=llm.service
+
+[Service]
+Type=simple
+User=user
+ExecStart=/home/user/llm-3090-serve.sh
+Restart=on-failure
+RestartSec=30
+SuccessExitStatus=143 SIGTERM
+OOMPolicy=continue
+
+[Install]
+WantedBy=multi-user.target
