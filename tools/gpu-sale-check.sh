@@ -61,7 +61,7 @@ dmesg -T > $OUT/dmesg-before.txt
 if [ ! -x $TOOLS/gpu_burn ]; then
   say "building gpu_burn"
   ( cd $TOOLS && [ -d gpu-burn ] || git clone -q https://github.com/wilicc/gpu-burn.git ) && \
-  ( cd $TOOLS/gpu-burn && make -j8 CUDAPATH=/usr/local/cuda > $OUT/build-gpu-burn.log 2>&1 && cp gpu_burn compare.ptx $TOOLS/ ) || { say "gpu_burn build failed (see build-gpu-burn.log)"; cleanup 1; }
+  ( cd $TOOLS/gpu-burn && make -j8 CUDAPATH=/usr/local/cuda > $OUT/build-gpu-burn.log 2>&1 && cp gpu_burn $TOOLS/ ) || { say "gpu_burn build failed (see build-gpu-burn.log)"; cleanup 1; }
 fi
 if [ ! -x $TOOLS/cuda_memtest ]; then
   say "building cuda_memtest"
@@ -82,7 +82,7 @@ say "memtest rc=$MRC after $(( $(date +%s)-t0 )) s; errors reported: $(grep -ciE
 # --- 2. burn with verification ---
 say "gpu_burn: $BURN_MIN min, results compared against a reference"
 t0=$(date +%s)
-( cd $TOOLS && ./gpu_burn -c compare.ptx $((BURN_MIN*60)) ) > $OUT/burn.log 2>&1 &
+( cd $TOOLS/gpu-burn && ./gpu_burn $((BURN_MIN*60)) ) > $OUT/burn.log 2>&1 &   # runs from its own dir: it loads compare.fatbin from cwd
 BPID=$!; echo $BPID > $OUT/burn.pid; wait $BPID; BRC=$?; BPID=""
 say "gpu_burn rc=$BRC after $(( $(date +%s)-t0 )) s; verdict line: $(grep -E "OK|FAULTY" $OUT/burn.log | tail -1)"
 
