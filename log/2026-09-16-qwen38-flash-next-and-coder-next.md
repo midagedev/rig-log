@@ -125,5 +125,31 @@ Both models recorded with [toktape](https://github.com/midagedev/toktape)
 
 | clip | what it shows |
 |---|---|
-| `qwen3-coder-next-iq4xs-131tps-1stream-38s.mp4` | the fast model writing a design document at 131 tok/s, 4096 tokens in 38 s |
-| `qwen3.8-flash-next-q4kxl-51tps-1stream-47s.mp4` | the 125B model at 51.5 tok/s with the table pinned, 2048 tokens in 47 s |
+| `qwen3-coder-next-iq4xs-133tps-1stream-37s.mp4` | the fast model writing a design document at 133 tok/s, 4096 tokens in 37 s |
+| `qwen3.8-flash-next-q4kxl-51tps-mlock-48s.mp4` | the 125B model at 51.0 tok/s with the table pinned, 2048 tokens in 48 s |
+
+Both were recorded three times before they were right, and the reason is worth
+keeping: **the card stamps the toktape version that recorded the tape, not the
+one that rendered it**, so a re-render on a newer build leaves the old version
+on the card. The classification of a tensor is also fixed at record time — the
+tape carries the per-device, per-class byte split, not the tensor names — so the
+host-bandwidth error above could not be corrected by re-rendering either. On the
+recorder's fixed build the pre-fix tape prints no bandwidth clause at all and a
+caveat naming both numbers, which is the honest reading of a tape whose recorded
+split is wrong.
+
+The fix is confirmed against a prediction the recorder's session wrote before
+seeing the new tape, which is the only kind of confirmation worth much here:
+
+| | predicted | measured |
+|---|---|---|
+| `other` bytes a token | ~1.4 GB | 1.413 |
+| `embeddings` | not counted, ~27.5 GB resident | not counted, 29.476 GB resident |
+| CPU active a token | 0.26-0.28 GB | 0.256 |
+| host figure | 13-14 GB/s, no refusal | 13.1 GB/s, exact |
+| whole-model record | ~6.3 GB a token | 6.334 |
+
+Before the fix the same tape derived 1495 GB/s at 1033 % of a 145 GB/s bus,
+because the 26.8 GiB table sat in `other` and was counted in full every token.
+The decode rate is the same run three times over — 51.5, 50.7, 51.0 tok/s — so
+nothing about the measurement moved; only what the card claimed about it.
