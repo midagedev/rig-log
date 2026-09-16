@@ -1,4 +1,4 @@
-# Three regimes on one card, and a blower that was holding 40 % back
+# Three regimes on one card, and a fan that arrives three minutes late
 
 *2026-09-16, 12:10–14:25.* The first diffusion work on this machine. The
 [queue in the README](../README.md#queued) opened with one question — is a
@@ -213,12 +213,38 @@ moving one card's clocks do not carry across architectures:
 The LLM gains more than the whole diffusion run does, because a third of that
 run is bandwidth-bound and a fifth is fixed cost.
 
-## The blower was holding 40 % back
+## The fan arrives three minutes late
 
 The README has been describing this machine's thermal ceiling as "86–87 °C with
 `SW Thermal Slowdown` on ~100 % of the time, so any workload with a 100 % duty
 cycle is throttled before it starts." Adding `fan.speed` to the witness showed
 what that sentence was missing: at 86–87 °C the A6000's blower is at **58–64 %**.
+
+~~The card was clipping clocks to reach its own 84 °C target while keeping 36–40 %
+of its fan in reserve for acoustics.~~ **Struck the same afternoon, an hour after
+this entry was first pushed.** The 58–64 % is real but it is not a property of the
+temperature; it is a property of *how long the load had been running*. Every take
+above is about 137 seconds, and the card's fan curve has a much slower time
+constant than that. A 241-frame run gave it four minutes:
+
+| into the load | temp | fan | draw |
+|---:|---:|---:|---:|
+| 20 s | 65 °C | 30 % | 298 W |
+| 40 s | 78 °C | 46 % | 297 W |
+| 80 s | 87 °C | 60 % | 296 W |
+| 100 s | **89 °C** | 72 % | 296 W |
+| 200 s | 88 °C | 83 % | 289 W |
+| 221 s | 87 °C | 97 % | 297 W |
+| 241 s | 86 °C | **100 %** | 296 W |
+| 254 s | 80 °C | 100 % | — |
+
+So the card reaches 100 % **on its own, after about 3.7 minutes**, and once there it
+converges toward its 84 °C target while still drawing 296 W. Nothing is being held
+back. What actually happens is an **overshoot**: for the first three and a half
+minutes of any load the fan is behind, and the die sits up to 5 °C *above* the
+target it is aiming for, peaking at 89 °C while the blower is still at 72–76 %.
+
+That correction matters more than it sounds, because it moves where the gain is.
 
 `nvidia-smi` on this driver has no fan option at all and `nvidia-settings` wants
 an X display this box does not run, which is how "nothing on this machine can
@@ -250,9 +276,22 @@ of its fan in reserve for acoustics. Two matched pairs:
 clip is gone — 1530 to 1598 in stage 2, 1606 to 1712 in the decode window — but
 draw is already 289 W against a 300 W cap, so the power limit binds where the
 temperature used to. That is why both throttle reasons were on all morning:
-relieving one reveals the other. The prize here is the temperature, not the
-speed, and it matters for a render queue that runs unattended and for any
-argument about adding a hotter card to this case.
+relieving one reveals the other.
+
+Those two pairs are matched — same 137-second take, same 55 °C start — so the 16 °C
+between them is real. But with the ramp above in hand, **16 °C is what forcing the
+fan is worth to a job that ends inside the overshoot**, not what this card can run
+cooler by. Every take in this entry is 124 to 157 seconds, which is to say every
+take in this entry ran entirely inside the first three and a half minutes, and so
+does every take elsewhere in this repo. A four-hour render queue is a different
+matter: the card gets to 100 % by itself in the first four minutes and spends the
+remaining hours at its 84 °C target either way.
+
+Which is the argument for a curve rather than a one-off `--speed 100`:
+[`tools/gpu-fan-curve.py`](../tools/gpu-fan-curve.py) exists to delete the
+overshoot, by being at 90 % when the card's own logic is still at 46 %. It is worth
+one warning in its own docstring and one here — **it changes every thermal number
+taken afterwards**, exactly like a clock lock, so a matched pair means stopping it.
 
 What is still true: the chassis fans are wired to the PSU, all six `CHA_FAN`
 headers read `Disabled`, and the BMC sees `CPU_FAN` 2200 RPM, `SOC_FAN` 2800 and
@@ -282,6 +321,13 @@ a five-second clip asked to contain four beats (write, pause, tear, blur)
 delivered one. Narrative density is a budget like any other.
 
 ## Three method errors, all mine
+
+**A fan claim from a load too short to see the curve.** Written up, pushed, and
+struck within the hour — the section above carries both the claim and the ramp that
+refuted it. The mechanism is the one this repo keeps meeting: a quantity read once,
+in a window too narrow to contain the behaviour, and then described as a property of
+the system. It is the same shape as reading a throttle flag once, and as the
+unmatched lazy-mode pair from this morning.
 
 **An awk that compared numbers as strings.** The first summary reported a peak of
 8 022 MiB for a run whose real peak was 48 016, because `"8022" > "42812"` is
@@ -327,10 +373,11 @@ Open, and now sharper:
   different measurement.
 - **How long a clip fits**, properly: the decode stage wants 37 GB at 121
   frames, `AUTO_TILING` adapts, and the cost of tiling harder is unmeasured.
-- **Whether a fan curve is worth writing.** Sixteen degrees is available for
-  free, and NVML can now be driven headless, so a small temperature-to-speed
-  daemon would turn a one-off `--speed 100` into a policy. The card's 84 °C
-  target is the number to aim under.
+- **What the fan curve is worth on a long job**, now that it is written. Its
+  value is measured only against the overshoot: 16 °C on a 137-second take. The
+  steady state at 100 % fan and 296 W looks like the card's 84 °C target, reached
+  either way, so the honest test is a render of an hour with the daemon on and
+  off — which nothing here has run.
 - **FP8 is unavailable on Ampere at all**, and LTX-2.5 ships an `nvfp4`
   transformer of 18 721 732 720 bytes and an int8 one of 21 504 034 224 that
   this hardware cannot use. The bf16 file is 42 GB. That gap is a hardware

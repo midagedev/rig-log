@@ -88,13 +88,15 @@ Four things about it that cost a day each, and are still true:
   failed one would be invisible. ~~A sustained load holds the A6000 at 86–87 °C
   with `SW Thermal Slowdown` on ~100 % of the time, so any workload with a 100 %
   duty cycle is throttled before it starts.~~ Struck 2026-09-16: written without
-  the fan speed in the witness. At 86–87 °C the A6000's blower is at **58–64 %**,
-  because 87 °C is nowhere near its 95 °C slowdown — the card is clipping clocks
-  to reach its own **84 °C target** while holding 36–40 % of the fan back for
-  acoustics. **GPU** fans *are* controllable, headless, through NVML
-  ([`tools/gpu-fan.py`](tools/gpu-fan.py)): forcing 100 % is 16 °C for 2.7 % of
-  the rate, after which the 300 W cap binds instead
-  ([how that was measured](log/2026-09-16-diffusion-first-run-and-three-regimes.md)).
+  the fan speed in the witness. 87 °C is nowhere near the card's 95 °C slowdown —
+  it is **5 °C above its own 84 °C target**, and it is there because the fan curve
+  is slow: **3.7 minutes** of a 296 W load to reach 100 %, peaking at 89 °C on the
+  way while the blower is still at 72 %. Given the time it converges to target on
+  its own. **GPU** fans *are* controllable headless through NVML
+  ([`tools/gpu-fan.py`](tools/gpu-fan.py), curve in
+  [`tools/gpu-fan-curve.py`](tools/gpu-fan-curve.py)), which is worth 16 °C to a
+  job that ends inside that ramp and nothing to one that does not
+  ([measured](log/2026-09-16-diffusion-first-run-and-three-regimes.md)).
 - **The PSU's published spec is ATX12V 2.2 / EPS12V**, i.e. no native 12V-2x6
   connector. Read off the vendor sheet, not measured here — worth confirming by
   eye before buying a card that wants one.
@@ -130,7 +132,7 @@ night belonged to the other card.
 | 2026-09-16 | [Every model that survived the storage pass, re-run](log/2026-09-16-every-kept-model-re-verified.md) | the slot move had flipped CUDA0 to the 3090 under `PCI_BUS_ID`, so every placement would have loaded 44–46 GB onto a 24 GB card — fixed once with `configs/gpu-order.env` (UUID order) and proven by the first load; then all seven kept files reproduced their recorded numbers (PPL 2.2355 to four decimals, Qwen 140/132, GLM exl3 22.4, served V4.1 25.05 warm) and the three source directories hashed clean; DDR4-3600 back on with zero errors on the moved link in 480 s of the load that gave 27; three toktape takes, including a 36-second single-stream clip that replaces the 7-second one |
 | 2026-09-16 | [What engram costs when four streams want different rows](log/2026-09-16-engram-and-concurrency.md) | E4 answered: major faults a token stay flat across one, two and four streams (22.6 / 25.9 / 24.2) while the total scales linearly, so **engram is not a concurrency bottleneck** and four streams give 1.4× aggregate — confirmed against a control that reran the single-stream arm last on the warmest cache (18.8 against 19.1). Two prompts at the same concurrency differ 2.5× in fault count for 1.6 % of the rate, so the fault count barely predicts the rate and WKS-20's 6.8 % is an upper bound. `--lazy-mode` turns out not to be an optimisation: with it off, `engram_embd` is an ordinary layer tensor and `-ngl 99` asks 232 GB of a 48 GB card, while naming it `=CPU` moves the host budget from 199 to 394 GiB on a 251 GB host. Pinning the tables in RAM is closed by arithmetic, not a run |
 | 2026-09-16 | [What the 3090 is actually worth](log/2026-09-16-what-the-3090-is-worth.md) | four alternating arms, two cards against the A6000 alone on the served V4.1 profile: removing the 24 GB card costs **2.7 % of decode on the mean of ten runs and 0.3 % on the warm four**, against the 3–7 % the per-layer figures predicted. With one card the model loads to 47 260 of 49 140 MiB, so the 20 GB does not migrate to the other card — it goes to the host, which absorbs it. The per-prompt scatter runs −11.7 % to +6.2 % and the draft columns say why: the placement changes the numerics, so the two configurations answer with different text and the draft is right a different fraction of the time (50.6 % against 59.6 % on one prompt). That channel is the same size as the bandwidth one, so this design bounds the cost without separating them; a no-draft arm would |
-| 2026-09-16 | [Three regimes on one card, and a blower that was holding 40 % back](log/2026-09-16-diffusion-first-run-and-three-regimes.md) | first diffusion work here: LTX-2.5 (22 B DiT, video **and** synchronised audio in one pass) generating a 5 s 1536×1024 clip in 124–157 s, with the offload flag's fastest arm being `disk` because it mmaps the 42 GB transformer in 3 s where `cpu` copies it in 15, and the capacity floor being the decode stage's 37 GB rather than the transformer. The queue's opening question answered by locking clocks instead of capping power: denoise 0.86–0.88 on the graphics clock and 0.20 on the memory clock, decode stage ~0.10 and 0.81–1.07, Qwen3.6 decode 0.42–0.58 and 0.51–0.83 — so the 09-15 ~390 GB/s ceiling was co-limited, about half of it on the core side. Adding `fan.speed` to the witness showed the A6000 clipping clocks toward its 84 °C target with its blower at 58–64 %: forcing 100 % is 16 °C for 2.7 % of the rate, and NVML drives GPU fans headless although no chassis fan can be read at all. The model cannot write Hangul. Three instrument errors of mine: an awk comparing numbers as strings (8 022 MiB reported for a 48 016 peak), an `scp` into a running script that killed one arm mid-statement and left a stale lease that refused the next, and a power-sweep tool that had been capping the 3090 under comments naming the A6000 |
+| 2026-09-16 | [Three regimes on one card, and a fan that arrives three minutes late](log/2026-09-16-diffusion-first-run-and-three-regimes.md) | first diffusion work here: LTX-2.5 (22 B DiT, video **and** synchronised audio in one pass) generating a 5 s 1536×1024 clip in 124–157 s, with the offload flag's fastest arm being `disk` because it mmaps the 42 GB transformer in 3 s where `cpu` copies it in 15, and the capacity floor being the decode stage's 37 GB rather than the transformer. The queue's opening question answered by locking clocks instead of capping power: denoise 0.86–0.88 on the graphics clock and 0.20 on the memory clock, decode stage ~0.10 and 0.81–1.07, Qwen3.6 decode 0.42–0.58 and 0.51–0.83 — so the 09-15 ~390 GB/s ceiling was co-limited, about half of it on the core side. Adding `fan.speed` to the witness found an overshoot: the card's own fan curve takes **3.7 minutes** to reach 100 %, and during that ramp the die sits up to 5 °C *above* the 84 °C target it is aiming for, peaking at 89 °C while the blower is still at 72 %. Forcing 100 % from the start is 16 °C on a 137-second take and nothing on a four-hour one — a claim that the blower was holding 40 % back was published and struck within the hour. NVML drives GPU fans headless; no chassis fan can be read at all. The model cannot write Hangul. Three instrument errors of mine: an awk comparing numbers as strings (8 022 MiB reported for a 48 016 peak), an `scp` into a running script that killed one arm mid-statement and left a stale lease that refused the next, and a power-sweep tool that had been capping the 3090 under comments naming the A6000 |
 | 2026-09-16 | [Two Qwen models three weeks old](log/2026-09-16-qwen38-flash-next-and-coder-next.md) | Qwen3.8-Flash-Next (125B-A6B plus a 51B n-gram table, 103.7 GiB) decodes **51.1 tok/s** with no draft across both cards and RAM, twice V4.1's drafted 25.05 out of a quarter of the bytes (110.1 GiB against 444.2 — an "at a similar file size" clause was struck from that entry the same day); its n-gram table costs ~5 % of decode when faulted from NVMe and 8.9 major faults a token, the engram finding again on a second architecture; Qwen3-Coder-Next IQ4_XS fits one card at 133 tok/s, so the fast/slow pair is measured. The MTP draft fails to load exactly as open PR #28097 describes (a second platform for it), and the #28497 indexer nondeterminism did not reproduce at CUDA 13.0 |
 
 ## Queued
@@ -152,12 +154,13 @@ measurement; the searched figures behind them were not taken on this box.
   why its ~390 GB/s ceiling was half of peak.
 - **How long a clip fits in 48 GB, and at what resolution.** The capacity
   question from the first version of this queue, still unanswered here.
-- **Fan control — half of it turned out to exist.** GPU fans are drivable
-  headless through NVML, and 16 °C was sitting unused behind a conservative
-  blower curve, so what is left to write is the *policy*: a small
-  temperature-to-speed daemon aiming under the card's 84 °C target, instead of a
-  one-off `--speed 100`. The chassis side is unchanged and is still the real
-  limit — fixed-speed fans on the PSU, no reading, no curve. And the LLM
+- **Fan control — half of it turned out to exist, and the policy is written.**
+  [`tools/gpu-fan-curve.py`](tools/gpu-fan-curve.py) drives GPU fans headless
+  through NVML. What is *not* measured is what it is worth beyond the 3.7-minute
+  overshoot it was written to delete: 16 °C on a 137-second take, and the steady
+  state at 100 % looks like the card's 84 °C target either way, so the test is an
+  hour-long render with it on and off. The chassis side is unchanged and is still
+  the real limit — fixed-speed fans on the PSU, no reading, no curve. And the LLM
   measurement that a throttle is cheap (47 % of the power budget for 15 % of the
   rate) does **not** transfer: that is the bandwidth-bound slope, and the denoise
   is the compute-bound one at 0.87.
