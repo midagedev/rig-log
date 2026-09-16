@@ -13,19 +13,36 @@ untested paths, so the second half of this log is what got sent back:
 [how a failure here becomes an upstream report](docs/upstream-contributions.md),
 and the record of what was sent.
 
-![DeepSeek-V4.1-Flash answering in Korean while the memory tiers update beside it](assets/v41-korean.gif)
+![Qwen3.8-Flash-Next decoding at 51 tok/s with both cards and system RAM in the panel beside it](assets/qwen38-flash-next-q4kxl-1stream-tail20s-0.2.3-5.gif)
 
-*DeepSeek-V4.1-Flash answering from this machine. The file is 347 GB; 84.6 GB
-of it — two conditional-memory tables of 384 million rows each — is never read
-into memory at all, and is served a few dozen rows at a time off an NVMe while
-the model streams at about 20 tok/s. The right panel is live `/proc`, not a
-caption. [Full write-up.](log/2026-09-12-deepseek-v41-first-run.md)*
+*Qwen3.8-Flash-Next on this machine: 125 B parameters plus a 51 B n-gram table,
+103.7 GiB at UD-Q4_K_XL, decoding **51.0 tok/s with no draft model** — twice
+what the served DeepSeek-V4.1 manages with one, out of a quarter of the bytes.
+It still does not fit on the cards: 20.5 GiB is on the 3090, 46.6 on the A6000
+and 39.7 in system RAM, which is what the panel on the right is showing while
+it runs. [Full write-up.](log/2026-09-16-qwen38-flash-next-and-coder-next.md)*
 
-![pi running against the workstation's local model](assets/pi-local.gif)
+![Qwen3-Coder-Next answering a coding prompt at 133 tok/s from a single card](assets/qwen3-coder-next-iq4xs-1stream-tail14s-0.2.3-5.gif)
 
-*The previous model, for scale: 284 B parameters with most of its experts in
-system RAM, at 25–33 tok/s.
-[Full write-up.](log/2026-09-11-deepseek-v4-moe-offload.md)*
+*The other end of the same box, and the fast half of the pair it can serve:
+Qwen3-Coder-Next at IQ4_XS is 39.7 GiB, fits one A6000 with 32k of context, and
+decodes **133 tok/s** — 297 GB/s of derived read, 39 % of the card. The 3090 is
+at 0.0 GiB in that frame; nothing was split.
+[Full write-up.](log/2026-09-16-qwen38-flash-next-and-coder-next.md)*
+
+Both clips are the **closing window** of their run — the last 20 and 14 seconds
+of a 48- and a 37-second recording, ending on the card that carries the numbers.
+They are cut, never sped up: every frame is at 1:1 and the tail was removed from
+the finished GIF frame by frame, because compressing a run into a shorter clip
+would hide a stall and is a lie about the machine. Recorded and rendered with
+[toktape](https://github.com/midagedev/toktape) `0.2.3-5-g9bf4e52`, which is
+what the filenames say — a clip's name carries the recorder build, not the rate.
+
+Before those two there was a 347 GB model with 84 GB of it never read into
+memory at all, served off an NVMe a few dozen rows at a time at about 20 tok/s,
+and that is still the most unusual thing here:
+[DeepSeek-V4.1-Flash's first run](log/2026-09-12-deepseek-v41-first-run.md),
+and [what its conditional-memory tables cost](log/2026-09-16-engram-and-concurrency.md).
 
 [![Where the experts live, and what each engine measured](assets/placement-sheet.png)](assets/placement-sheet.png)
 
@@ -35,14 +52,14 @@ system RAM, at 25–33 tok/s.
 |---|---|
 | CPU | AMD Ryzen Threadripper PRO 5975WX, 32 cores / 64 threads |
 | Memory | 256 GB DDR4, 8 channels populated, running at ~~3200~~ **3600 MT/s, DRAM 1.30 V** since 2026-09-14 (3666 returned wrong bytes under a verifying stress, 3733+ does not POST — [log](log/2026-09-14-memory-clock-3600.md)) (32 GB × 8, Samsung M378A4G43AB2-CWE 2Rx8 UDIMM, ~~ECC~~ non-ECC — `dmidecode` reports no error correction, corrected 2026-09-14) |
-| Measured memory read | ~~115.8~~ 147.7 GB/s at DDR4-3600 (read probe, 32 threads, 8 GiB; 131.2 at 3200; 230.4 GB/s theoretical at 3600) |
+| Measured memory read | ~~115.8~~ 147.7 GB/s at DDR4-3600 (read probe, 32 threads, 8 GiB; 131.2 at 3200; 230.4 GB/s theoretical at 3600). A second probe reads **144.8** GB/s at the same clock, three runs alike ([log](log/2026-09-16-the-overclock-and-the-fabric.md)); that is the figure toktape's host percentages are derived against, so the two are 2 % apart and it matters which one a ratio used |
 | GPU 0 | NVIDIA RTX A6000, 48 GB — CUDA0 **by UUID**, not by slot: since the 2026-09-16 slot move the A6000 sits on a higher bus than the 3090, so `CUDA_DEVICE_ORDER=PCI_BUS_ID` makes it device 1. Every runner sources [`configs/gpu-order.env`](configs/gpu-order.env), which pins the order through `CUDA_VISIBLE_DEVICES=<A6000 UUID>,<3090 UUID>`; `nvidia-smi` does not honour that and is addressed with `-i <UUID>` |
 | GPU 1 | NVIDIA GeForce RTX 3090, 24 GB (bus 41, the lower address) |
 | Board | ASUS Pro WS WRX80E-SAGE SE WIFI |
 | Storage | Samsung 980 PRO 2 TB NVMe (root) + Phison E18 4 TB NVMe (`/models`, added 2026-09-12) |
 | Case | 3RSYS T840 |
-| Power | Super Flower Leadex Platinum SF-2000F14HP, 2000 W |
-| Cooling | ARCTIC Freezer 4U-M tower air cooler on CPU_FAN (replaced the NZXT Kraken AIO on 2026-09-14 — the AIO was letting a 2.7 GHz decode reach Tctl 89 °C; the air cooler holds a 64-thread stress at 43 °C, [log](log/2026-09-14-air-cooler-swap.md)). CPU boost disabled; the 2.7 GHz clock cap was retired with the AIO on 2026-09-15 ([log](log/2026-09-15-clock-cap-removed.md)). Fan RPM and per-slot temperature are readable only through the BMC (`ipmitool sdr type fan`, `sdr type temperature` — the latter has a `PCIE0n` sensor per slot, which reads when the GPU driver cannot), not the Super I/O. No chassis fan is on a header: the case fans are wired to the PSU, so all six `CHA_FAN` channels read `Disabled` and nothing on the machine can see or curve them |
+| Power | Super Flower Leadex Platinum SF-2000F14HP, 2000 W. Its published spec is ATX12V 2.2 / EPS12V, i.e. no native 12V-2x6 connector — read off the vendor sheet, not measured here, and worth confirming by eye before any card that wants one |
+| Cooling | ARCTIC Freezer 4U-M tower air cooler on CPU_FAN (replaced the NZXT Kraken AIO on 2026-09-14 — the AIO was letting a 2.7 GHz decode reach Tctl 89 °C; the air cooler holds a 64-thread stress at 43 °C, [log](log/2026-09-14-air-cooler-swap.md)). CPU boost disabled; the 2.7 GHz clock cap was retired with the AIO on 2026-09-15 ([log](log/2026-09-15-clock-cap-removed.md)). **No chassis fan is on a header**: the case fans are wired to the PSU, so all six `CHA_FAN` channels read `Disabled` and nothing on the machine can see or curve them. That is not cosmetic — a sustained training load holds the A6000 at 86–87 °C with `SW Thermal Slowdown` on ~100 % of the time, so any workload with a 100 % duty cycle is throttled before it starts. Fan RPM and per-slot temperature are readable only through the BMC (`ipmitool sdr type fan`, `sdr type temperature` — the latter has a `PCIE0n` sensor per slot, which reads when the GPU driver cannot), not the Super I/O |
 | OS | Ubuntu 24.04, kernel parameter `pci=realloc=off` (see below) |
 
 Two notes that cost a day each:
@@ -54,6 +71,13 @@ Two notes that cost a day each:
 - The X550 10 GbE ports hit `Tx Unit Hang` under sustained load until GRO,
   TSO, GSO and LRO are disabled on the interface.
 
+And one that is still open: the 3090 fell off the bus at 00:01 on 2026-09-16
+under another job's DDP (Xid 79, then Xid 154 on both cards) and **why has not
+been established**. Its own link was clean throughout; the A6000's marginal
+slot, which the same night's experiment did explain, was a different card. One
+`BadTLP` has been recorded on the 3090's root port since
+([log](log/2026-09-16-the-overclock-and-the-fabric.md)).
+
 ## Log
 
 | Date | Entry | Headline |
@@ -64,31 +88,70 @@ Two notes that cost a day each:
 | 2026-09-12 | [Two NVMe drives, and the benchmark that kept measuring the cache](log/2026-09-12-nvme-sustained-write.md) | write floors differ 2.5x; a test that stops before the cliff reports the cache |
 | 2026-09-12 | [A 347 GB model with 84 GB of it left on the drive](log/2026-09-12-deepseek-v41-first-run.md) | DeepSeek-V4.1-Flash at 20 tok/s on mainline llama.cpp, engram never loaded, and a prefill flag set wrong the whole time |
 | 2026-09-13 | [Getting ik_llama.cpp to run DeepSeek-V4.1](log/2026-09-13-deepseek-v41-on-ik-llama.md) | four graph changes, a perplexity gate that matches mainline on CPU and GPU, a quiet-box A/B that puts the port 20 % behind mainline on decode, and a DSpark draft that loads, drafts, and at a three-token block accepts 60 % once the target keeps its token embedding in bf16 (the draft borrows it; the 3-bit copy cost four to five points, the block mask and the head cost nothing); on a quiet box the three-token block decodes 19.9 tok/s against 14.1 without a draft, and pinned staging buffers change nothing; the same draft ported to mainline (three V4.1 rules, 52 lines) decodes 22.8 tok/s against 17.7, and 24.8 once the token's bytes were counted (the served path sits within 10 % of the memory wall) and the VRAM re-balanced to hold two more expert layer-equivalents, 25.6 with a third (the last step is inside the noise band), so the serving port now runs that build with the draft |
-| 2026-09-13 | [Putting the engram tables back at Q8_0](log/2026-09-13-engram-q8-repack.md) | 6 % lower perplexity for 125 GB that is never loaded; PopQA does not move; the thermal guard stops CPU decode at five minutes, and a 2.7 GHz cap fixes that for free |
+| 2026-09-13 | [Putting the engram tables back at Q8_0](log/2026-09-13-engram-q8-repack.md) | 6 % lower perplexity for 125 GB that is never loaded; the two tensor groups are additive and the 0.2 GB `engram_wkv` half is worth ~160× more perplexity per byte than the 125 GB table; PopQA does not move; the thermal guard stops CPU decode at five minutes, and a 2.7 GHz cap fixes that for free |
+| 2026-09-14 | [The ik gap was page faults, prefill on the served profile, and a queue with labels](log/2026-09-14-v41-gap-closed-prefill-and-queue.md) | the 20 % ik-vs-mainline decode gap closed to noise once the engram rows were prefetched with `posix_madvise(WILLNEED)` (faults 41–62 → 1–11 a token, first pass 13.6 → 18.4 tok/s), and the served profile's prefill and request queue measured on the same box |
 | 2026-09-14 | [The AIO comes out, an air cooler goes in](log/2026-09-14-air-cooler-swap.md) | the loop was letting a 2.7 GHz decode reach 89 °C; the air cooler holds a 64-thread stress at 43 °C; fan RPM lives in the BMC, not the Super I/O |
-| 2026-09-15 | [Splitting the DeepSeek-V4.1 port into two PRs](log/2026-09-15-splitting-the-v41-port.md) | the maintainer asked for two PRs, so the branch was rebased onto main (eighteen commits: the vision PR now creates `exp_probs_b_vl`, GLM5NEXT joined the swiglu guard, and the pinned-weights commit was already merged), the three follow-up commits folded into what they fix, and 101 comment lines cut to 66 by the rule that a comment stays only if breaking it breaks the code; both engines re-measured the same day because a two-day-old number against a moved base is not evidence — PPL 2.2355 ± 0.0626 against the reference branch's 2.2556, decode 20.4–20.7 against 21.2 tok/s; [#2455](https://github.com/ikawrakow/ik_llama.cpp/pull/2455) |
-| 2026-09-15 | [Prefill on the served model: the ubatch is worth 2.1×, the engine 1.15×](log/2026-09-15-prefill-ubatch-ik-vs-mainline.md) | same model, same placement, no draft: `-ub 1024 → 4096` takes an 11.9k prefill from 236 to 500 tok/s on ik (190 → 434 on mainline) for 2.8 GB of VRAM, decode unchanged; ik leads mainline 1.15–1.24× on this hybrid path; applied to serving the same morning (12k-document TTFT 50 → 25 s, decode unchanged, VRAM steady at 48.4/49.1 GB) |
-| 2026-09-15 | [The clock cap comes off, and a hero take without it](log/2026-09-15-clock-cap-removed.md) | the 2.7 GHz cap and boot service retired with the AIO gone; uncapped hero take of the served V4.1 profile: 12.8 tok/s per stream × 2, Tctl 62–65 °C, decode-window mean clock 3.44 GHz, thermal guard silent |
-| 2026-09-15 | [ExLlamaV3 behind a llama-server surface](log/2026-09-15-exl3-serve-and-tabbyapi-timings.md) | a llama-server-compatible front over exllamav3 whose `/props` engine block matches the files exactly (params 313 326 811 966, active 10 979 084 996 bytes a token), after four defects only the real model exposed; exllamav3's `time_generate` measured to span n decode passes (one token = one pass, 0.062 s), settling the rate as n / time; TabbyAPI #454's `timings` patch checked against main on six requests |
-| 2026-09-15 | [serving knob sweep](log/2026-09-15-serving-knob-sweep.md) | six one-knob arms against the live profile: `-rtr` −39 % prefill, KV q8_0 neutral (−450 MiB), fifth GPU layer OOMs with `-ub 4096`, `n_max` 4/5 −15/−20 % decode — the live profile stands |
-| 2026-09-15 | [A model that fits one card](log/2026-09-15-a-model-that-fits-one-card.md) | Qwen3.6-35B-A3B whole on the A6000: 132 tok/s at Q6_K, 140 at UD-Q4_K_XL, four streams +13 % — and the ceiling is a flat ~390 GB/s, half the card's 768. Not the power cap (47 % less budget costs 15 % of the rate) and not the expert gather (a dense 7 B on the same card reaches 421 GB/s); the 35 B MoE out-decodes that dense 7 B because it reads 2.75 GB a token against 3.57 |
-| 2026-09-15 | [GLM-5.3-Flash: first numbers](log/2026-09-15-glm-5.3-flash-first-run.md) | second MoE family on the same probes, ik main the day after its port merged: PPL 2.04, decode 17.0 → 18.7 tok/s with ten expert layers on the cards (about 1 % a layer, half what the expert bytes predict — not bandwidth-bound), prefill 353 tok/s; thirteen layers abort the prefill in the CUDA pool at `-ub 4096`; without the cards 8.3 tok/s (193 GB resident); `-t 16` = `-t 32`; the model's MTP layer as draft (ik PR #2399 merged locally) +12 % at 75 % acceptance; the "divergence" between builds was a 0.03-nat fork tipped by placement, not a graph change; on-card Q8_0 tensors regrafted: Q4_K +10 % decode for KLD 0.047 (7 % of top-1 tokens change, an imatrix recovers almost none of it), Q6_K +4 % for KLD 0.013 — bytes saved and KLD paid track each other; Q6_K graft + MTP draft 20.9 on the essay, 24.2 tok/s on a coding prompt (97 % acceptance), recorded with toktape; ExLlamaV3 1.5.0 per-expert CPU offload (`-mcs 195`) reaches 22.2 tok/s and climbing on the AVX2 tier, prefill 356, ahead of ik with the draft; the 3090 fell off the bus at 00:01 Sep 16 under another job's DDP, ~1 900 corrected AER errors on the A6000 root port since boot |
 | 2026-09-14 | [Memory clock: 3200 to 3600, and where the wall is](log/2026-09-14-memory-clock-3600.md) | bandwidth followed the clock one-for-one to 3600 (131 → 148 GB/s); 3666 lost the 1:1 fabric and returned 139 wrong bytes in ten minutes with the MCE counter at zero; 3733 and up do not POST; DRAM voltage on Auto stays 1.2 V whatever the clock, so 3600 runs at a manual 1.30 V; no FCLK item exists on this firmware |
-| 2026-09-16 | [What engram costs when four streams want different rows](log/2026-09-16-engram-and-concurrency.md) | E4 answered: major faults a token stay flat across one, two and four streams (22.6 / 25.9 / 24.2) while the total scales linearly, so **engram is not a concurrency bottleneck** and four streams give 1.4× aggregate — confirmed against a control that reran the single-stream arm last on the warmest cache (18.8 against 19.1). Two prompts at the same concurrency differ 2.5× in fault count for 1.6 % of the rate, so the fault count barely predicts the rate and WKS-20's 6.8 % is an upper bound. `--lazy-mode` turns out not to be an optimisation: with it off, `engram_embd` is an ordinary layer tensor and `-ngl 99` asks 232 GB of a 48 GB card, while naming it `=CPU` moves the host budget from 199 to 394 GiB on a 251 GB host. Pinning the tables in RAM is closed by arithmetic, not a run |
-| 2026-09-16 | [Two Qwen models three weeks old](log/2026-09-16-qwen38-flash-next-and-coder-next.md) | Qwen3.8-Flash-Next (125B-A6B plus a 51B n-gram table, 103.7 GiB) decodes **51.1 tok/s** with no draft across both cards and RAM, twice V4.1's drafted 25.05 at a similar size; its n-gram table costs ~5 % of decode when faulted from NVMe and 8.9 major faults a token, the engram finding again on a second architecture; Qwen3-Coder-Next IQ4_XS fits one card at 133 tok/s, so the fast/slow pair is measured. The MTP draft fails to load exactly as open PR #28097 describes (a second platform for it), and the #28497 indexer nondeterminism did not reproduce at CUDA 13.0 |
-| 2026-09-16 | [Every model that survived the storage pass, re-run](log/2026-09-16-every-kept-model-re-verified.md) | the slot move had flipped CUDA0 to the 3090 under `PCI_BUS_ID`, so every placement would have loaded 44–46 GB onto a 24 GB card — fixed once with `configs/gpu-order.env` (UUID order) and proven by the first load; then all seven kept files reproduced their recorded numbers (PPL 2.2355 to four decimals, Qwen 140/132, GLM exl3 22.4, served V4.1 25.05 warm) and the three source directories hashed clean; DDR4-3600 back on with zero errors on the moved link in 480 s of the load that gave 27; three toktape takes, including a 36-second single-stream clip that replaces the 7-second one |
+| 2026-09-15 | [A model that fits one card](log/2026-09-15-a-model-that-fits-one-card.md) | Qwen3.6-35B-A3B whole on the A6000: 132 tok/s at Q6_K, 140 at UD-Q4_K_XL, four streams +13 % — and the ceiling is a flat ~390 GB/s, half the card's 768. Not the power cap (47 % less budget costs 15 % of the rate) and not the expert gather (a dense 7 B on the same card reaches 421 GB/s); the 35 B MoE out-decodes that dense 7 B because it reads 2.75 GB a token against 3.57 |
+| 2026-09-15 | [The clock cap comes off, and a hero take without it](log/2026-09-15-clock-cap-removed.md) | the 2.7 GHz cap and boot service retired with the AIO gone; uncapped hero take of the served V4.1 profile: 12.8 tok/s per stream × 2, Tctl 62–65 °C, decode-window mean clock 3.44 GHz, thermal guard silent |
+| 2026-09-15 | [Prefill on the served model: the ubatch is worth 2.1×, the engine 1.15×](log/2026-09-15-prefill-ubatch-ik-vs-mainline.md) | same model, same placement, no draft: `-ub 1024 → 4096` takes an 11.9k prefill from 236 to 500 tok/s on ik (190 → 434 on mainline) for 2.8 GB of VRAM, decode unchanged; ik leads mainline 1.15–1.24× on this hybrid path; applied to serving the same morning (12k-document TTFT 50 → 25 s, decode unchanged, VRAM steady at 48.4/49.1 GB) |
+| 2026-09-15 | [ExLlamaV3 behind a llama-server surface](log/2026-09-15-exl3-serve-and-tabbyapi-timings.md) | a llama-server-compatible front over exllamav3 whose `/props` engine block matches the files exactly (params 313 326 811 966, active 10 979 084 996 bytes a token), after four defects only the real model exposed; exllamav3's `time_generate` measured to span n decode passes (one token = one pass, 0.062 s), settling the rate as n / time; TabbyAPI #454's `timings` patch checked against main on six requests |
+| 2026-09-15 | [GLM-5.3-Flash: first numbers](log/2026-09-15-glm-5.3-flash-first-run.md) | second MoE family on the same probes, ik main the day after its port merged: PPL 2.04, decode 17.0 → 18.7 tok/s with ten expert layers on the cards (about 1 % a layer, half what the expert bytes predict — not bandwidth-bound), prefill 353 tok/s; thirteen layers abort the prefill in the CUDA pool at `-ub 4096`; without the cards 8.3 tok/s (193 GB resident); `-t 16` = `-t 32`; the model's MTP layer as draft (ik PR #2399 merged locally) +12 % at 75 % acceptance; the "divergence" between builds was a 0.03-nat fork tipped by placement, not a graph change; on-card Q8_0 tensors regrafted: Q4_K +10 % decode for KLD 0.047 (7 % of top-1 tokens change, an imatrix recovers almost none of it), Q6_K +4 % for KLD 0.013 — bytes saved and KLD paid track each other; Q6_K graft + MTP draft 20.9 on the essay, 24.2 tok/s on a coding prompt (97 % acceptance); ExLlamaV3 1.5.0 per-expert CPU offload (`-mcs 195`) reaches 22.2 tok/s and climbing on the AVX2 tier, prefill 356, ahead of ik with the draft; the 3090 fell off the bus at 00:01 Sep 16 under another job's DDP, ~1 900 corrected AER errors on the A6000 root port since boot |
+| 2026-09-15 | [Serving knobs, one at a time](log/2026-09-15-serving-knob-sweep.md) | six one-knob arms against the live profile: `-rtr` −39 % prefill, KV q8_0 neutral (−450 MiB), fifth GPU layer OOMs with `-ub 4096`, `n_max` 4/5 −15/−20 % decode — the live profile stands |
+| 2026-09-15 | [Splitting the DeepSeek-V4.1 port into two PRs](log/2026-09-15-splitting-the-v41-port.md) | the maintainer asked for two PRs, so the branch was rebased onto main (eighteen commits: the vision PR now creates `exp_probs_b_vl`, GLM5NEXT joined the swiglu guard, and the pinned-weights commit was already merged), the three follow-up commits folded into what they fix, and 101 comment lines cut to 66 by the rule that a comment stays only if breaking it breaks the code; both engines re-measured the same day because a two-day-old number against a moved base is not evidence — PPL 2.2355 ± 0.0626 against the reference branch's 2.2556, decode 20.4–20.7 against 21.2 tok/s; [#2455](https://github.com/ikawrakow/ik_llama.cpp/pull/2455) |
 | 2026-09-16 | [The night of ten boots, and a slot that was out of margin](log/2026-09-16-the-overclock-and-the-fabric.md) | both cards fell off the bus under another job's DDP (Xid 79 then 154); a four-condition experiment on the A6000's link — idle/loaded × Gen4/Gen3 — put 27 corrected errors in 483 s of Gen4 under load against zero in every other cell, so it was eye margin at 16 GT/s and not damage; DDR4-3600 was not sufficient to explain it (the errors returned at 3200); moving the card out of the near-bottom slot to `60:01.1` gave zero errors in 502 s of the same load, though the move changed slot and seating together and that is unrecoverable; the idle 2.5 GT/s that had an asterisk on a week of PCIe-bound numbers turned out to be the GPU's own downclocking; still open is why the 3090 fell, its link being clean throughout. Same entry: the first training run on the new slot is fabric-clean at 87 °C with `SW Thermal Slowdown` on ~100 % of the time and the power cap pinned beside it, the BMC's per-slot temperature sensor agreeing with the die at 86 °C, and six `CHA_FAN` headers reading `Disabled` because the case fans are on the PSU |
+| 2026-09-16 | [Every model that survived the storage pass, re-run](log/2026-09-16-every-kept-model-re-verified.md) | the slot move had flipped CUDA0 to the 3090 under `PCI_BUS_ID`, so every placement would have loaded 44–46 GB onto a 24 GB card — fixed once with `configs/gpu-order.env` (UUID order) and proven by the first load; then all seven kept files reproduced their recorded numbers (PPL 2.2355 to four decimals, Qwen 140/132, GLM exl3 22.4, served V4.1 25.05 warm) and the three source directories hashed clean; DDR4-3600 back on with zero errors on the moved link in 480 s of the load that gave 27; three toktape takes, including a 36-second single-stream clip that replaces the 7-second one |
+| 2026-09-16 | [What engram costs when four streams want different rows](log/2026-09-16-engram-and-concurrency.md) | E4 answered: major faults a token stay flat across one, two and four streams (22.6 / 25.9 / 24.2) while the total scales linearly, so **engram is not a concurrency bottleneck** and four streams give 1.4× aggregate — confirmed against a control that reran the single-stream arm last on the warmest cache (18.8 against 19.1). Two prompts at the same concurrency differ 2.5× in fault count for 1.6 % of the rate, so the fault count barely predicts the rate and WKS-20's 6.8 % is an upper bound. `--lazy-mode` turns out not to be an optimisation: with it off, `engram_embd` is an ordinary layer tensor and `-ngl 99` asks 232 GB of a 48 GB card, while naming it `=CPU` moves the host budget from 199 to 394 GiB on a 251 GB host. Pinning the tables in RAM is closed by arithmetic, not a run |
+| 2026-09-16 | [What the 3090 is actually worth](log/2026-09-16-what-the-3090-is-worth.md) | four alternating arms, two cards against the A6000 alone on the served V4.1 profile: removing the 24 GB card costs **2.7 % of decode on the mean of ten runs and 0.3 % on the warm four**, against the 3–7 % the per-layer figures predicted. With one card the model loads to 47 260 of 49 140 MiB, so the 20 GB does not migrate to the other card — it goes to the host, which absorbs it. The per-prompt scatter runs −11.7 % to +6.2 % and the draft columns say why: the placement changes the numerics, so the two configurations answer with different text and the draft is right a different fraction of the time (50.6 % against 59.6 % on one prompt). That channel is the same size as the bandwidth one, so this design bounds the cost without separating them; a no-draft arm would |
+| 2026-09-16 | [Two Qwen models three weeks old](log/2026-09-16-qwen38-flash-next-and-coder-next.md) | Qwen3.8-Flash-Next (125B-A6B plus a 51B n-gram table, 103.7 GiB) decodes **51.1 tok/s** with no draft across both cards and RAM, twice V4.1's drafted 25.05 out of a quarter of the bytes (110.1 GiB against 444.2 — an "at a similar file size" clause was struck from that entry the same day); its n-gram table costs ~5 % of decode when faulted from NVMe and 8.9 major faults a token, the engram finding again on a second architecture; Qwen3-Coder-Next IQ4_XS fits one card at 133 tok/s, so the fast/slow pair is measured. The MTP draft fails to load exactly as open PR #28097 describes (a second platform for it), and the #28497 indexer nondeterminism did not reproduce at CUDA 13.0 |
 
 ## Queued
 
-- **Video generation** — how long a clip fits in 48 GB, and whether the 3090
-  is useful as a second worker or only as extra memory.
-- **Image generation** — batch throughput at high resolution, and whether
-  offloading the text encoder to the CPU is free.
-- **Audio** — music and speech generation, latency rather than throughput.
-- **Back to LLMs** — V4.1 Flash now runs (above); next is concurrency, an
-  ik_llama architecture port to unlock `-ser` and low-bit expert quants, and a
-  second 32 GB card to see how far the CPU can be pushed out of the loop.
+The next project is a music video made on this machine — image generation,
+video generation, and music generation — so the queue is now mostly about
+what that costs here. Everything in this section is a **question**, not a
+measurement; the searched figures behind them were not taken on this box.
+
+- **Is a diffusion denoise step compute-bound or bandwidth-bound?** This is
+  the question the rest depend on, and it can be answered without buying
+  anything: [`tools/ik/gpu-power-sweep.sh`](tools/ik/gpu-power-sweep.sh) runs
+  the same take at several board power limits, so the slope of rate against
+  power says which regime a fixed-seed Wan/Hunyuan step is in. The LLM answer
+  is already in hand and is the bandwidth-bound signature — 47 % less power
+  costs 15 % of the rate — so a much steeper slope on a DiT step is the
+  compute-bound one. Until this is measured, "which GPU" has no evidence
+  behind it: the paper gap between Ampere and Ada is over 2× in dense tensor
+  fp16 and Ampere has no FP8 path at all, while one published image-gen
+  benchmark puts the same two cards 1.24× apart.
+- **How long a clip fits in 48 GB, and at what resolution.** The capacity
+  question from the first version of this queue, still unanswered here.
+- **Fan control, which is a prerequisite rather than an experiment.** No
+  chassis fan is on a header (see the machine table); a 100 %-duty render
+  queue is the workload this machine is least equipped to cool, and the
+  A6000 already sits at 86–87 °C with thermal slowdown pinned on a sustained
+  load. And the LLM measurement that a throttle is cheap — 47 % of the power
+  budget for 15 % of the rate — does **not** transfer: that slope is the
+  bandwidth-bound one, and a compute-bound workload pays much closer to
+  linear.
+- **Music generation is not a hardware question.** ACE-Step-class models are
+  4–20 GB and seconds per song; the 24 GB card already covers that third of
+  the workload, which is worth stating because it means it carries no weight
+  in a GPU decision.
+- ~~**What removing the 3090 would cost.**~~ **Measured** —
+  [under 3 % of decode, and 0.3 % on the warm rows](log/2026-09-16-what-the-3090-is-worth.md).
+  What is still open is how much of even that is bandwidth: the placement
+  change moves the numerics, which moves the draft's acceptance rate, and the
+  two effects are the same size. A no-draft arm separates them.
+- **Back to LLMs** — the ik_llama architecture port is done and filed
+  (#2455), so the levers it was for are now the work: `-ser`, the low-bit
+  expert quants, and per-expert rather than per-layer placement (WKS-23's
+  routing histogram is the pre-study). ~~Concurrency~~ answered in E4.
+  ~~A second 32 GB card to see how far the CPU can be pushed out of the
+  loop~~ — closed on arithmetic rather than a run: expert layers on a card
+  are worth about 1 % of decode each on GLM-5.3-Flash and about 3 % on
+  Qwen3.8-Flash-Next, and the fast/slow pair wants about 112 GB of VRAM
+  (68 for the slow model's current placement, ~44 for Coder-Next with 32k)
+  against the 72 GB installed, so 32 GB moves neither.
 
 ## Layout
 
@@ -103,16 +166,33 @@ CLAUDE.md   context for an agent working in this repo
 
 ## Upstream
 
+Running unreleased models on this hardware keeps landing in other people's
+untested paths. The full record — including the findings that were
+investigated and deliberately **not** filed, which are worth as much to the
+next session — is
+[`docs/upstream-contributions.md`](docs/upstream-contributions.md). What has
+landed or is open:
+
 | Date | Project | What | Outcome |
 |---|---|---|---|
-| 2026-09-11 | ik_llama.cpp | [#2436](https://github.com/ikawrakow/ik_llama.cpp/pull/2436) — a detected allocation failure became a segfault because a `nullptr` graph was dereferenced | open |
+| 2026-09-11 | ik_llama.cpp | [#2436](https://github.com/ikawrakow/ik_llama.cpp/pull/2436) — a detected allocation failure became a segfault because a `nullptr` graph was dereferenced | **merged** 2026-09-14 |
+| 2026-09-14 | ik_llama.cpp | [#2443](https://github.com/ikawrakow/ik_llama.cpp/pull/2443) — gguf-py sizes tensors without the per-row metadata twenty of the fork's quant types carry, so every read-then-write script wrote each IQ4_KSS tensor rows × 4 bytes short. This is where the all-NaN logits came from | **merged** 2026-09-14 |
+| 2026-09-14 | ik_llama.cpp | [#2444](https://github.com/ikawrakow/ik_llama.cpp/pull/2444) — `GGML_CUDA_NO_PINNED_WEIGHTS`: `-ot` overrides to the CPU drop mmap, so weights land in pinned memory, which cannot succeed when they exceed RAM | **merged** 2026-09-15 |
+| 2026-09-15 | ik_llama.cpp | [#2455](https://github.com/ikawrakow/ik_llama.cpp/pull/2455) — the DeepSeek-V4.1 architecture (`deepseek41`): shared compressed KV streams, lagged hyper-connections, the low-rank-only query norm, the engram tables, and the row prefetch as its own commit. +794/−108 across 13 files | open |
+| 2026-09-15 | exllamav3 | [#376](https://github.com/turboderp-org/exllamav3/pull/376) — `can_defer_load` read an env var that `-mcs` never sets, so `-mcs` plus the stats env let the router load after the permutation and the model generated garbage at a normal token rate. One line, plus a test that fails on the unpatched 1.5.0 | open |
+| 2026-09-14 | llama.cpp (V4.1 branch) | [vcruz305#1](https://github.com/vcruz305/llama.cpp/pull/1) — `dflash`: accept DeepSeek-V4.1 DSpark drafts. 17.70 → 22.78 tok/s at block 3 · [#2](https://github.com/vcruz305/llama.cpp/pull/2) — `resolve_fused_ops` read a layer-boundary placement as missing support and disabled the fused HC pre op on every layer · [#3](https://github.com/vcruz305/llama.cpp/pull/3) — `llama_model_n_swa()` was not extended to `DEEPSEEK41`, so every follow-up turn on a long document re-prefilled ~2 600 tokens instead of ~560 (TTFT 21 → 8.8 s) | open |
 | 2026-09-11 | ik_llama.cpp | [#2437](https://github.com/ikawrakow/ik_llama.cpp/pull/2437) — the loader accepted a tensor whose GGUF region is smaller than its type requires, so every short tensor read its tail from the next one | closed, declined |
-| 2026-09-11 | — | [A published IQ4_KSS file reserves 4 bytes per row too few](docs/iq4-kss-short-tensors.md), which is where the NaN came from. Not an engine defect; nothing filed upstream | for the publisher |
-
-The method, including the two mistakes that cost the most, is in
-[`docs/upstream-contributions.md`](docs/upstream-contributions.md).
+| 2026-09-11 | — | [A published IQ4_KSS file reserves 4 bytes per row too few](docs/iq4-kss-short-tensors.md). ~~Not an engine defect~~ — superseded by #2443 above, which is where it actually came from | superseded |
 
 ## Reusable pieces
+
+- [`configs/gpu-order.env`](configs/gpu-order.env) — which card is CUDA0, by
+  UUID, never by slot. One slot move inverted `CUDA_DEVICE_ORDER=PCI_BUS_ID`
+  and every `-ot` string, `-ts` and `-gs` in this repo assumed the old order;
+  a training launcher with `CUDA_VISIBLE_DEVICES=0` put a 38 GB job on the
+  24 GB card and OOMed at step 52000. Source it before launching anything
+  that names a CUDA index — and note that reading the file is not the test,
+  the first load is.
 
 - [`docs/running-a-model-larger-than-memory.md`](docs/running-a-model-larger-than-memory.md)
   — what to run a 510 GB model on when there is 72 GB of VRAM: the measured
@@ -129,11 +209,41 @@ The method, including the two mistakes that cost the most, is in
   quants, huge pages, speculation — with the arithmetic for each, what `-rtr`
   costs on a model this size, and why `-ot` cannot place individual experts.
 
+- [`docs/porting-v41-to-ik-llama.md`](docs/porting-v41-to-ik-llama.md) — why a
+  new DeepSeek generation needed porting at all (every lever that would plausibly
+  make the file faster — `-ser`, `-thp`, `-rtr`, the IQ2/IQ3/IQ4_KSS quants — is
+  ik-only, and ik stopped at the model's first line), and then the port as a
+  write-up rather than a diff.
+
+- [`tools/fetch-gguf.sh`](tools/fetch-gguf.sh) — model files come down with
+  this: parallel range workers, the expected size read from the API, and a file
+  that only appears at its final path when its byte count matches. Measured
+  2026-09-15: one connection 28 MB/s against eight at 80 MB/s on the same file
+  and link, so a 29 GB model is six minutes rather than seventeen. A
+  half-written `.gguf` where a loader can see it is the failure this prevents.
+
 - [`configs/hf-fetch/`](configs/hf-fetch) — a HuggingFace mirror that verifies:
   a manifest of every file's published sha256, workers that divide the work by
   taking locks rather than by hand-split argument lists, and a gate that hashes
   before declaring the download done. Written after two downloaders on one file
   produced 39 GB of interleaved garbage with a plausible file size.
+
+- [`tools/ik/gpu-power-sweep.sh`](tools/ik/gpu-power-sweep.sh) — a `throttled`
+  flag is a question, not a finding. Every card this machine records says
+  `throttled: yes`, at 150 W and at 300 W alike, so the flag cannot tell a
+  binding cap from a cap that was brushed once. This answers it by taking the
+  budget away: the same take at several board limits, with the default restored
+  on every exit path. Measured 2026-09-15: 47 % less power cost 15 % of the
+  rate, so the flag had been pointing at the wrong thing all day.
+
+- [`tools/mem3600-load.sh`](tools/mem3600-load.sh) and
+  [`tools/pcie-aer-snapshot.sh`](tools/pcie-aer-snapshot.sh) — the fabric pair:
+  a two-rank NCCL all-reduce that holds both links at line rate while the
+  corrected-error counters, the throttle reasons and both temperature channels
+  are sampled beside it, and a reader for the AER counters on every GPU port.
+  The load is what separated a marginal slot from a damaged card (27 corrected
+  errors in 483 s in one slot, 0 in 480 s in another), and it is what any new
+  card in this box gets pointed at before a number from it is believed.
 
 - [`docs/v41-experiment-plan.md`](docs/v41-experiment-plan.md) — the runs that
   would confirm or break the projections above, written before the first one:
@@ -156,12 +266,23 @@ The method, including the two mistakes that cost the most, is in
   ASMB9-iKVM remote console, and where the fan curves actually are. Menu paths
   and manual page numbers included.
 
-- [`configs/llm-serve.sh`](configs/llm-serve.sh) — the serving command from
-  the first entry, as a systemd `ExecStart`.
+- [`configs/v41-serve.sh`](configs/v41-serve.sh) — the serving command for
+  DeepSeek-V4.1-Flash, as a systemd `ExecStart`: one `-ot` rather than several
+  (this branch keeps only the last), the catch-all `exps=CPU` last, and a
+  comment for each number saying what it was traded against.
+  [`configs/llm-serve.sh`](configs/llm-serve.sh) is the older V4-Flash one.
 - [`configs/tps.py`](configs/tps.py) — streams a completion and reports the
   decode rate from the server's own timings, not a stopwatch.
-- [`tools/pi-local.tape`](tools/pi-local.tape) — the VHS tape for the clip
-  above, with the two traps it had to work around written down.
+- [`tools/v41/v41-take.sh`](tools/v41/v41-take.sh),
+  [`tools/qwen38/qwen38-take.sh`](tools/qwen38/qwen38-take.sh),
+  [`tools/ik/ik-vram-take.sh`](tools/ik/ik-vram-take.sh) and
+  [`tools/exl3/exl3serve-take.sh`](tools/exl3/exl3serve-take.sh) — one runner
+  per model family, all the same shape: gate on the lease and an idle card,
+  take the placement as a required argument rather than a default, record
+  per-card VRAM by UUID, signal only the pid captured at spawn, and end on a
+  sentinel. Delegates get one of these, not an instruction about the protocol.
+- [`tools/pi-local.tape`](tools/pi-local.tape) — the VHS tape for the oldest
+  clip here, with the two traps it had to work around written down.
 - [`tools/v41-demo.py`](tools/v41-demo.py) + [`tools/v41-korean.tape`](tools/v41-korean.tape)
   — the V4.1 recording: answer on the left, the machine on the right. Runs on
   the workstation so the panel reads `/proc` next to the server. Carries what
@@ -198,4 +319,6 @@ The method, including the two mistakes that cost the most, is in
 - [`configs/thermal-guard.sh`](configs/thermal-guard.sh) — a watchdog that
   reads CPU and GPU temperature (and, while the AIO was fitted, coolant and pump) every 5 seconds and stops
   the inference load, and only the inference load, after 30 seconds of a
-  genuine cooling problem. Written for unattended weekends.
+  genuine cooling problem. Written for unattended weekends. Note its blind
+  spot for the queue above: it reads die temperature, and GDDR6X memory
+  junction is not exposed through `nvidia-smi` on a consumer card.
