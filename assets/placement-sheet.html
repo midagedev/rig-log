@@ -1,4 +1,4 @@
-<title>Expert Placement Sheet</title>
+<title>Placement Sheet</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600&display=swap">
 <style>
   :root{
@@ -11,6 +11,7 @@
     --a6000:#12566f;
     --rtx3090:#3a8ba3;
     --cpu:#bd6a34;
+    --nvme:#7a8a92;
     --mark:#9a3b26;
   }
   *{box-sizing:border-box}
@@ -42,17 +43,21 @@
 
   .setup{display:grid;gap:1.1cqh;font-size:2.7cqh;line-height:1.3}
   .setup div{display:grid;grid-template-columns:7.5cqw 1fr;gap:1cqw}
-  .setup dt{color:var(--ink-3)}
+  .setup dt{color:var(--ink-2)}
   .setup dd{margin:0}
 
-  .map{display:grid;grid-template-columns:repeat(43,1fr);gap:0.4cqw;align-items:end;
-    height:8.5cqh;margin-top:2.6cqh}
+  .map{display:grid;grid-template-columns:repeat(40,1fr);gap:0.4cqw;align-items:end;
+    height:15cqh;margin-top:4cqh}
   .cell{height:100%;border:1px solid rgba(18,48,63,.3)}
   .cell.g0{background:var(--a6000)}
   .cell.g1{background:var(--rtx3090)}
   .cell.cpu{background:var(--cpu);opacity:.5;height:56%}
-  .maplbl{margin:1.1cqh 0 0;font-size:2.3cqh;color:var(--ink-3);line-height:1.35}
-  .legend{display:flex;flex-wrap:wrap;gap:0.9cqh 2.6cqw;margin-top:1.6cqh;font-size:2.55cqh}
+  .cell.mix{background:linear-gradient(90deg,var(--a6000) 0 33.333%,var(--rtx3090) 33.333% 100%)}
+  .nvme{display:grid;grid-template-columns:repeat(2,1fr);gap:0.4cqw;height:5cqh;margin-top:0.9cqh}
+  .nvme .cell{background:repeating-linear-gradient(135deg,var(--nvme) 0 4px,transparent 4px 8px);
+    border:1px dashed rgba(18,48,63,.45)}
+  .maplbl{margin:1.1cqh 0 0;font-size:2.3cqh;color:var(--ink-2);line-height:1.35}
+  .legend{display:flex;flex-wrap:wrap;gap:0.9cqh 2.2cqw;margin-top:2.2cqh;font-size:2.4cqh}
   .legend div{display:flex;align-items:center;gap:0.8cqw}
   .sw{width:2.2cqh;height:2.2cqh;flex:none;border:1px solid rgba(18,48,63,.35)}
 
@@ -65,9 +70,9 @@
   tr.kept td:last-child{color:var(--mark)}
   tr.kept td:first-child::before{content:"▸ ";color:var(--mark)}
 
-  .obs{margin:2.2cqh 0 0;display:grid;gap:1cqh;font-size:2.4cqh;line-height:1.34}
+  .obs{margin:1.8cqh 0 0;display:grid;gap:0.7cqh;font-size:2.4cqh;line-height:1.34}
   .obs div{display:grid;grid-template-columns:2.2cqw 1fr;gap:0.6cqw;color:var(--ink-2)}
-  .obs i{font-style:normal;color:var(--ink-3)}
+  .obs i{font-style:normal;color:var(--ink-2)}
   .obs b{color:var(--ink);font-weight:600}
 
   @media (max-width:760px){
@@ -88,73 +93,59 @@
 
 <div class="sheet">
   <div class="head">
-    <div class="meta"><span>Experiment 001 · 2026-09-11</span><span>github.com/midagedev/rig-log</span></div>
-    <h1>Splitting a 284 B mixture-of-experts model across two GPUs and system RAM</h1>
-    <p class="q">Question: with 72 GB of VRAM and 155 GB of weights, what actually
-      limits single-stream decode — and which knob moves it?</p>
+    <div class="meta"><span>Served profile · 2026-09-16</span><span>github.com/midagedev/rig-log</span></div>
+    <h1>Serving a 444 GiB model on 72 GB of VRAM, and what the second card is worth</h1>
+    <p class="q">Question: the weights sit in four tiers, from a 48 GB card down to
+      a file that is never read into memory. What does each tier actually buy?</p>
   </div>
 
   <main>
     <section>
       <p class="lbl">Setup</p>
       <div class="setup">
-        <div><dt>model</dt><dd>DeepSeek-V4-Flash-0731, 4-bit GGUF, 155 GB<br>
-          43 layers · 256 experts each · 6 fire per token</dd></div>
-        <div><dt>engine</dt><dd>ik_llama.cpp <code>3bb386eb</code>, <code>-ot</code> per-tensor placement</dd></div>
-        <div><dt>host</dt><dd>Threadripper PRO 5975WX · 256 GB DDR4-3200, 8 channels<br>
-          RTX A6000 48 GB + RTX 3090 24 GB</dd></div>
-        <div><dt>method</dt><dd>400-token completion, rate read from the server's
-          own timings</dd></div>
+        <div><dt>model</dt><dd>DeepSeek-V4.1-Flash Q3_K_M · 444.2 GiB<br>
+          40 layers · two 42.2 GB engram tables</dd></div>
+        <div><dt>engine</dt><dd>llama.cpp V4.1 + master, -ot placement<br>
+          DSpark draft block 3, --lazy-mode auto</dd></div>
+        <div><dt>host</dt><dd>Threadripper PRO 5975WX, 32 cores<br>
+          256 GB DDR4-3600, 8 channels<br>
+          A6000 48 GB + 3090 24 GB</dd></div>
+        <div><dt>method</dt><dd>five 200-token completions, temp 0<br>
+          no prefix cache · quiet box, witnessed</dd></div>
       </div>
 
-      <div class="map">
-        <div class="cell g0"></div><div class="cell g0"></div><div class="cell g0"></div>
-        <div class="cell g0"></div><div class="cell g0"></div><div class="cell g0"></div>
-        <div class="cell g0"></div>
-        <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
-        <div class="cell cpu"></div>
-        <div class="cell g1"></div><div class="cell g1"></div><div class="cell g1"></div>
-        <div class="cell g1"></div>
-        <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
-        <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
-        <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
-        <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
-        <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
-        <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
-        <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
-        <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
-        <div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div>
-        <div class="cell cpu"></div>
-      </div>
-      <p class="maplbl">Where each layer's routed experts were placed, layer 0 to 42</p>
+      <div class="map"><div class="cell g0"></div><div class="cell g0"></div><div class="cell g0"></div><div class="cell g0"></div><div class="cell g1"></div><div class="cell g1"></div><div class="cell mix"></div><div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div><div class="cell cpu"></div></div>
+      <div class="nvme"><div class="cell"></div><div class="cell"></div></div>
+      <p class="maplbl">Routed experts by layer, 0&#8211;39; the tables, nowhere</p>
       <div class="legend">
-        <div><i class="sw" style="background:var(--a6000)"></i><span>A6000 · 7</span></div>
-        <div><i class="sw" style="background:var(--rtx3090)"></i><span>3090 · 4</span></div>
-        <div><i class="sw" style="background:var(--cpu);opacity:.5"></i><span>DDR4 + 32 cores · 32</span></div>
+        <div><i class="sw" style="background:var(--a6000)"></i><span>A6000 · 4&#8531;</span></div>
+        <div><i class="sw" style="background:var(--rtx3090)"></i><span>3090 · 2&#8532;</span></div>
+        <div><i class="sw" style="background:var(--cpu);opacity:.5"></i><span>DDR4 · 33</span></div>
+        <div><i class="sw" style="background:repeating-linear-gradient(135deg,var(--nvme) 0 3px,transparent 3px 6px)"></i><span>NVMe · 2</span></div>
       </div>
     </section>
 
     <section>
-      <p class="lbl">Measured — decode, tok/s</p>
+      <p class="lbl">Measured — decode, tok/s, four alternating arms</p>
       <table>
-        <tr><td>FreeToken, expert offload to one GPU</td><td>16.0</td></tr>
-        <tr><td>FreeToken, CPU hybrid</td><td>21.0</td></tr>
-        <tr><td>ik_llama.cpp, experts split as above</td><td>24.6</td></tr>
-        <tr><td>· with 5 more expert layers in VRAM</td><td>25.0</td></tr>
-        <tr><td>· with a draft model, 5 tokens ahead</td><td>19.2</td></tr>
-        <tr class="kept"><td>· with a draft model, 2 tokens ahead</td><td>29.1</td></tr>
+        <tr><td>Two cards, first pass (3 prompts, cold)</td><td>20.43</td></tr>
+        <tr><td>Two cards, second pass (warm)</td><td>23.84</td></tr>
+        <tr><td>A6000 alone, first pass</td><td>19.50</td></tr>
+        <tr class="kept"><td>A6000 alone, second pass</td><td>23.76</td></tr>
       </table>
 
       <div class="obs">
-        <div><i>1</i><span>Draft acceptance, not placement, sets the rate.
-          Repeat runs gave <b>25–33 tok/s</b> and tracked acceptance (45–70%).</span></div>
-        <div><i>2</i><span>More experts in VRAM bought <b>0.4 tok/s</b>. VRAM spent on
-          the draft model was worth more than VRAM spent on experts.</span></div>
-        <div><i>3</i><span>Prefill got <b>worse</b> with speculation: 259 → 227 tok/s.
-          It only helps the token-at-a-time path.</span></div>
-        <div><i>4</i><span>Three dead ends: an engine-specific quantization that NaNs
-          under the server but not the CLI, KV compression crashing on long prompts,
-          and a draft model that failed silently until its context was capped.</span></div>
+        <div><i>1</i><span>The 3090's 20.0 GB of expert layers is worth <b>2.7&#8201;%</b>
+          of decode on the mean of ten runs and <b>0.3&#8201;%</b> on the warm rows,
+          against the 3&#8211;7&#8201;% the per-layer figures predicted.</span></div>
+        <div><i>2</i><span>With one card the A6000 fills to <b>47&#8201;260 of 49&#8201;140 MiB</b>.
+          The work does not move to the other card — it moves to the host, which absorbs it.</span></div>
+        <div><i>3</i><span>Placement moves the numerics, so the two arms
+          answer with different text and the draft is right a different share of the
+          time — <b>50.6&#8201;% against 59.6&#8201;%</b> on one prompt. That effect is as
+          big as the memory-bandwidth one, so this run bounds the cost without separating them.</span></div>
+        <div><i>4</i><span>The two engram tables, <b>84 GB</b>, are never resident:
+          a token reads 48 rows of 384 million through <code>ggml_get_rows</code> — 5.2 KiB.</span></div>
       </div>
     </section>
   </main>

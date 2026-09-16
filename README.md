@@ -48,7 +48,12 @@ and that is still the most unusual thing here:
 [DeepSeek-V4.1-Flash's first run](log/2026-09-12-deepseek-v41-first-run.md),
 and [what its conditional-memory tables cost](log/2026-09-16-engram-and-concurrency.md).
 
-[![Where the experts live, and what each engine measured](assets/placement-sheet.png)](assets/placement-sheet.png)
+[![The four tiers the served model sits in, and what the second card is worth](assets/placement-sheet.png)](assets/placement-sheet.png)
+
+*The served profile as one sheet: which tier holds each of the forty layers'
+routed experts, the two engram tables that are never placed anywhere, and the
+four-arm run that priced the second card. Source and re-screenshot instructions
+are [`assets/placement-sheet.html`](assets/placement-sheet.html).*
 
 ## The machine
 
@@ -304,7 +309,33 @@ landed or is open:
   none, do not let a render throttle skip the finish check, and measure rate
   over the tokens that carried text rather than wall time that kept running.
 - [`assets/placement-sheet.html`](assets/placement-sheet.html) — the source of
-  the sheet above; edit and re-screenshot at 1280×720 for the next entry.
+  the sheet above. Edit it and re-shoot; the window has to be 750 tall, not 720,
+  because the sheet is a 16:9 box *inside* 48 px of body padding and a 720-tall
+  window clips its last row:
+
+  ```
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless \
+    --hide-scrollbars --force-device-scale-factor=2 --window-size=1280,750 \
+    --virtual-time-budget=6000 --screenshot=assets/placement-sheet.png \
+    file://$PWD/assets/placement-sheet.html
+  ```
+
+  `--virtual-time-budget` is not optional: the sheet pulls IBM Plex from Google
+  Fonts, and without it Chrome shoots before the webfonts arrive and the
+  headline comes out in a fallback face.
+
+- [`tools/sheet-fit-gate.py`](tools/sheet-fit-gate.py) — run this before you
+  re-shoot the sheet. It reports every element's `getBoundingClientRect` against
+  the box and says `ok`, `tight` or `CLIPPED` for each. Three vision rounds went
+  on one fault class here: `.setup dd` re-wraps at about 45 monospace characters,
+  so a line that looks like one line is two, and six surplus lines pushed the map
+  caption through the bottom border and the legend clean off the page. This
+  answers that in a second. It pins the sheet to 1248×702 itself rather than
+  trusting the window, because `--dump-dom` reports an `innerHeight` of 663
+  where `--screenshot` uses 750, and a gate measuring a box 87 px shorter than
+  the artifact reports failures that are not there. `tight` and `CLIPPED` are
+  separate answers on purpose: line-height leaves leading below the glyphs, so a
+  box edge inside the padding band is cramped but nothing is actually clipped.
 - [`tools/dequant-scan.cpp`](tools/dequant-scan.cpp) — reads one tensor out of
   a GGUF at `ggml_row_size` stride, dequantizes each row with ggml's own
   reference path, and reports every non-finite value with the raw block that
