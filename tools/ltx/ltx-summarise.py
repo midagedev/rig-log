@@ -36,7 +36,11 @@ def stamps(run_log):
 
 
 def witness(dmon_csv, uuid):
-    """second -> (watts, sm_mhz, celsius, util) for one card, numerically."""
+    """second -> (watts, sm_mhz, celsius, util, mib, mem_mhz) for one card, numerically.
+
+    mem_mhz is absent from takes recorded before 2026-09-16 12:50, when the memory
+    clock joined the query; those rows report it as 0 rather than failing to parse.
+    """
     rows = {}
     for line in dmon_csv.read_text(errors="replace").splitlines():
         f = [x.strip() for x in line.split(",")]
@@ -45,7 +49,8 @@ def witness(dmon_csv, uuid):
         hms = f[0].split()[-1].split(".")[0].split(":")
         try:
             rows[int(hms[0]) * 3600 + int(hms[1]) * 60 + int(hms[2])] = (
-                float(f[2]), float(f[3]), float(f[4]), float(f[6]))
+                float(f[2]), float(f[3]), float(f[4]), float(f[6]), float(f[5]),
+                float(f[8]) if len(f) > 8 and f[8].isdigit() else 0.0)
         except ValueError:
             continue  # nvidia-smi prints "[N/A]" for a field it cannot read
     return rows
@@ -102,18 +107,22 @@ def main():
         w = witness(d / "dmon.csv", uuid)
         st = stamps(d / "run.log")
         for i, (t0, text) in enumerate(st):
-            m = DENOISE.search(text)
-            if not m:
-                continue
             t1 = st[i + 1][0] if i + 1 < len(st) else max(w, default=t0)
             win = [v for s, v in w.items() if t0 <= s < t1]
             if not win or t1 <= t0:
                 continue
             n = len(win)
-            print(f"  denoise {m.group(2):>9}  {int(m.group(3)):3d}f  {int(m.group(1)):2d} steps  "
-                  f"{(t1 - t0) / int(m.group(1)):6.2f} s/step  "
+            m = DENOISE.search(text)
+            if m:
+                name = f"denoise {m.group(2)} {int(m.group(3))}f"
+                per = f"{(t1 - t0) / int(m.group(1)):6.2f} s/step"
+            else:
+                name = text.replace("Building ", "").strip()[:26]
+                per = f"{t1 - t0:6.0f} s     "
+            print(f"  {name:<26} {per}  {max(x[4] for x in win):6.0f} MiB  "
                   f"{sum(x[0] for x in win) / n:4.0f} W  "
-                  f"{sum(x[1] for x in win) / n:4.0f} MHz  "
+                  f"{sum(x[1] for x in win) / n:4.0f} MHz sm  "
+                  f"{sum(x[5] for x in win) / n:4.0f} MHz mem  "
                   f"{max(x[2] for x in win):3.0f} C  "
                   f"{sum(x[3] for x in win) / n:3.0f}% util")
         rss = re.search(r"Maximum resident set size \(kbytes\):\s*(\d+)",

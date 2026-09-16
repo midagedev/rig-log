@@ -61,7 +61,7 @@ if [ -n "$PLIM" ]; then
   say "power limit $PLIM W (default $PLIM_OLD W)"
 fi
 # witness: 1 Hz per-card power, SM clock, temperature, memory, utilisation, active throttle reasons
-nvidia-smi --query-gpu=timestamp,uuid,power.draw,clocks.sm,temperature.gpu,memory.used,utilization.gpu,clocks_throttle_reasons.active \
+nvidia-smi --query-gpu=timestamp,uuid,power.draw,clocks.sm,temperature.gpu,memory.used,utilization.gpu,clocks_throttle_reasons.active,clocks.mem \
   --format=csv,noheader,nounits -l 1 > $OUT/dmon.csv 2>&1 &
 SMPID=$!
 ARGS=(--transformer-path $M/diffusion_models/ltx-2.5-22b-distilled-transformer-bf16.safetensors
