@@ -32,9 +32,18 @@ RAM. That is 47.7 GB on the 48 GB card and 20.9 GB on the 24 GB card, with
 | run 2 | **51.1** | **414** | **0** |
 
 For comparison, DeepSeek V4.1 on the same box decodes 25.05 tok/s warm with a
-speculative draft, at a similar file size. This model is twice that rate with
-no draft at all, which is what 6B activated against V4.1's larger active set
-buys.
+speculative draft. This model is twice that rate with no draft at all, which is
+what 6B activated against V4.1's larger active set buys.
+
+> ~~at a similar file size.~~ **Struck 2026-09-16, later the same day**, while
+> this comparison was being carried into the README. The two files are not a
+> similar size and it is not close: `du --apparent-size` reads **110.1 GiB** for
+> this model's directory against **444.2 GiB** for the served V4.1 (324 G for
+> the plain Q3_K_M before the engram graft). Four times, not alike. The clause
+> made the sentence claim more than the runs support — *same size, double the
+> rate* is a much stronger statement than *a quarter of the size, double the
+> rate*, and only the second one was measured. The rate comparison and the
+> reason for it stand; the size equivalence was never measured and is withdrawn.
 
 The n-gram table behaves exactly like the engram tables did (WKS-20): reading
 its rows off NVMe costs about 5 % of decode, 48.7 against 51.1, and the cost is
