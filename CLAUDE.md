@@ -78,6 +78,16 @@ assets/     the clips and sheets
   Session conversation stays Korean.
 - **No private addresses, no hostnames, no passwords.** Check before commit;
   the serving script here has its host generalized on purpose.
+- **A clip's filename carries the recorder build, not the rate.** Measured
+  2026-09-16, the hard way: two sessions uploaded three generations of the same
+  two clips, and sorted by upload time the folder read `131tps-38s`,
+  `133tps-37s`, `132tps-37s` — the number in the name does not order with the
+  version, and nothing in any name said which build recorded it. The rate is
+  what stayed the same across builds (51.5, 50.7, 51.0 tok/s for one arm); the
+  recorder version is what changed, and it is what the card stamps. So:
+  `<model>-<quant>-<what>-<toktape version>.mp4`. Clip uploads are a shared
+  resource like the GPU lease and the working tree — one session owns them at a
+  time and says what went up.
 - **Every clip that leaves this repo names the recorder with its link**: "recorded
   with [toktape](https://github.com/midagedev/toktape)" in the tweet, the post,
   the PR body, the log line. The clip is also an advertisement for the tool
