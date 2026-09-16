@@ -160,7 +160,13 @@ a recoil at 60, a grapple at 115. The cat came out grey because the keyframe
 was grey — the pinned image, not the prompt, decides the look of frame 0, so
 the sheet's job shrinks to holding identity through the motion. That is the
 recipe going forward: **compose with a keyframe, hold identity with the
-sheet.** An orange keyframe is being rendered as this is written.
+sheet.** Confirmed with an orange keyframe (the same keyframe prompt, colour
+only, Krea-2, candidate 1 of 4): one continuous shot in every sampled frame,
+both giants at eight to nine storeys, paw on the shoulder at frame 5, a guard
+at 60, a crouched clinch at 115, the cat orange and the same cat throughout,
+the mecha the same design throughout; 132 s. The `IMAGE=` first-frame
+conditioning and `EXTRA=` passthrough are in
+[`tools/ltx/ltx-take.sh`](../tools/ltx/ltx-take.sh).
 
 A chain-script mistake cost 17 minutes earlier in the same round: a
 `until grep … take.log` wait on a sentinel file that the sheet runner never
