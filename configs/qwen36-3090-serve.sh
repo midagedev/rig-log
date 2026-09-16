@@ -8,7 +8,7 @@ set -eu
 B=${B:-$HOME/llama.cpp-v41-merged/build/bin/llama-server}
 M=${M:-/models/Qwen3.6-35B-A3B/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf}
 . /home/user/gpu-order.env
-export CUDA_VISIBLE_DEVICES=$GF3090_UUID
+export CUDA_VISIBLE_DEVICES=${GPU:-$GF3090_UUID}   # GPU=<uuid> to serve from another card (the A6000 once the 3090 is gone)
 exec "$B" -m "$M" --alias Qwen3.6-35B-A3B \
   -c ${CTX:-65536} -ngl 99 -fa on -t 16 -b 2048 -ub 512 \
   -ctk q8_0 -ctv q8_0 \
