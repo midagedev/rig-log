@@ -3,7 +3,10 @@
 # Measured 2026-09-16 (tools/v41/v41-3090-only.sh): attention, hyper-connections, KV and the DSpark
 # draft on the 3090 (22.5 GB at 64k context), all forty expert layers on the host; warm decode
 # 19.8 / 25.4 tok/s against 21.6 / 25.9 with the A6000 alone. Context 64k because Hermes Agent
-# refuses less. GGML_CUDA_NO_PINNED_WEIGHTS: -ot to CPU drops mmap and 283 GiB of pinned weights
+# refuses less. The chat template is passed as a file because the one embedded in the GGUF is the
+# V4 template: V4.1 renders the DSML tag names with a leading space ("<｜DSML｜ calls>"), so with the
+# embedded template the server returned every tool call as content (measured 2026-09-16, 19:40).
+# GGML_CUDA_NO_PINNED_WEIGHTS: -ot to CPU drops mmap and 283 GiB of pinned weights
 # do not fit 251 GB of RAM (ik #2444).
 set -eu
 B=${B:-$HOME/llama.cpp-v41-merged/build/bin/llama-server}
@@ -17,5 +20,5 @@ exec "$B" -m "$M" --alias DeepSeek-V4.1-Flash \
   --lazy-mode auto \
   -ot "exps=CPU" \
   -md "$D" --spec-type draft-dspark --spec-draft-n-max 3 -otd "output_norm=CUDA0" \
-  --jinja \
+  --jinja --chat-template-file "${TMPL:-$HOME/llama.cpp-v41-merged/models/templates/deepseek-ai-DeepSeek-V4.1-Flash.jinja}" \
   --host 127.0.0.1 --port 8001
