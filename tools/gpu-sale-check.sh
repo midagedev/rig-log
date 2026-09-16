@@ -64,10 +64,10 @@ if [ ! -x $TOOLS/gpu_burn ]; then
   ( cd $TOOLS && [ -d gpu-burn ] || git clone -q https://github.com/wilicc/gpu-burn.git ) && \
   ( cd $TOOLS/gpu-burn && make -j8 CUDAPATH=/usr/local/cuda > $OUT/build-gpu-burn.log 2>&1 && cp gpu_burn $TOOLS/ ) || { say "gpu_burn build failed (see build-gpu-burn.log)"; cleanup 1; }
 fi
-if [ ! -x $TOOLS/cuda_memtest ]; then
+if [ ! -x $TOOLS/cuda_memtest-bin ]; then   # the clone lives at $TOOLS/cuda_memtest, so the binary gets its own name
   say "building cuda_memtest"
   ( cd $TOOLS && [ -d cuda_memtest ] || git clone -q https://github.com/ComputationalRadiationPhysics/cuda_memtest.git ) && \
-  ( cd $TOOLS/cuda_memtest && mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc -DCMAKE_CUDA_ARCHITECTURES=${CUDA_ARCH:-86} > $OUT/build-memtest.log 2>&1 && make -j8 >> $OUT/build-memtest.log 2>&1 && cp cuda_memtest $TOOLS/ ) || { say "cuda_memtest build failed (see build-memtest.log)"; cleanup 1; }
+  ( cd $TOOLS/cuda_memtest && mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc -DCMAKE_CUDA_ARCHITECTURES=${CUDA_ARCH:-86} > $OUT/build-memtest.log 2>&1 && make -j8 >> $OUT/build-memtest.log 2>&1 && cp cuda_memtest $TOOLS/cuda_memtest-bin ) || { say "cuda_memtest build failed (see build-memtest.log)"; cleanup 1; }
 fi
 
 # --- witness ---
@@ -77,7 +77,7 @@ WPID=$!; echo $WPID > $OUT/witness.pid
 # --- 1. VRAM test ---
 say "memtest: $MEMTEST_PASSES passes over all VRAM"
 t0=$(date +%s)
-$TOOLS/cuda_memtest --num_passes $MEMTEST_PASSES --stress > $OUT/memtest.log 2>&1; MRC=$?
+$TOOLS/cuda_memtest-bin --num_passes $MEMTEST_PASSES --stress > $OUT/memtest.log 2>&1; MRC=$?
 say "memtest rc=$MRC after $(( $(date +%s)-t0 )) s; errors reported: $(grep -ciE "error|fail" $OUT/memtest.log)"
 
 # --- 2. burn with verification ---
