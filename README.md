@@ -177,6 +177,24 @@ measurement; the searched figures behind them were not taken on this box.
   measurement that a throttle is cheap (47 % of the power budget for 15 % of the
   rate) does **not** transfer: that is the bandwidth-bound slope, and the denoise
   is the compute-bound one at 0.87.
+- **Would a unified-memory box be better at this than a 48 GB card?** Derived,
+  not measured — there is none here. DGX Spark is 128 GB of unified LPDDR5x at
+  **273 GB/s** on sm_121, against this A6000's 48 GB at 768 GB/s. Today's
+  elasticities predict the shape of the answer rather than a number: the decode
+  stage is 0.81–1.07 on the memory clock, so at 0.36× the bandwidth it should
+  cost roughly 2.7× the time (41 s here → ~110 s), while the denoise is only 0.20
+  on that axis and would barely feel it. Against that, three things this card
+  cannot do at all: hold the whole ~70 GB pipeline resident instead of running
+  `--offload disk`, push the decode's 43 GB capacity wall out by ~2.7×, and load
+  the **nvfp4 transformer LTX-2.5 already ships** (18,721,732,720 bytes, a quarter
+  of the bf16 file) which Ampere refuses. So the prediction is a machine with a
+  different bottleneck, not a faster or slower one — favourable for video, where
+  capacity binds all of the time and bandwidth 30 % of it, and unfavourable for
+  the LLM this box serves, whose decode is pure bandwidth. What would settle it is
+  one run of the same take with the same instrument on such a machine. Apple's
+  unified memory has the better bandwidth-per-capacity (M3 Ultra ~800 GB/s to
+  512 GB) and cannot run this at all: `ltx_pipelines` is bound to CUDA SDPA and
+  ltx-kernels, so a port is the precondition rather than a tuning question.
 - **Music generation is not a hardware question.** ACE-Step-class models are
   4–20 GB and seconds per song; the 24 GB card already covers that third of
   the workload, which is worth stating because it means it carries no weight
