@@ -146,9 +146,21 @@ reference *strength* runs the other way from what its name suggests: 1.0
 keeps the reference latents clean, lower values denoise them into the target,
 and 0.75 was a more literal copy of the sheet than 1.0. Which sheets get
 copied and which get composed is not yet a rule this log can state; the
-first working take is, on the evidence so far, the outlier. Measured next:
-three more seeds of the same recipe, and a first-frame image pinned at
-frame 0 beside the sheet.
+first working take is, on the evidence so far, the outlier — measured: the
+working take's own sheet prompt and video prompt with only the cat's colour
+changed, seeds 23, 24, 25, 26, gave split / split / one body (cat-headed
+mecha, after a split first frame) / split. **Zero of four composed.**
+
+What did compose, every sampled frame, was pinning frame 0: the same recipe
+with `IMAGE="<composed keyframe> 0 1.0"` beside the sheet (the keyframe is a
+Krea-2 still of both giants in the street, made earlier for the Echo
+attempt). One continuous street-level shot, both giants at six to ten
+storeys against the facades, the cat's paw on the mecha's chest at frame 5,
+a recoil at 60, a grapple at 115. The cat came out grey because the keyframe
+was grey — the pinned image, not the prompt, decides the look of frame 0, so
+the sheet's job shrinks to holding identity through the motion. That is the
+recipe going forward: **compose with a keyframe, hold identity with the
+sheet.** An orange keyframe is being rendered as this is written.
 
 A chain-script mistake cost 17 minutes earlier in the same round: a
 `until grep … take.log` wait on a sentinel file that the sheet runner never
