@@ -87,7 +87,23 @@ assets/     the clips and sheets
   recorder version is what changed, and it is what the card stamps. So:
   `<model>-<quant>-<what>-<toktape version>.mp4`. Clip uploads are a shared
   resource like the GPU lease and the working tree — one session owns them at a
-  time and says what went up.
+  time and says what went up. **No duration in the name either**, for the same
+  reason the rate is out: measured 2026-09-16, two GIFs named `tail14s` and
+  `tail20s` actually play 15.90 s and 21.83 s, because a tape's frames do not
+  run at a uniform 1/30 and one card frame is held for 3.77 s. A measured number
+  in a filename cannot be struck; put it in the caption.
+- **To shorten a clip, cut frames — never `--duration`.** That flag compresses
+  or stretches the run into the time you name, and a viewer then cannot tell a
+  stall from the encoding. Cut losslessly out of the finished GIF instead, and
+  keep this order: `gifsicle --unoptimize <file> '#<start>-' -O3 -o <out>`.
+  `--unoptimize` first is not optional — **GIF indices are stored images, not
+  seconds × fps**, because the encoder folds frames identical to their
+  predecessor (275 stored for 387 rendered, measured). Selecting before
+  unoptimizing silently returns the wrong span: a peer asked for `#237-386` of
+  a 387-frame clip and got 38 images with no error. Also note `--frames` and
+  `--mp4` render at a larger canvas than `--gif` (font size 20 against 13, no
+  flag to change it), so a frame sequence cannot reproduce the GIF's canvas and
+  re-encoding from frames is not the way to make a smaller GIF.
 - **Every clip that leaves this repo names the recorder with its link**: "recorded
   with [toktape](https://github.com/midagedev/toktape)" in the tweet, the post,
   the PR body, the log line. The clip is also an advertisement for the tool
