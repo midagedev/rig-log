@@ -274,6 +274,31 @@ on the card is attention, dense weights and the 64k KV cache. Decode ran at
 27 tok/s through DSML boilerplate (the draft accepts nearly all of it) and
 16–17 through prose.
 
+### The agent was correct and unusable, so the fast model took the card
+
+A Hermes turn on V4.1 is dominated by prefill and reasoning, not decode: the
+eight-tool turn above took 7 min 8 s, and a warm "what is 17×23" through the
+agent — tens of thousands of tokens of system prompt, tool schemas, memory
+and skills in front of it — took **5 min 3 s**. Serving the same card with
+the fast half of the pair instead
+([`configs/qwen36-3090-serve.sh`](../configs/qwen36-3090-serve.sh),
+Qwen3.6-35B-A3B UD-Q4_K_XL whole on the 3090, 64k context with q8_0 KV,
+thinking off by template kwarg, `llm-qwen-3090.service`):
+
+| 3090 alone | V4.1 (Q3, experts on host, draft) | Qwen3.6-35B-A3B Q4_K_XL |
+|---|---:|---:|
+| VRAM | 22.5 GB | 22.3 GB |
+| decode, tool call / prose | 27 / 16–17 tok/s | **140 / 150 tok/s** |
+| prefill (331-token tool prompt) | ~60 tok/s (served profile) | **1 172 tok/s** |
+| Hermes: the eight-tool GPU question | 7 min 8 s | **10 s** (2 tool calls) |
+
+Tool calls parse natively (Qwen3 format, no template work), and 140 tok/s
+on the 24 GB card matches the 140 measured on the 48 GB card on 09-15 — the
+~390 GB/s ceiling that entry found is not the card's bandwidth on either.
+The two profiles conflict in systemd; which one holds the 3090 is now a
+choice, and for the phone-facing bot it is this one. V4.1 keeps its place as
+the slow, careful model when the A6000 is not busy with video.
+
 Not settled: with the *wrong* template, `tool_choice: required` did not
 constrain sampling either, although a GBNF grammar and a JSON schema on
 `/completion` both constrained fine on the same server. Whether the PEG-native
