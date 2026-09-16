@@ -137,6 +137,30 @@ from `nvidia-smi --query-compute-apps`, verified its working directory, user
 and start time, unloaded through the server's own API, and then signalled
 that one pid.
 
+## A stale lease cost a peer a night (2026-09-17)
+
+The lease file is only as good as the exit trap that removes it, and on
+2026-09-16 the trap did not run. A sale-check smoke run took
+`/home/user/gpu-lease` at 22:44:56; at 22:47:29 a new copy of the runner was
+`scp`'d over the script while bash was still reading it, bash stopped on a
+syntax error at a line it had not reached before, and the EXIT trap never
+fired. The lease and the 1 Hz witness stayed. A peer session's overnight
+training job checked the lease at 00:00:01, saw both cards at 1 MiB under a
+held lease, honoured it as designed, and gave up at its two-hour deadline
+with zero steps trained. The file was found and removed at about 06:27.
+
+Two things follow. The runner now execs from a private copy of itself, so a
+deploy over the script cannot kill a running run (the same incident had been
+logged once before). But that does not cure a trap that never ran, so the
+reader is the layer that has to tell "held" from "abandoned": **the lease
+carries the holder's pid, and a lease whose pid does not answer `kill -0` is
+no lease.** A reader that removes one logs what it removed. Until `lease.sh`
+exists, the format on disk is what the thirteen runners in `tools/` actually
+write, `<tag> <pid> <start>` — pid is **field 2** (one runner,
+`ik-v41-verify.sh`, puts it third; fix it when next touched). The
+`<pid> <reason> <start>` order above is the `lease.sh` design, not yet what
+is on the machine.
+
 ## What reading bought
 
 The largest saving of the day was not a tool. Three hypotheses (YaRN on the

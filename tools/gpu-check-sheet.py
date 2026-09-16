@@ -36,12 +36,22 @@ def main():
     verdicts = [l.strip() for l in burn.splitlines() if "OK" in l or "FAULTY" in l]
     burn_ok = bool(verdicts) and "FAULTY" not in verdicts[-1]
     mlog = (run / "memtest.log").read_text(errors="replace")
-    mem_err = sum(1 for l in mlog.splitlines() if "ERROR" in l.upper() or "FAIL" in l.upper())
+    # "serial=unknown (NVML runtime error)" is cuda_memtest's GeForce notice, not a memory error (measured 2026-09-17)
+    mem_err = sum(1 for l in mlog.splitlines() if ("ERROR" in l.upper() or "FAIL" in l.upper()) and "NVML runtime error" not in l)
     mem_ok = mem_err == 0 and mlog.strip() != ""
-    bw = (run / "pcie-bw.txt").read_text(errors="replace").strip().splitlines()
-    delta = (run / "dmesg-delta.txt").read_text(errors="replace").strip()
-    aer = (run / "aer-after.txt").read_text(errors="replace").strip()
+    rd = lambda n: (run / n).read_text(errors="replace").strip() if (run / n).exists() else None
+    bw = (rd("pcie-bw.txt") or "PCIe 대역폭 / fp16 matmul: 미실시 (실행이 중단됨)").splitlines()
+    delta = rd("dmesg-delta.txt")
+    aer = rd("aer-after.txt")
+    aer_src = "aer-after.txt" if aer is not None else "aer-before.txt (시작 시점 스냅샷 — 종료 스냅샷 없음)"
+    if aer is None: aer = rd("aer-before.txt") or ""
     aer_ok = "+" not in "".join(l for l in aer.splitlines() if "UESta" in l or "CESta" in l)
+    _int = [l for l in (rd("run.log") or "").splitlines() if "INTERRUPTED" in l]
+    interrupted = bool(_int); int_at = _int[0].split(" ")[0] if _int else ""
+    # gpu_burn progress line if no verdict was printed (interrupted run): last "NN.N%  proc'd: ... errors: N"
+    import re
+    prog = re.findall(r"([0-9.]+)%\s+proc'd:\s+(\d+)\s+\((\d+) Gflop/s\)\s+errors:\s+(\d+)", burn)
+    last_prog = prog[-1] if prog else None
     runlog = (run / "run.log").read_text(errors="replace") if (run / "run.log").exists() else ""
     burn_min = next((l.split("burn ")[1].split(" min")[0] for l in runlog.splitlines() if "burn " in l and " min" in l), "?")
     passes = next((l.split("memtest ")[1].split(" pass")[0] for l in runlog.splitlines() if "memtest " in l and " pass" in l), "?")
@@ -76,8 +86,10 @@ def main():
     stat = lambda v, f="{:.0f}": (f.format(st.mean(clean(v))) if clean(v) else "—")
     table = [
         row(f"cuda_memtest, 전체 VRAM, {passes} pass", f"오류 {mem_err}건", mem_ok),
-        row(f"gpu_burn {burn_min}분, 결과 검증", verdicts[-1] if verdicts else "판정 줄 없음", burn_ok),
-        row("커널 로그 (Xid / NVRM / AER) 증가", f"{len(delta.splitlines()) if delta else 0}줄", not delta),
+        row(f"gpu_burn {burn_min}분, 결과 검증",
+            verdicts[-1] if verdicts else (f"{last_prog[0]}% 진행 시점에 전원 차단으로 중단 · 연산 오류 {last_prog[3]}건 · {last_prog[2]} Gflop/s (최종 판정 줄 없음)" if last_prog else "판정 줄 없음"),
+            burn_ok or (interrupted and last_prog is not None and last_prog[3] == "0" and float(last_prog[0]) > 99)),
+        row("커널 로그 (Xid / NVRM / AER) 증가", "미확인" if delta is None else f"{len(delta.splitlines()) if delta else 0}줄", delta is not None and not delta),
         row("PCIe 오류 레지스터 (UESta/CESta)", "모두 클리어" if aer_ok else "플래그 있음", aer_ok),
     ]
     info = [
@@ -96,20 +108,21 @@ body{{margin:0;background:#0f1115;color:#e6e9f0;font:15px/1.45 -apple-system,"Ap
 .wrap{{width:1520px;padding:28px 40px 36px}}
 h1{{margin:0 0 4px;font-size:30px}} .sub{{color:#8b93a7;margin-bottom:18px}}
 .grid{{display:grid;grid-template-columns:1fr 1fr;gap:22px}}
-table{{border-collapse:collapse;width:100%}} td,th{{padding:7px 10px;border-bottom:1px solid #2a2f3a;text-align:left;vertical-align:top}}
+table{{border-collapse:collapse;width:100%}} td,th{{padding:7px 10px;border-bottom:1px solid #2a2f3a;text-align:left;vertical-align:top;word-break:keep-all}}
 th{{color:#8b93a7;font-weight:600}} .pass{{color:#5be49b;font-weight:700}} .fail{{color:#ff6b6b;font-weight:700}}
 .k{{color:#8b93a7;width:210px}} pre{{background:#151923;padding:10px 12px;border-radius:6px;font:13px ui-monospace,Menlo,monospace;color:#c9d1e3;margin:0;white-space:pre-wrap}}
 .foot{{color:#8b93a7;font-size:13px;margin-top:14px}}
 </style><div class="wrap">
 <h1>{html.escape(title)} — 판매 전 점검 결과</h1>
-<div class="sub">{html.escape(started)} 시작 · 카드 하나만 대상(UUID 고정), 1 Hz 계측 · nvidia-smi / cuda_memtest / gpu_burn / torch</div>
+<div class="sub">{html.escape(started)} 시작{f' · {int_at} 중단됨(INTERRUPTED — 전원 차단)' if interrupted else ''} · 카드 하나만 대상(UUID 고정), 1 Hz 계측 · nvidia-smi / cuda_memtest / gpu_burn / torch</div>
 <div class="grid">
 <div><table><tr><th colspan="2">카드</th></tr>{''.join(f"<tr><td class='k'>{html.escape(k)}</td><td>{html.escape(str(v))}</td></tr>" for k, v in info)}</table></div>
 <div><table><tr><th>시험</th><th>결과</th><th>판정</th></tr>{''.join(table)}</table>
 <div style="margin-top:14px"><pre>{html.escape(chr(10).join(bw))}</pre></div></div>
 </div>
 <div style="margin-top:20px">{''.join(svg)}</div>
-<div class="grid" style="margin-top:14px"><div><pre>{html.escape(aer)}</pre></div><div><pre>{html.escape(delta if delta else 'dmesg: 시험 중 추가된 Xid/NVRM/AER 줄 없음')}</pre></div></div>
+<div class="grid" style="margin-top:14px"><div><pre>{html.escape(aer_src)}
+{html.escape(aer)}</pre></div><div><pre>{html.escape(delta if delta else ('dmesg: 확인 못 함' if delta is None else '커널 로그: 시험 중 추가된 Xid/NVRM/AER 줄 없음'))}</pre></div></div>
 <div class="foot">원본 파일: identity.txt · memtest.log · burn.log · dmon.csv · pcie-bw.txt · dmesg-delta.txt · aer-before/after.txt — tools/gpu-sale-check.sh (rig-log)</div>
 </div>"""
     htmlp = out.with_suffix(".html"); htmlp.write_text(page)

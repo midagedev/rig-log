@@ -50,7 +50,7 @@ trap 'say INTERRUPTED; cleanup 1' INT TERM
 [ -f $LEASE ] && { say "refused: lease held: $(cat $LEASE)"; echo GPUCHECK_FAILED; exit 1; }
 USED=$(smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null) || { say "refused: card $GPU not answering nvidia-smi"; echo GPUCHECK_FAILED; exit 1; }
 [ "$USED" -lt 500 ] || { say "refused: card busy ($USED MiB)"; echo GPUCHECK_FAILED; exit 1; }
-echo "$LEASE_TAG $$ $(date -Is)" > $LEASE
+echo "$LEASE_TAG $$ $(date -Is)" > $LEASE   # fleet format "<tag> <pid> <start>" (13 runners); a reader may treat a dead pid as no lease — docs/quiet-machine.md
 export CUDA_VISIBLE_DEVICES=$GPU
 say "=== GPU sale check: $GPU at $DEV (root port $PARENT), burn $BURN_MIN min, memtest $MEMTEST_PASSES passes ==="
 
@@ -81,7 +81,7 @@ WPID=$!; echo $WPID > $OUT/witness.pid
 say "memtest: $MEMTEST_PASSES passes over all VRAM"
 t0=$(date +%s)
 $TOOLS/cuda_memtest-bin --num_passes $MEMTEST_PASSES --stress > $OUT/memtest.log 2>&1; MRC=$?
-say "memtest rc=$MRC after $(( $(date +%s)-t0 )) s; errors reported: $(grep -ciE "error|fail" $OUT/memtest.log)"
+say "memtest rc=$MRC after $(( $(date +%s)-t0 )) s; errors reported: $(grep -iE "error|fail" $OUT/memtest.log | grep -vc "NVML runtime error")"
 
 # --- 2. burn with verification ---
 say "gpu_burn: $BURN_MIN min, results compared against a reference"
@@ -136,7 +136,8 @@ def field(k):
         if line.strip().startswith(k): return line.split(":",1)[1].strip()
     return "?"
 burn_verdict = [l for l in open(f"{out}/burn.log").read().splitlines() if "OK" in l or "FAULTY" in l]
-memtest_err = sum(1 for l in open(f"{out}/memtest.log") if "ERROR" in l.upper() or "FAIL" in l.upper())
+# cuda_memtest prints "serial=unknown (NVML runtime error)" on GeForce cards; that line is not a memory error (measured 2026-09-17)
+memtest_err = sum(1 for l in open(f"{out}/memtest.log") if ("ERROR" in l.upper() or "FAIL" in l.upper()) and "NVML runtime error" not in l)
 bw = open(f"{out}/pcie-bw.txt").read().strip()
 aer_b = open(f"{out}/aer-before.txt").read(); aer_a = open(f"{out}/aer-after.txt").read()
 lines = []
