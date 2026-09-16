@@ -149,6 +149,12 @@ seeing the new tape, which is the only kind of confirmation worth much here:
 | host figure | 13-14 GB/s, no refusal | 13.1 GB/s, exact |
 | whole-model record | ~6.3 GB a token | 6.334 |
 
+The one row that looks like a miss is not one: 26.8 GiB is 28.78 GB, and with the
+0.675 GB main embedding matrix that is 29.46 — the prediction of 27.5 carried a
+GiB figure into a GB sum without converting it. The behaviour predicted was
+right and the arithmetic checking it was not, which is the more dangerous of the
+two: had the measurement come back at 27.5 it would have been called a match.
+
 Before the fix the same tape derived 1495 GB/s at 1033 % of a 145 GB/s bus,
 because the 26.8 GiB table sat in `other` and was counted in full every token.
 The decode rate is the same run three times over — 51.5, 50.7, 51.0 tok/s — so
