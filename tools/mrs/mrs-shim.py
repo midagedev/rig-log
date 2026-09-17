@@ -48,6 +48,7 @@ NCTX = int(os.environ.get("MRS_NCTX", "8192"))
 VERSION = os.environ.get("MRS_VERSION", "")
 KV_BYTES = int(os.environ.get("MRS_KV_BYTES", "0"))
 PID_FILE = os.environ.get("MRS_PID_FILE", "")
+SERVER_LOG = os.environ.get("MRS_SERVER_LOG", "")
 
 inflight = 0
 inflight_lock = threading.Lock()
@@ -120,12 +121,137 @@ def quant_from_name(path):
     return m.group(1) if m else "?"
 
 
-def upstream_argv():
+def upstream_pid():
+    """The mistralrs pid, or 0. Declared to the recorder as engine.server_pid, which is what stops
+    this shim from being the subject of its own measurement: toktape identifies the server it is
+    attached to by process name, `mistralrs` is not a llama.cpp comm, and so every take recorded
+    before this counted the shim's own process as a competing GPU process and stamped
+    `contended: yes` (measured 2026-09-17 across eight takes, every witness reading io pressure 0).
+    A declared pid outranks toktape's own searches; 0 means no declaration and the searches run as
+    before, so an unreadable pid file degrades to the old behaviour rather than to a wrong subject."""
     try:
-        pid = int(open(PID_FILE).read().split()[0])
+        return int(open(PID_FILE).read().split()[0])
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def upstream_argv():
+    pid = upstream_pid()
+    if not pid:
+        return []
+    try:
         return open(f"/proc/{pid}/cmdline", "rb").read().decode("utf-8", "replace").rstrip("\0").split("\0")
     except Exception:  # noqa: BLE001
         return []
+
+
+def tensor_bytes(path):
+    """Every tensor's size in bytes, from the differences between consecutive data offsets rather
+    than from a ggml type table. The offsets are ordered and the last tensor runs to the end of the
+    file, so this is exact (it counts each tensor's alignment padding with it) and needs no table of
+    thirty quantization types that would rot the first time one is added. Returns {} on any failure,
+    and the caller then sends no placement rather than a guessed one."""
+    try:
+        with open(path, "rb") as f:
+            def rd(n):
+                b = f.read(n)
+                if len(b) != n:
+                    raise EOFError
+                return b
+            def u32(): return struct.unpack("<I", rd(4))[0]
+            def u64(): return struct.unpack("<Q", rd(8))[0]
+            def st(): return rd(u64()).decode("utf-8", "replace")
+            if rd(4) != b"GGUF":
+                return {}
+            u32()
+            n_tensors, n_kv = u64(), u64()
+            align = 32
+            for _ in range(n_kv):
+                k = st(); t = u32()
+                # skip the value without interpreting it, except the one key that matters here
+                if t == 8:      # string
+                    v = st()
+                elif t == 9:    # array
+                    et, n = u32(), u64()
+                    if et == 8:
+                        for _ in range(n):
+                            st()
+                    elif et == 9:
+                        raise ValueError("nested array")
+                    else:
+                        f.seek({0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1, 10: 8, 11: 8, 12: 8}[et] * n, 1)
+                    v = None
+                else:
+                    v = struct.unpack({0: "<B", 1: "<b", 2: "<H", 3: "<h", 4: "<I", 5: "<i", 6: "<f",
+                                       7: "<?", 10: "<Q", 11: "<q", 12: "<d"}[t], rd({0: 1, 1: 1, 2: 2, 3: 2,
+                                       4: 4, 5: 4, 6: 4, 7: 1, 10: 8, 11: 8, 12: 8}[t]))[0]
+                if k == "general.alignment" and isinstance(v, int) and v > 0:
+                    align = v
+            infos = []
+            for _ in range(n_tensors):
+                name = st(); nd = u32()
+                for _ in range(nd):
+                    u64()
+                u32(); off = u64()
+                infos.append((name, off))
+            pos = f.tell()
+            data_start = pos + (-pos % align)
+            data_bytes = os.stat(path).st_size - data_start
+        infos.sort(key=lambda t: t[1])
+        out = {}
+        for i, (name, off) in enumerate(infos):
+            end = infos[i + 1][1] if i + 1 < len(infos) else data_bytes
+            out[name] = max(0, end - off)
+        return out
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def engine_devices():
+    """The device rows, built from the lines mistral.rs prints at load:
+
+        INFO mistralrs_quant::utils::log: Layers 0-38: cuda[0] (48 GB)
+        INFO mistralrs_quant::utils::log: Layers 39-39: cpu (252 GB)
+
+    The layer ranges are the engine's own words and go through verbatim. The parenthesised figures do
+    not: they are the device's capacity, not the bytes placed on it, and a capacity sent as `bytes`
+    would look exactly like an answer. So each row's bytes are the sum of that range's block tensors,
+    read out of the GGUF. token_embd, output and the trunk norms are in no range and mistral.rs never
+    says which device holds them, so they are left out of every row, which makes the card's VRAM
+    figure honestly low rather than plausibly wrong (agreed with the toktape side 2026-09-17: device
+    bytes need not sum to the file, and one honest class beats four fabricated ones).
+
+    Returns [] when the log is unavailable or prints no such line, and the caller then falls back to
+    the single whole-file row that was here before."""
+    if not SERVER_LOG:
+        return []
+    try:
+        text = open(SERVER_LOG, "rb").read().decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001
+        return []
+    import re
+    rows = re.findall(r"Layers (\d+)-(\d+): (cuda\[(\d+)\]|cpu)", text)
+    if not rows:
+        return []
+    sizes = tensor_bytes(MODEL)
+    if not sizes:
+        return []
+    per_block = {}
+    for name, nb in sizes.items():
+        m = re.match(r"blk\.(\d+)\.", name)
+        if m:
+            per_block[int(m.group(1))] = per_block.get(int(m.group(1)), 0) + nb
+    devices, seen = [], set()
+    for lo, hi, dev, ord_ in rows:
+        key = (lo, hi, dev)
+        if key in seen:
+            continue
+        seen.add(key)
+        total = sum(per_block.get(n, 0) for n in range(int(lo), int(hi) + 1))
+        devices.append({"device": "CPU" if dev == "cpu" else f"GPU{ord_}",
+                        "bytes": total, "classes": {"weights": total},
+                        "layers": f"{lo}-{hi}"})
+    return devices
 
 
 def props_body():
@@ -134,13 +260,25 @@ def props_body():
     model = {"format": "gguf", "arch": meta.get("arch", ""), "quant": quant_from_name(MODEL), "bytes": size, "files": 1,
              "params": meta.get("params", 0), "n_layers": meta.get("n_layers", 0), "n_experts": meta.get("n_experts", 0),
              "n_experts_used": meta.get("n_experts_used", 0), "ctx_train": meta.get("ctx_train", 0)}
-    # mistral.rs put the whole file on the one visible device; it reports no per-class split.
-    placement = {"devices": [{"device": "GPU0", "bytes": size, "classes": {"weights": size},
-                              "layers": f"0-{meta['n_layers'] - 1}" if meta.get("n_layers") else ""}],
-                 "vram_kv_bytes": KV_BYTES}
+    # Per device when the engine said where the layers went, else the whole file on the one visible
+    # device, which is what this reported before and is still right for a launch with no device map.
+    devices = engine_devices()
+    kv = KV_BYTES
+    if devices:
+        # Any CPU layer turns PagedAttention off for the whole run ("Device mapping contains a mix of
+        # GPU and CPU. There is no CPU support for PagedAttention, disabling PagedAttention.",
+        # measured 2026-09-17), so the paged pool this would otherwise report does not exist. 0 reads
+        # as unknown on the card rather than as none, which is a schema gap on the recorder side.
+        if any(d["device"] == "CPU" for d in devices):
+            kv = 0
+    else:
+        devices = [{"device": "GPU0", "bytes": size, "classes": {"weights": size},
+                    "layers": f"0-{meta['n_layers'] - 1}" if meta.get("n_layers") else ""}]
+    placement = {"devices": devices, "vram_kv_bytes": kv}
     return {"model_path": MODEL, "chat_template": "", "total_slots": SLOTS,
             "default_generation_settings": {"n_ctx": NCTX},
-            "engine": {"name": "mistral.rs", "version": VERSION, "args": upstream_argv(), "model": model, "placement": placement}}
+            "engine": {"name": "mistral.rs", "version": VERSION, "server_pid": upstream_pid(),
+                       "args": upstream_argv(), "model": model, "placement": placement}}
 
 
 META = gguf_meta(MODEL)

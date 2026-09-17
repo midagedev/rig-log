@@ -12,7 +12,7 @@ MRS=${MRS:-/home/user/.mistralrs/mistralrs}; RUNS=/home/user/toktape-runs; TOKTA
 M=${M:?model path required}
 mkdir -p $OUT
 say(){ echo "$(date +%H:%M:%S) $*"; }
-say "launch env: M=$M CTX=${CTX:-8192} MAXSEQS=${MAXSEQS:-4} SESSIONS=${SESSIONS:-1} NPRED=${NPRED:-} FOR=${FOR:-30s} TOKTAPE_EXTRA=${TOKTAPE_EXTRA:-} MRS_EXTRA=${MRS_EXTRA:-} PROMPT_FILES=${PROMPT_FILES:-} TOKTAPE=$TOKTAPE MRS=$MRS PORT=$PORT SHIM=$SHIM SHIM_PORT=$SHIM_PORT"
+say "launch env: PA=${PA:-on} M=$M CTX=${CTX:-8192} MAXSEQS=${MAXSEQS:-4} SESSIONS=${SESSIONS:-1} NPRED=${NPRED:-} FOR=${FOR:-30s} TOKTAPE_EXTRA=${TOKTAPE_EXTRA:-} MRS_EXTRA=${MRS_EXTRA:-} PROMPT_FILES=${PROMPT_FILES:-} TOKTAPE=$TOKTAPE MRS=$MRS PORT=$PORT SHIM=$SHIM SHIM_PORT=$SHIM_PORT"
 gpus(){ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | tr '\n' ' '; }
 maxgpu(){ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | sort -n | tail -n1; }
 SPID=""; HPID=""; SENT=MRS_TAKE; LEASE_TAG="mrs-$TAG"
@@ -47,7 +47,7 @@ finish(){ rc=$1
 echo "$LEASE_TAG $$ $(date +%FT%T)" > $LEASE
 say "$TAG: $($MRS --version); toktape $($TOKTAPE version); io avg10 $(awk '/some/{print $2}' /proc/pressure/io); gpus before: $(gpus)"
 . /home/user/gpu-order.env; CUDA_VISIBLE_DEVICES=${CVD:-$A6000_UUID} setsid nohup $MRS serve -f "$M" \
-  --host 127.0.0.1 --port $PORT --no-ui --paged-attn on --pa-context-len ${CTX:-8192} \
+  --host 127.0.0.1 --port $PORT --no-ui --paged-attn ${PA:-on} --pa-context-len ${CTX:-8192} \
   --max-seq-len ${CTX:-8192} --max-batch-size ${MAXSEQS:-4} ${MRS_EXTRA:-} > $OUT/server.log 2>&1 < /dev/null &
 SPID=$!; echo $SPID > $OUT/server.pid; sleep 1
 kill -0 $SPID 2>/dev/null || { say "server exited immediately: $(head -3 $OUT/server.log)"; SPID=""; finish 1; }
@@ -64,7 +64,7 @@ done
 [ -n "$ready" ] || { say "server never answered a completion"; tail -10 $OUT/server.log; finish 1; }
 say "ready; gpus loaded: $(gpus)"
 KV=$(grep -o "Allocating [0-9]* MB for PagedAttention KV cache" $OUT/server.log | grep -o "[0-9]*" | head -1)
-MRS_UPSTREAM=$URL SHIM_PORT=$SHIM_PORT MRS_MODEL="$M" MRS_PID_FILE=$OUT/server.pid MRS_SLOTS=${MAXSEQS:-4} MRS_NCTX=${CTX:-8192} \
+MRS_UPSTREAM=$URL SHIM_PORT=$SHIM_PORT MRS_MODEL="$M" MRS_PID_FILE=$OUT/server.pid MRS_SERVER_LOG=$OUT/server.log MRS_SLOTS=${MAXSEQS:-4} MRS_NCTX=${CTX:-8192} \
   MRS_VERSION="$($MRS --version | awk '{print $2}')" MRS_KV_BYTES=$(( ${KV:-0} * 1024 * 1024 )) \
   setsid nohup python3 $SHIM > $OUT/shim.log 2>&1 < /dev/null &
 HPID=$!; echo $HPID > $OUT/shim.pid; sleep 1
