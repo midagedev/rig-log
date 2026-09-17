@@ -114,13 +114,13 @@ that runs speculative decoding.
 
 What is left after removing the parity rows is one row that decides the question. `-ncmoe N` and
 `-ot exps=CPU` are how this workstation serves DeepSeek-V4.1-Flash at all, and mistral.rs cannot
-express either. One clarification measured the same night in
-[entry -d](2026-09-17-d-what-offloading-costs-each-engine.md), because the names mislead: on a CUDA
-build **both of those ik flags resolve to the pinned host buffer, not to CPU compute** — the weights
-leave the card and the expert matmul does not. mistral.rs's `-n` moves the arithmetic to the host
-instead, and that difference is worth a factor of 2 200 per offloaded layer. So this table compares
-what each engine *can say*, and the tier each one can actually place weights into is not the same
-tier. Layer-granular offload is not a substitute: sending a whole layer to the host sends
+express either. What that costs is measured the same night in
+[entry -d](2026-09-17-d-what-offloading-costs-each-engine.md), and it is the larger half of the
+answer: an offloaded layer costs ik **0.20 ms** per token and mistral.rs **442 ms**. Both run the
+expert matmul on the host — ik across 26.7 cores reading only the 8 of 256 routed experts in
+quantized form, mistral.rs on 1.3 cores after dequantizing all 256 to F32. A first version of that
+entry said ik kept the matmul on the GPU; it is struck there. So this table compares what each engine
+*can say*, and entry -d compares what each one's kernel then does with it. Layer-granular offload is not a substitute: sending a whole layer to the host sends
 its attention and its KV with the experts, which is the opposite of the trade the recipe is making.
 So mistral.rs's offloading is **one tier of three** — it has the `-ngl` tier, it lacks the tensor
 tier entirely, and nobody has a disk tier. It gains one thing neither of the others has, per-layer

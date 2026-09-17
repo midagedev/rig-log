@@ -7,9 +7,15 @@ built from source on the box, toktape 0.2.4. Qwen3.6-35B-A3B UD-Q6_K, one stream
 [`tools/tape-row.py`](../tools/tape-row.py).*
 
 [Entry -c](2026-09-17-c-what-mistral-rs-can-and-cannot-offload.md) settled which offload knobs each
-engine *has*. It said nothing about the price, and the price turns out to be the entire answer: the
-two engines do not implement the same feature more or less well, they implement two different
-features with the same name.
+engine *has*. It said nothing about the price, and the price turns out to be the entire answer: on
+the same model and the same card, moving the same blocks to the host costs one engine **0.20 ms** per
+layer per token and the other **442 ms**.
+
+> ~~The two engines do not implement the same feature more or less well, they implement two different
+> features with the same name: ik leaves the arithmetic on the GPU and only relocates the weights.~~
+> **Struck the same night, minutes after this was pushed.** It was a code read wearing a
+> measurement's clothes — the fourth of the day, and the one that got furthest. Both engines move the
+> arithmetic to the host. The correction, and the measurement that forced it, are below.
 
 ## The design, and the two things that had to be controlled first
 
@@ -57,7 +63,7 @@ Subtract the control and divide, and the sweep stops being a curve:
 (4425.4 - 10.2) / 10 = 441.5 ms
 ```
 
-**A constant 442 ms per offloaded layer per token**, flat to a third of a percent across a tenfold
+**A constant 442 ms per offloaded layer per token**, flat to half a percent across a tenfold
 change in how much is offloaded. A cost that is exactly linear in the number of offloaded layers and
 independent of anything else is not a bandwidth story — a bandwidth story would bend as the
 transfers started to overlap. It is a fixed amount of work done once per layer per token.
@@ -73,8 +79,8 @@ let unquant = UnquantLinear::new(QuantMethodConfig::Unquantized(Linear::new(weig
 
 Every forward pass dequantizes the block's **entire** expert stack to F32 and builds a fresh
 `UnquantLinear` around it. In decode a forward pass is one token, so a Q6_K block of 630 MB of expert
-matrices becomes about 2.5 GB of F32 per token, per offloaded layer, and is thrown away. 3.1 GB of
-traffic in 442 ms is 7 GB/s, which is the right order for a single dequantize pass over host memory.
+matrices becomes 3.07 GB of F32 per token, per offloaded layer, and is thrown away. 3.7 GB of
+traffic in 442 ms is 8.4 GB/s, which is the right order for a single dequantize pass over host memory.
 Nothing about this uses the fact that a MoE layer activates 8 of its 256 experts — the whole stack is
 unpacked to serve eight of them.
 
@@ -101,65 +107,104 @@ one that matters.
 Also exactly linear, also a fixed cost per layer per token, and **0.20 ms against 442 ms — a factor
 of 2 200.** Ten blocks, 6.3 GB of expert weight off a 48 GB card, costs 21 % of the rate.
 
-## They are not the same feature. ik never moves the math
+## Where the arithmetic runs, asked of the process rather than of a name
 
-The reason is in ik's log, and it is not the word anyone would expect:
+The first version of this entry answered this from ik's log line, and was wrong. The line is real:
 
 ```
 Tensor blk.39.ffn_up_exps.weight (size = 210.00 MiB) buffer type overridden to CUDA_Host
 ```
 
-`CUDA_Host` is pinned host memory that CUDA kernels can read directly. The weights leave the card;
-**the matmul does not.** So per token per layer the GPU reads only the experts the router actually
-chose — 8 of 256, about 19.7 MB of that block's 630 MB. At PCIe 4.0 x16 line rate that is 0.79 ms,
-and the measured marginal cost is 0.20 ms, so the transfer is largely overlapped with compute on the
-layers that are still resident. Under-line-rate is the expected shape here, not a contradiction.
+> ~~`CUDA_Host` is pinned host memory that CUDA kernels can read directly. The weights leave the card;
+> the matmul does not. So per token per layer the GPU reads only the experts the router actually
+> chose, about 19.7 MB of that block's 630 MB, and at PCIe 4.0 x16 line rate that is 0.79 ms against a
+> measured 0.20 ms, so the transfer is largely overlapped with compute on the layers that are still
+> resident.~~
+>
+> **Struck. Every sentence of it is an inference from a buffer type's name.** A buffer type says where
+> the weights live; where ggml schedules the `MUL_MAT_ID` is a different question, and this entry did
+> not ask it. Two arithmetics fit the same 0.20 ms, and the one chosen was the one needing a fourfold
+> overlap the model cannot provide: the eight routed experts are not known until the router runs *in
+> that layer*, and every later layer depends on that layer, so there is nothing for the transfer to
+> hide behind. The other needs no fudge — 19.7 MB out of DDR4-3600, measured on this box at
+> 147.7 GB/s, is **0.13 ms**. And `src/llama.cpp:363`, quoted here in support, says host buffers
+> "should only be used when data is expected to be copied to/from the GPU", which describes a
+> host-side tensor whose *results* are DMA'd back. That is the CPU-compute case. It was read as its
+> opposite.
 
-mistral.rs's `-n` does the opposite: the layer goes to the CPU *device* and the expert matmul runs
-there, on all 256 experts, in F32. One engine relocates the weights and keeps the arithmetic where
-the arithmetic is fast; the other relocates the arithmetic. That is the whole 2 200×, and it is why
-"mistral.rs has layer-granular offload" is true and useless.
+Asked properly, with [`tools/ik/ik-where-compute.sh`](../tools/ik/ik-where-compute.sh), which samples
+the server process's `utime+stime` and the card's utilisation across a decode window — one core busy
+is the serving thread, twenty-odd is a matmul on the host:
 
-### The control arm that could not be built, and what it established instead
+| | cores busy | mean GPU util | srv each |
+|---|---:|---:|---:|
+| ik, all resident | **1.0** | 96 % | 128 |
+| ik, 10 blocks on host (`-ncmoe 10`) | **26.7** | 72 % | 101 |
+| mistral.rs, all resident | **1.0** | 90 % | 111 |
+| mistral.rs, 1 block on host (`-n 0:39`) | **1.3** | **2 %** | 2.2 |
 
-The obvious next question — is mistral.rs slow because CPU expert matmul is slow, or because it
-dequantizes everything? — needs ik doing real CPU compute for comparison. This box's own daily recipe
-looks like exactly that, `-ot exps=CPU`, so three rows were run with
-`-ot 'blk\.3[0-9]\.ffn_.*_exps=CPU'`. They came back at 124.9, 116.9 and 101.9 tok/s: **identical to
-the `-ncmoe` rows**, and the server log shows those tensors overridden to `CUDA_Host` again, not to
-`CPU`.
+**Both engines move the arithmetic to the CPU.** ik spreads it over twenty-seven cores and still keeps
+the card 72 % busy; mistral.rs does it on one and a third cores while the card sits at 2 %, idle,
+waiting for the host. `iqk_mul_mat`, the fast quantized CPU matmul, is most of ik_llama.cpp's reason
+for existing, and the struck paragraph above had this repo denying it.
 
-ik's source explains it rather than the flag being ignored. `src/llama-load-tensors.cpp:265` sets
-`default_cpu_buft = llama_default_buffer_type_cpu(true)`, and `src/llama.cpp:362-366` returns
-`ggml_backend_cuda_host_buffer_type()` for that under `GGML_USE_CUDA`; line 270 then normalises *any*
-host buffer type to it. **On a CUDA build, `-ot …=CPU` and `-ncmoe N` land in the same place, and
-neither gives CPU-side expert compute.** So the arm is invalid as designed and is not a row in any
-table above — what it establishes is that ik offers no CPU-compute tier at all here, which also means
-this box's `-ot exps=CPU` recipe has never been CPU compute. Expert weights in host RAM, yes;
-computed on the host, no. The question mistral.rs's 442 ms is measured against therefore has no ik
-answer on this hardware, and the comparison is between two tiers rather than between two kernels.
+So the 2 200× is not an architectural gap between tiers. It is two kernels in one tier, and it
+decomposes into two factors, both measured here:
+
+* **Threads.** 26.7 cores against 1.3, about 21×. mistral.rs's CPU expert path is effectively serial.
+* **Bytes touched.** ik reads the 8 of 256 routed experts, quantized: 19.7 MB. mistral.rs reads all
+  630 MB and writes 3.07 GB of F32, so 3.7 GB against 19.7 MB, about 190×.
+
+Their product is the right order for the measured ratio, which is all two loosely multiplied factors
+can claim; neither is offered as the exact decomposition.
+
+### The control arm that was built after all
+
+Three rows were run with `-ot 'blk\.3[0-9]\.ffn_.*_exps=CPU'`, intending real CPU compute for
+comparison, and came back at 124.9, 116.9 and 101.9 tok/s — the `-ncmoe` rows to within noise, with
+the same `CUDA_Host` in the log.
+
+> ~~So the arm is invalid as designed. What it establishes is that ik offers no CPU-compute tier at
+> all here, which also means this box's `-ot exps=CPU` recipe has never been CPU compute: expert
+> weights in host RAM, yes; computed on the host, no.~~
+> **Struck, and the most consequential of the four** — it would have told this repo, and anyone
+> reading it, that the recipe this workstation serves DeepSeek-V4.1-Flash with does something it does
+> not do. The two flags *do* land in the same place, because `src/llama-load-tensors.cpp:265` sets
+> `default_cpu_buft = llama_default_buffer_type_cpu(true)` and line 270 normalises any host buffer
+> type to it, which under CUDA is the pinned host buffer. But that shared placement **is** CPU
+> compute. The three rows are a duplicate confirmation, not an invalid arm, and the recipe has always
+> been what it looked like.
 
 ## What this does to the choice, and what goes upstream
 
 Entry -c called the missing tensor-level placement "a feature-sized hole, not a bug" and ranked it
 above the dtype bug. That ordering survives and gets sharper: even if mistral.rs grew an
-`-ot exps=CPU` equivalent tomorrow, at 442 ms per layer per token it would be unusable, because the
-tier it can place weights into is the one where it also insists on doing the math. What it would need
-is ik's tier — weights in pinned host memory, read sparsely by the GPU — which is a different feature
-from the one it has.
+`-ot exps=CPU` equivalent tomorrow, at 442 ms per layer per token it would be unusable. What it needs
+is not a different tier — it is already in the right one — but ik's kernel inside that tier: the
+routed experts only, quantized, across the cores the machine actually has.
 
 The per-token dequantize is the upstream candidate and it is a bigger one than #2430. Two shapes, in
 increasing order of how much of the engine they touch: cache the dequantized stack, which trades host
 RAM for the repeated work and is a few lines; or gather only the routed experts before dequantizing,
-which is what the sparsity is for. Not filed. A rate is not a diagnosis — 442 ms is consistent with
+which is what the sparsity is for. The corrected framing makes that report stronger rather than
+weaker, which is the argument for having gone back at all: ik is an existence proof, on this exact
+model and this exact hardware, that a quantized sparse CPU expert path costs 0.20 ms per layer per
+token. That is a better sentence to put in front of a maintainer than any claim about tiers. Not
+filed. A rate is not a diagnosis — 442 ms is consistent with
 the dequantize and with several other things, and the next step is a profile of one offloaded layer
 that attributes the milliseconds, the same discipline that kept ik's batch-2 finding
 ([entry -b](2026-09-17-b-where-the-four-stream-gap-actually-is.md)) unfiled.
 
 ## State
 
-Twelve tapes in `/home/user/toktape-runs` from this sweep, three of them from the invalid `-ot …=CPU`
-arm and kept as the evidence for what that flag resolves to. All the mistral.rs rows carry
+Twelve tapes in `/home/user/toktape-runs` from the sweep, three of them the `-ot …=CPU` duplicate
+confirmation, plus four more from [`tools/ik/ik-where-compute.sh`](../tools/ik/ik-where-compute.sh),
+which is the scratch question of where the matmul runs promoted to a runner so that the next engine
+can be asked in one command instead of argued about. Two of its rows were thrown away rather than
+reported: at 128 tok/s a 512-token take is four seconds of decode, shorter than the sampling window,
+and the server was gone before the second `/proc` read. The runner now names that case
+(`INVALID: server N exited during the sampling window, no row`) instead of printing an empty field,
+which is how the first pair of rows was caught. All the mistral.rs rows carry
 `contended: yes` for the known reason — toktape identifies the attached server by process name and
 `mistralrs` is not a llama.cpp comm — which the toktape side closed today as TTP-107 (`e4874f2`,
 v0.2.5): `/props` may now declare `engine.server_pid`, and
