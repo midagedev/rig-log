@@ -78,6 +78,11 @@ assets/     the clips and sheets
   Session conversation stays Korean.
 - **No private addresses, no hostnames, no passwords.** Check before commit;
   the serving script here has its host generalized on purpose.
+  **A tape carries the hostname twice** (`summary.server.host`, `summary.host.hostname`) and
+  the card prints it; run `tools/tape-sanitize.py` on every tape before it enters `assets/`
+  and `tools/check-tapes-sanitized.sh` before the commit. Measured 2026-09-17: a tape copied
+  straight off the box was committed with the real name and a peer session caught it, not
+  the author.
 - **A clip's filename carries the recorder build, not the rate.** Measured
   2026-09-16, the hard way: two sessions uploaded three generations of the same
   two clips, and sorted by upload time the folder read `131tps-38s`,
