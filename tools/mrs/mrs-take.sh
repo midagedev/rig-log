@@ -3,17 +3,21 @@
 # Same gates as tools/ik/ik-vram-take.sh: GPUs idle, before 23:30 KST, lease free; signals only the pid
 # recorded at spawn. Sentinel MRS_TAKE_DONE / _FAILED. First log line is the full launch environment
 # (2026-09-17: a take was re-created with the wrong -c because the row and the card could not give it back).
+# toktape attaches to tools/mrs/mrs-shim.py on SHIM_PORT, which fronts the mistral.rs port with /props and
+# llama-server timings (mistral.rs has no /props — measured 2026-09-17). Both pids are recorded at spawn.
 set -u
 TAG=$1; OUT=/home/user/mrs-take/$TAG; LEASE=/home/user/gpu-lease; PORT=${PORT:-8013}; URL=http://127.0.0.1:$PORT
+SHIM=${SHIM:-/home/user/mrs-shim.py}; SHIM_PORT=${SHIM_PORT:-8014}; SHIM_URL=http://127.0.0.1:$SHIM_PORT
 MRS=${MRS:-/home/user/.mistralrs/mistralrs}; RUNS=/home/user/toktape-runs; TOKTAPE=${TOKTAPE:-/home/user/toktape-0.2.4}
 M=${M:?model path required}
 mkdir -p $OUT
 say(){ echo "$(date +%H:%M:%S) $*"; }
-say "launch env: M=$M CTX=${CTX:-8192} MAXSEQS=${MAXSEQS:-4} SESSIONS=${SESSIONS:-1} NPRED=${NPRED:-} FOR=${FOR:-30s} TOKTAPE_EXTRA=${TOKTAPE_EXTRA:-} MRS_EXTRA=${MRS_EXTRA:-} PROMPT_FILES=${PROMPT_FILES:-} TOKTAPE=$TOKTAPE MRS=$MRS PORT=$PORT"
+say "launch env: M=$M CTX=${CTX:-8192} MAXSEQS=${MAXSEQS:-4} SESSIONS=${SESSIONS:-1} NPRED=${NPRED:-} FOR=${FOR:-30s} TOKTAPE_EXTRA=${TOKTAPE_EXTRA:-} MRS_EXTRA=${MRS_EXTRA:-} PROMPT_FILES=${PROMPT_FILES:-} TOKTAPE=$TOKTAPE MRS=$MRS PORT=$PORT SHIM=$SHIM SHIM_PORT=$SHIM_PORT"
 gpus(){ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | tr '\n' ' '; }
 maxgpu(){ nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | sort -n | tail -n1; }
-SPID=""; SENT=MRS_TAKE; LEASE_TAG="mrs-$TAG"
+SPID=""; HPID=""; SENT=MRS_TAKE; LEASE_TAG="mrs-$TAG"
 finish(){ rc=$1
+  if [ -n "$HPID" ] && kill -0 $HPID 2>/dev/null; then say "stopping shim pid $HPID"; kill -TERM $HPID; fi
   if [ -n "$SPID" ] && kill -0 $SPID 2>/dev/null; then
     say "stopping server pid $SPID (session leader) with SIGTERM"; kill -TERM $SPID
     for i in $(seq 120); do kill -0 $SPID 2>/dev/null || break; sleep 1; done
@@ -36,6 +40,7 @@ finish(){ rc=$1
 [ -f "$M" ] || { say "refused: no model at $M"; echo ${SENT}_FAILED; exit 1; }
 [ -x "$MRS" ] || { say "refused: no mistralrs at $MRS"; echo ${SENT}_FAILED; exit 1; }
 [ -x "$TOKTAPE" ] || { say "refused: no toktape at $TOKTAPE"; echo ${SENT}_FAILED; exit 1; }
+[ -f "$SHIM" ] || { say "refused: no shim at $SHIM"; echo ${SENT}_FAILED; exit 1; }
 [ "$(date +%H%M)" -lt 2330 ] || { say "refused: after 23:30 KST"; echo ${SENT}_FAILED; exit 1; }
 [ "$(maxgpu)" -lt 2000 ] || { say "refused: GPUs busy: $(gpus)"; echo ${SENT}_FAILED; exit 1; }
 [ -f $LEASE ] && { say "refused: lease held: $(cat $LEASE)"; echo ${SENT}_FAILED; exit 1; }
@@ -58,12 +63,20 @@ for i in $(seq 450); do
 done
 [ -n "$ready" ] || { say "server never answered a completion"; tail -10 $OUT/server.log; finish 1; }
 say "ready; gpus loaded: $(gpus)"
+KV=$(grep -o "Allocating [0-9]* MB for PagedAttention KV cache" $OUT/server.log | grep -o "[0-9]*" | head -1)
+MRS_UPSTREAM=$URL SHIM_PORT=$SHIM_PORT MRS_MODEL="$M" MRS_PID_FILE=$OUT/server.pid MRS_SLOTS=${MAXSEQS:-4} MRS_NCTX=${CTX:-8192} \
+  MRS_VERSION="$($MRS --version | awk '{print $2}')" MRS_KV_BYTES=$(( ${KV:-0} * 1024 * 1024 )) \
+  setsid nohup python3 $SHIM > $OUT/shim.log 2>&1 < /dev/null &
+HPID=$!; echo $HPID > $OUT/shim.pid; sleep 1
+kill -0 $HPID 2>/dev/null || { say "shim exited: $(tail -3 $OUT/shim.log)"; HPID=""; finish 1; }
+curl -s -m 5 -o /dev/null -w "" $SHIM_URL/props || { say "shim not answering /props"; finish 1; }
+say "shim pid $HPID; /props $(curl -s -m 5 $SHIM_URL/props | head -c 160)"
 if [ -n "${PROMPT_FILES:-}" ]; then
   PARGS=(); OIFS=$IFS; IFS=','
   for f in $PROMPT_FILES; do IFS=$OIFS; PARGS+=(--prompt "$(cat "$f")"); IFS=','; done
   IFS=$OIFS
 else PARGS=(--prompt "${PROMPT:?PROMPT or PROMPT_FILES required}"); fi
-$TOKTAPE record --url $URL --out $RUNS --wait 0 \
+$TOKTAPE record --url $SHIM_URL --out $RUNS --wait 0 \
   --sessions ${SESSIONS:-1} --max-sessions ${SESSIONS:-1} \
   "${PARGS[@]}" ${NPRED:+-n $NPRED} --for ${FOR:-30s} --temp 0 \
   ${RAMFLAGS:---ram-gbs-measured 147.7 --ram-speed DDR4-3600} ${TOKTAPE_EXTRA:-} \
