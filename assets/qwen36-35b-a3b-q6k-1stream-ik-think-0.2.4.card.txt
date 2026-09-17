@@ -1,0 +1,33 @@
+┌──────────────────────────────────────────────────────────────────────┐
+│ toktape v0.2.4               20260917-142605-qwen3-6-35b-a3b-ud-q6-k │
+├──────────────────────────────────────────────────────────────────────┤
+│ MODEL    Qwen3.6-35B-A3B-UD-Q6_K.gguf · UD-Q6_K · 27.3 GiB           │
+│ ENGINE   ik_llama.cpp c10fbbcc · linux 6.8.0-139-generic             │
+│          workstation                                                 │
+│ RIG      RTX A6000 48G · AMD Ryzen Threadripper PRO 5975WX 32-Cores  │
+│          252 GB DDR4-3600                                            │
+├──────────────────────────────────────────────────────────────────────┤
+│ Decode        130 tok/s · ≈ 386 GB/s, 50% of peak                    │
+│ Prefill       1206 tok/s · 259 prompt tokens · TTFT 252 ms           │
+│ Context       8192 (259 in / 512 out)                                │
+│ Prefix cache  0% hit (0/259) · warm                                  │
+│ Sampling      greedy (temp 0) · chat                                 │
+├──────────────────────────────────────────────────────────────────────┤
+│ MEMORY   GPU0 [██████░░░░] 27.9/48.0 GiB                             │
+│          weights 26.8 | kv ? | compute ? GiB                         │
+│          Host placed 0.5 GiB (all in RAM)                            │
+│          Host RSS 1.5 GiB (file 0.7 / anon 0.7)                      │
+│          Page faults 0.0 maj/token (0 during decode)                 │
+├──────────────────────────────────────────────────────────────────────┤
+│ HOST     GPU0 63°C 298 of 300 W · throttled: no · contended: no      │
+├──────────────────────────────────────────────────────────────────────┤
+│ FLAGS    -ngl 99 -fa on -b 2048 -ub 512 -ctk default -ctv default    │
+│          -t 32                                                       │
+│          -m /models/Qwen3.6-35B-A3B/Qwen3.6-35B-A3B-UD-Q6_K.gguf     │
+│          -c 8192 -np 1 --host 127.0.0.1 --port 8012                  │
+├──────────────────────────────────────────────────────────────────────┤
+│ ! engine commit c10fbbcc read from the checkout next to the binary,  │
+│   not from the binary                                                │
+├──────────────────────────────────────────────────────────────────────┤
+│                toktape · github.com/midagedev/toktape                │
+└──────────────────────────────────────────────────────────────────────┘
