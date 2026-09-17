@@ -233,3 +233,5 @@ run through `tools/tape-sanitize.py` and `tools/check-tapes-sanitized.sh` before
 Probe captures and server logs stay on the box under `/home/user/mrs-take/`. The A6000 is
 idle, the lease released. Recorded with
 [toktape](https://github.com/midagedev/toktape) 0.2.4.
+
+What this entry called the open question was settled the same evening, and the tools it needed are in the tree beside the shim: [`tools/engine-ab/stream-sweep.sh`](../tools/engine-ab/stream-sweep.sh) orders takes by stream count, [`tools/ik/ik-batch-scaling.sh`](../tools/ik/ik-batch-scaling.sh) wraps `llama-batched-bench` behind the lease, [`tools/mrs/mrs-mech-probe.sh`](../tools/mrs/mrs-mech-probe.sh) reads mistral.rs's own CUDA-graph counters, and [`tools/tape-row.py`](../tools/tape-row.py) builds a table row out of a tape so that no figure here is ever again copied off a progress line. The measurements are [2026-09-17-b](2026-09-17-b-where-the-four-stream-gap-actually-is.md) and [2026-09-17-c](2026-09-17-c-what-mistral-rs-can-and-cannot-offload.md).

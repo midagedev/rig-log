@@ -56,10 +56,26 @@ Three launches scope it, each its own lease:
 | launch | mapping | result |
 |---|---|---|
 | `-n 0:40` | `Layers 0-39: cuda[0]` | **works**, 0 dtype errors — so the flag itself is fine |
-| `-n 0:39` | `Layers 0-38: cuda[0]` / `Layers 39-39: cpu` | **fails**, 58 dtype errors — **one MoE layer on the host is enough** |
-| `-n 0:8`, dense Qwen2.5-7B Q3_K_M | `Layers 0-7: cuda[0]` / `Layers 8-27: cpu` | **works**, 17.4 tok/s against ~120 fully resident — partial offload does what it should |
+| `-n 0:39` | `Layers 0-38: cuda[0]` / `Layers 39-39: cpu` | **fails**, 58 dtype errors — **one layer on the host is enough** |
+| `-n 0:8`, dense Qwen2.5-7B Q3_K_M | `Layers 0-7: cuda[0]` / `Layers 8-27: cpu` | **works** — partial offload does what it should |
 
-So: the trigger is a MoE layer placed on the CPU, the count does not matter, and partial offload is
+Which layer that one is matters for anyone reproducing it, so it was read out of the GGUF header
+rather than assumed. All **forty** repeating blocks carry the expert tensors
+(`blk.N.ffn_{gate,up,down}_exps.weight`), so any layer sent to the host takes an expert block with
+it. Layer 39 in particular is one of the ten **full-attention** layers — `full_attention_interval`
+is 4, so `attn_q`/`attn_k` live at blocks 3, 7, 11 … 39 and the other thirty carry `ssm`/linear-attn
+tensors instead. The failing launch therefore put a full-attention + MoE layer on the host, which
+means the linear-attention path is not implicated and the expert FFN is. On a model whose layers are
+not uniformly MoE, `-n 0:39` would land on whatever block 39 happens to be there.
+
+The dense row's rate is worth one sentence of care, because two claims were struck today for
+exactly this shape. That launch measured **17.4 tok/s** on a sixteen-token `curl` burst with twenty
+of twenty-eight layers on the host. The nearest paired figure is the sweep's own one-stream take on
+the same engine and the same model fully resident, **122.8 tok/s** — but that is a toktape take over
+238-token prompts, not a sixteen-token burst, so the pair is an order of magnitude and not a ratio.
+What the row is evidence for is that it served at all.
+
+So: the trigger is a MoE expert block placed on the CPU, one is enough, and partial offload is
 otherwise functional. The error names the site — the CPU MoE expert forward receives BF16
 activations (`DType selected is BF16`, printed at load) against expert weights that arrive as F32.
 
@@ -83,7 +99,7 @@ other MoE GGUFs on this box are refused at load for reasons that have nothing to
   binding model.layers.0.linear_attn.in_proj_ba.weight`. The linear-attention projection is expected
   unquantized and this GGUF quantized it.
 
-Both are separate limitations worth knowing about — a GGUF that llama.cpp-family engines load
+Both refusals are separate limitations worth knowing about — a GGUF that llama.cpp-family engines load
 happily is not necessarily a GGUF mistral.rs will take — and neither can serve as the second data
 point for the offload bug. The report therefore says "reproduced on one MoE GGUF, with a dense
 control that works and a whole-GPU control that works", which is what was measured.
