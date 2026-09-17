@@ -149,7 +149,12 @@ It is also **already fixed in an open pull request**:
 that path needs and splits such a ubatch at sequence-run boundaries instead of at every token, so the
 batched path is used where it legitimately can be. Nothing to file here. What this box has that the
 PR body does not is the number — 21× on prefill, 5.6 s of TTFT on a four-user take — so the
-contribution is a measurement on that PR, not an issue of our own. The duplicate search that found it:
+contribution is a measurement on that PR, not an issue of our own. **Posted 2026-09-17 21:12**, as
+[a comment](https://github.com/ikawrakow/ik_llama.cpp/pull/2418#issuecomment-5714136627) carrying the
+batched-bench table, the warning the engine prints, and the three TTFT figures. It says in the text
+that the branch was never built here, so it is the unpatched behaviour and not a verification of the
+fix — that repo's CONTRIBUTING asks contributors not to submit what they have not tested, and the
+same sentence is what keeps a measurement from being read as one. The duplicate search that found it:
 `repo:ikawrakow/ik_llama.cpp "single-token chunking" OR "mixed-sequence"`, which also turns up
 [#1932](https://github.com/ikawrakow/ik_llama.cpp/issues/1932) and the merged
 [#1933](https://github.com/ikawrakow/ik_llama.cpp/pull/1933) on recurrent-state corruption in the
