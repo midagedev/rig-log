@@ -134,6 +134,12 @@ assets/     the clips and sheets
   the same take at several board limits and restores the default on every exit
   path. Measured 2026-09-15: 47 % less power cost 15 % of the rate, so the flag
   had been pointing at the wrong thing all day.
+- **A tape's `Sampling` row is the request, not the answer.** `--no-think` sends
+  `chat_template_kwargs`, and llama-server silently ignores those unless it was started with
+  `--jinja` — measured 2026-09-17, after two hero takes labelled `thinking off` were published
+  with all four streams opening `<think>`. The runners pass `--jinja` and call
+  [`tools/check-take-nothink.py`](tools/check-take-nothink.py), which fails a take whose answer
+  contradicts its own request. Read the answer before believing a request parameter.
 - **Benchmarks need a quiet machine, and "quiet" is a protocol**: one lease,
   IO pressure rather than load average, the witness recorded in every row,
   and delegates get the runner script rather than an instruction. The method

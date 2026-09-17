@@ -60,19 +60,19 @@ is `srv`, toktape's client-side count is `cli`, and the aggregate is
 tokens ÷ (last token − first token) for both engines, which is the only figure computed the
 same way on both sides of the table.
 
-| 14:07–14:27 | streams | thinking | srv each | cli each | aggregate | TTFT p50 | GPU W | tokens out |
+| 14:07–14:31 | streams | thinking | srv each | cli each | aggregate | TTFT p50 | GPU W | tokens out |
 |---|---:|---|---:|---:|---:|---:|---:|---:|
 | ik_llama.cpp c10fbbcc | 1 | on | 130.1 | 129.9 | **130** | 252 ms | 298 | 512 |
 | mistral.rs 0.9.3 | 1 | on | 111.2 | 104.5 | **105** | 160 ms | 248 | 512 |
 | ik_llama.cpp c10fbbcc | 4 | on | 37.5 | 37.4 | **149** | 4 475 ms | 293 | 4 × 512 |
 | mistral.rs 0.9.3 | 4 | on | 76.9 | 73.1 | **283** | 451 ms | 299 | 4 × 512 |
 | mistral.rs 0.9.3 | 4 | off | 79.1 | 73.8 | 237 | 465 ms | 260 | 234–345 (EOS) |
-| ik_llama.cpp, `--jinja` | 4 | off | 41.2 | 41.1 | **147** | 5 448 ms | 297 | 201 (EOS) |
-| ik_llama.cpp, `--jinja` | 1 | off | 131.4 | 131.2 | **131** | 250 ms | 298 | 244 (EOS) |
+| ik_llama.cpp, `--jinja` | 4 | off | 41.2 | 40.9 | **146** | 5 448 ms | 285 | 157–248 (EOS) |
+| ik_llama.cpp, `--jinja` | 1 | off | 131.4 | 130.8 | **132** | 250 ms | 298 | 244 (EOS) |
 
-Thinking on or off moves neither engine's rate by more than 3 % — 149 against 147 aggregate
-for ik, 130 against 131 alone — so the two halves of the table say the same thing and the
-comparison survives the labelling mistake below.
+Thinking on or off moves neither engine's rate by more than 2 % — 149 against 146 aggregate
+for ik, 130 against 132 alone, 105 against 105 for one mistral.rs stream — so the two halves
+of the table say the same thing and the comparison survives the labelling mistake below.
 
 Alone, ik is **24 % faster** on the client clock and reaches 386 GB/s of derived read, the
 same half-of-the-card ceiling this log has measured since 09-15. At four streams mistral.rs
@@ -140,22 +140,30 @@ Checking every Qwen3.6 tape committed here:
 > added, `--no-think` sent — no think block, EOS at 244 tokens, 131.4 tok/s. **Reading the
 > code would have produced a wrong upstream report; one run cost 40 seconds.**
 
-The interesting by-product is that the two engines now agree on the prompt. toktape hashes
-the rendered prompt it gets from `/apply-template`, and ik's jinja rendering and the shim's
-jinja rendering of the same GGUF template produce the identical
-`0304d4f30b5d02a1db7026522bb7e24b2ec3dd1ca3c69bb8779fcfae15b5c135` — so the comparison above
-is two engines fed byte-identical text, not two engines each templating their own way.
+The prompt hashes are the by-product, and they are also evidence for the diagnosis. toktape
+hashes the rendered prompt it gets from `/apply-template`: the shim's jinja rendering of the
+GGUF template and ik's own `--jinja` rendering agree exactly —
+`0304d4f3…` on all five `--jinja` and mistral.rs takes, so those rows are two engines fed
+byte-identical text rather than two engines each templating their own way. The two legacy-path
+ik takes hash `4d74d304…` instead, 234 prompt tokens against 236: the path that dropped the
+kwargs also rendered a different prompt, which is what a silently different template looks
+like from outside.
 
 Three layers, because a request parameter that is not a measurement will happen again:
 
 - **Closed at the source**: `--jinja` is now unconditional in the ik bench runner, which also
   makes the bench path the same template path production serves on.
 - **A gate, FAIL-first**: [`tools/check-take-nothink.py`](../tools/check-take-nothink.py)
-  reads a tape, and when no-think was requested and an answer opens with a thinking tag —
-  or the tape reports thinking tokens — it fails with the stream and the text. It fails on
-  the hero tape (`THOUGHT ANYWAY … 4 answer(s)`), passes on the seven other 0.2.4 tapes, and
-  does not judge a take that never asked. Both runners call it after the take and turn a
-  contradicting run into a failed one.
+  reads a tape, and when no-think was requested and an answer opens with a thinking tag — or
+  a stream reported `reasoning_n` tokens, which is how mistral.rs carries thinking — it fails
+  with the stream and the text. It fails on the hero tape (`THOUGHT ANYWAY … 4 answer(s)`),
+  passes on the seven other 0.2.4 tapes, and does not judge a take that never asked. Both
+  runners call it after the take and fail the run.
+  The first version of that wiring never ran: it looked for the tape path as
+  `$RUNS/…` while toktape prints `~/toktape-runs/…`, so the variable came back empty and the
+  guard skipped the check without a word. It is now an error for the path to be missing, and
+  a 20-second take through the runner prints `no-think honoured (1 tape(s))` — a gate proved
+  only by hand is a gate that has not been proved.
 - **Easier to see next time**: the recorder was asked to put the same contradiction on the
   card, since the tape holds both halves of it.
 

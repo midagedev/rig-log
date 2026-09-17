@@ -19,7 +19,8 @@ import sys
 
 # The tags a reasoning model opens a thinking block with, as they appear in the answer text.
 # mistral.rs streams reasoning in its own `reasoning_content` field instead, which toktape
-# counts as thinking tokens, so a tape whose summary reports thinking tokens is caught too.
+# records as a per-request `reasoning_n` (measured 2026-09-17 — there is no such field in
+# summary.timings), so a stream that reported reasoning tokens is caught too.
 TAGS = ("<think>", "<thinking>", "<|thinking|>", "◁think▷")
 
 
@@ -48,15 +49,16 @@ def check(path):
         head = answer_head(r)
         if any(tag in head for tag in TAGS):
             bad.append((i, head.replace("\n", "\\n")[:48]))
-    thinking_n = (s.get("timings") or {}).get("thinking_n") or 0
+    reasoning = [(i, r.get("reasoning_n") or 0) for i, r in enumerate(tape.get("requests") or [])]
+    reasoning = [(i, n) for i, n in reasoning if n]
     if bad:
         print(f"THOUGHT ANYWAY {path}: no-think was requested and {len(bad)} answer(s) open with a "
               f"thinking tag — e.g. stream {bad[0][0]}: {bad[0][1]!r}")
         print("  the server was probably started without --jinja, which drops chat_template_kwargs")
         return False
-    if thinking_n:
-        print(f"THOUGHT ANYWAY {path}: no-think was requested and the tape reports "
-              f"{thinking_n} thinking tokens")
+    if reasoning:
+        print(f"THOUGHT ANYWAY {path}: no-think was requested and {len(reasoning)} stream(s) "
+              f"reported reasoning tokens — e.g. stream {reasoning[0][0]}: {reasoning[0][1]}")
         return False
     return True
 
