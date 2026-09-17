@@ -69,6 +69,7 @@ same way on both sides of the table.
 | mistral.rs 0.9.3 | 4 | off | 79.1 | 73.8 | 237 | 465 ms | 260 | 234–345 (EOS) |
 | ik_llama.cpp, `--jinja` | 4 | off | 41.2 | 40.9 | **146** | 5 448 ms | 285 | 157–248 (EOS) |
 | ik_llama.cpp, `--jinja` | 1 | off | 131.4 | 130.8 | **132** | 250 ms | 298 | 244 (EOS) |
+| ik_llama.cpp, `--jinja`, `-c 32768` | 4 | off | 42.1 | 41.8 | **144** | 5 704 ms | 281 | 152–279 (EOS) |
 
 Thinking on or off moves neither engine's rate by more than 2 % — 149 against 146 aggregate
 for ik, 130 against 132 alone, 105 against 105 for one mistral.rs stream — so the two halves
@@ -87,12 +88,26 @@ cap, and their lower aggregate is the tail of finished streams, not a slower eng
 
 ## What these numbers are not
 
-They are not a Rust-kernel measurement. On compute capability 8.6 the GGUF Q6_K MoE path in
-mistral.rs runs candle's CUDA **C** kernels through FFI; the cuTile modules — the actual
-Rust-authored kernels — cover fp8, nvfp4 and GDN paths, need CUDA ≥ 13.2, and this box has
-13.0, so the installer left them off. What was measured is a Rust host and scheduler over
-the same class of kernels ik_llama.cpp compiles itself. The finding is therefore about
-batching and scheduling, not about whether Rust can write a fast GEMM.
+They are not a Rust-kernel measurement, and the first version of this paragraph got the
+reason wrong.
+
+> ~~The cuTile modules — the actual Rust-authored kernels — need CUDA ≥ 13.2, and this box
+> has 13.0, so the installer left them off.~~ **Struck the same day.** The installed
+> toolkit is 13.0, but the binary carries its own runtime and `mistralrs doctor` reports
+> `CUDA: build 13.2` and `Build features: cuda, flash-attn, cutile` — the modules are
+> compiled in. What it also reports is why they are idle: `cuTile runtime tooling is
+> unavailable; native CUDA and CUTLASS fallbacks remain active`, with the hint to install
+> NVIDIA `tileiras`, which is not on this box. And there is a second gate the version
+> question would have hidden: the binary's own strings say the cuTile MoE backend is a
+> *blockwise FP8* grouped GEMM and that `MISTRALRS_MOE_BACKEND=fused requires F16 or BF16
+> weights`, so a Q6_K GGUF would not reach either path even with the assembler present.
+
+Which kernels it did run is not yet measured. The plausible reading is candle's CUDA C
+kernels through FFI with the CUTLASS grouped-GEMM MoE path as the fallback the doctor names,
+but no take here logged a backend line, so that is a code-and-strings inference and not a
+measurement — a `-v` run settles it. Either way what was measured is a Rust host and
+scheduler over kernels of the same class ik_llama.cpp compiles itself, so the finding is
+about batching and scheduling, not about whether Rust can write a fast GEMM.
 
 That makes the four-stream gap the interesting one and the open question the important one.
 The 09-16 ExLlamaV3 arm measured why concurrency usually buys nothing on a sparse MoE: two
@@ -127,6 +142,14 @@ Checking every Qwen3.6 tape committed here:
 > honest about what was asked — the tape describes the request — and wrong about what
 > happened. Nothing else in that entry changes: 37.5 tok/s each and 149 aggregate are what
 > the machine did, on thinking tokens.
+>
+> Re-recorded at 14:41, at the request of the session that had asked for the hero clip:
+> same four prompts, `--jinja`, `--no-think`, `-np 4`, `-c 32768`. The model did not think,
+> every stream ended at EOS between 152 and 279 tokens, and the aggregate came out at
+> **144 tok/s** — within 4 % of the 149 that were measured on thinking tokens, so the
+> mislabelling cost the record a label and not a number. The runner's gate printed
+> `no-think honoured` for the first time on a live take. The tape is
+> `assets/qwen36-35b-a3b-q6k-4stream-ik-jinja-nothink-c32k-0.2.4.tape`.
 
 > ~~ik_llama.cpp has no support for `chat_template_kwargs`; mainline llama-server does, and
 > the gap is worth a contribution.~~ **Struck within the half-hour, before anything was sent
