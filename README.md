@@ -13,6 +13,11 @@ untested paths, so the second half of this log is what got sent back:
 [how a failure here becomes an upstream report](docs/upstream-contributions.md),
 and the record of what was sent.
 
+The entries below are chronological, each answering the question that was open
+that day. For the other view — **which model, which engine, what rate**, with
+each row pointing at the entry that measured it — start at
+[`docs/engine-rates.md`](docs/engine-rates.md).
+
 ![Qwen3.8-Flash-Next decoding at 51 tok/s with both cards and system RAM in the panel beside it](assets/qwen38-flash-next-q4kxl-1stream-tail-0.2.3-5.gif)
 
 *Qwen3.8-Flash-Next on this machine: 125 B parameters plus a 51 B n-gram table,
@@ -324,6 +329,12 @@ landed or is open:
   [`configs/bench-serve.sh`](configs/bench-serve.sh), which records resident
   set, major faults and drive reads alongside throughput, because tok/s alone
   cannot say whether a slow run lost its expert pages or its engram rows.
+
+- [`docs/engine-rates.md`](docs/engine-rates.md) — which model, which engine,
+  what rate. The one page that says whether an engine can load a model at all
+  before it says how fast it is, because on the 100 GB-class model this box
+  actually serves that is the whole answer. Summarises measurements the log
+  entries own; every row names its entry.
 
 - [`docs/quiet-machine.md`](docs/quiet-machine.md) — why "quiet box" has to be
   a protocol and not a load-average check: one day, five collisions between a
