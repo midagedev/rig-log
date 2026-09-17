@@ -82,5 +82,9 @@ $TOKTAPE record --url $SHIM_URL --out $RUNS --wait 0 \
   ${RAMFLAGS:---ram-gbs-measured 147.7 --ram-speed DDR4-3600} ${TOKTAPE_EXTRA:-} \
   --tag "$TAG" --note "${NOTE:-}" 2>&1 | tee $OUT/take.txt
 rc=${PIPESTATUS[0]}
+TAPE=$(grep -o "$RUNS/[0-9-]*[a-z0-9-]*\.tape" $OUT/take.txt | head -1)
+if [ $rc -eq 0 ] && [ -n "$TAPE" ] && [ -f /home/user/check-take-nothink.py ]; then
+  python3 /home/user/check-take-nothink.py "$TAPE" || { say "no-think was requested and the model thought: the take is mislabelled"; rc=1; }
+fi
 say "toktape rc $rc"
 finish $rc

@@ -40,7 +40,7 @@ cd $TREE || finish 1
 say "$TAG at $(git log -1 --format='%h %s' | cut -c1-60); toktape $($TOKTAPE version); io avg10 $(awk '/some/{print $2}' /proc/pressure/io); gpus before: $(gpus)"
 # one card, everything resident: no -ot, no CPU tail, nothing streamed from RAM
 . /home/user/gpu-order.env; CUDA_VISIBLE_DEVICES=${CVD:-$A6000_UUID} setsid nohup ./build/bin/llama-server -m "$M" \
-  -c ${CTX:-32768} -ngl 99 -fa on -t ${THREADS:-32} -b 2048 -ub ${UB:-512} ${EXTRA_FLAGS:-} \
+  -c ${CTX:-32768} -ngl 99 -fa on -t ${THREADS:-32} -b 2048 -ub ${UB:-512} --jinja ${EXTRA_FLAGS:-} \
   --host 127.0.0.1 --port $PORT > $OUT/server.log 2>&1 < /dev/null &
 SPID=$!; echo $SPID > $OUT/server.pid; sleep 1
 kill -0 $SPID 2>/dev/null || { say "server exited immediately: $(head -3 $OUT/server.log)"; SPID=""; finish 1; }
@@ -66,5 +66,9 @@ $TOKTAPE record --url $URL --out $RUNS --wait 0 \
   ${RAMFLAGS:---ram-gbs-measured 147.7 --ram-speed DDR4-3600} ${TOKTAPE_EXTRA:-} \
   --tag "$TAG" --note "${NOTE:-}" 2>&1 | tee $OUT/take.txt
 rc=${PIPESTATUS[0]}
+TAPE=$(grep -o "$RUNS/[0-9-]*[a-z0-9-]*\.tape" $OUT/take.txt | head -1)
+if [ $rc -eq 0 ] && [ -n "$TAPE" ] && [ -f /home/user/check-take-nothink.py ]; then
+  python3 /home/user/check-take-nothink.py "$TAPE" || { say "no-think was requested and the model thought: the take is mislabelled"; rc=1; }
+fi
 say "toktape rc $rc"
 finish $rc

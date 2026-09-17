@@ -1,6 +1,6 @@
 # A Rust engine on the same card: slower alone, twice as fast at four streams — and the run that proved our "thinking off" was never off
 
-**2026-09-17, 14:07–14:27, one A6000, Qwen3.6-35B-A3B UD-Q6_K, five takes.** The
+**2026-09-17, 14:07–14:31, one A6000, Qwen3.6-35B-A3B UD-Q6_K, seven takes.** The
 long-term goal stated this morning is an engine built for this machine, with Rust as the
 direction after NVIDIA's CUDA Rust post. The first step was never going to be a repo; it was
 a number: where does a Rust serving engine actually stand on this card, measured the way
@@ -8,9 +8,11 @@ everything else here is measured. mistral.rs 0.9.3 against ik_llama.cpp c10fbbcc
 GGUF, the same four prompts, the same token cap, the same lease.
 
 Two things came out of it. The four-stream aggregate nearly doubled — 149 tok/s for ik,
-283 for mistral.rs — while the single stream went the other way, 130 against 111. And the
-run that made the comparison fair found that every `--no-think` take this repo has recorded
-on ik_llama.cpp was thinking anyway.
+283 for mistral.rs — while the single stream went the other way, 130 against 111. And
+matching the two run shapes found that this repo's `--no-think` takes on the one-card bench
+runner were thinking anyway, because that runner never passed `--jinja`. The first
+explanation I wrote for that was wrong and is struck below; the run that corrected it took
+forty seconds.
 
 ## The recorder could not attach, and the fix was ours, not the recorder's
 
@@ -50,7 +52,7 @@ Stdlib only: the box has no aiohttp. Configuration is by environment and never a
 because a GGUF path on the proxy's command line is exactly how a recorder mistakes the
 proxy for the server.
 
-## The five takes
+## The seven takes
 
 Same file, same four ~234-token prompts (`hl1..hl4`), `-n 512`, temperature 0, warm page
 cache, one GPU by UUID, lease held, `io avg10 0.00` at every start. The engine's own figure
@@ -65,15 +67,23 @@ same way on both sides of the table.
 | ik_llama.cpp c10fbbcc | 4 | on | 37.5 | 37.4 | **149** | 4 475 ms | 293 | 4 × 512 |
 | mistral.rs 0.9.3 | 4 | on | 76.9 | 73.1 | **283** | 451 ms | 299 | 4 × 512 |
 | mistral.rs 0.9.3 | 4 | off | 79.1 | 73.8 | 237 | 465 ms | 260 | 234–345 (EOS) |
+| ik_llama.cpp, `--jinja` | 4 | off | 41.2 | 41.1 | **147** | 5 448 ms | 297 | 201 (EOS) |
+| ik_llama.cpp, `--jinja` | 1 | off | 131.4 | 131.2 | **131** | 250 ms | 298 | 244 (EOS) |
+
+Thinking on or off moves neither engine's rate by more than 3 % — 149 against 147 aggregate
+for ik, 130 against 131 alone — so the two halves of the table say the same thing and the
+comparison survives the labelling mistake below.
 
 Alone, ik is **24 % faster** on the client clock and reaches 386 GB/s of derived read, the
 same half-of-the-card ceiling this log has measured since 09-15. At four streams mistral.rs
-is **90 % ahead** on the aggregate and its per-stream rate barely moves (111 → 77) where
-ik's collapses (130 → 37.5). Prefill is the other half of the story: ik spent
-**3 357 ms** of engine time on four 234-token prompts against mistral.rs's **104 ms**, and
-that is most of the ten-fold TTFT difference. The no-think row is in the table because it is
-the only one whose streams ended at EOS rather than the cap; its lower aggregate is the tail
-of three finished streams, not a slower engine.
+is **90 % ahead** on the aggregate, and its per-stream rate barely moves (111 → 77) where
+ik's collapses (130 → 37.5). Prefill is the other half of the story: for the same four
+~235-token prompts, ik's own accounting says **3 357 ms** of engine prefill with thinking on
+and **5 393 ms** with it off, against mistral.rs's **104 ms** — which is nearly all of the
+ten-fold TTFT gap, and a bigger discrepancy than the decode one. A single 260-token prompt
+on ik prefills at 1 206–1 314 tok/s, so whatever costs those seconds only appears when four
+slots want a prompt at once. The two mistral.rs no-think rows end at EOS rather than the
+cap, and their lower aggregate is the tail of finished streams, not a slower engine.
 
 ## What these numbers are not
 
@@ -94,7 +104,7 @@ indexed-MoE path gathers the union of the experts once per step where ik re-read
 sequence. The next take is a stream sweep — 1, 2, 4, 8 — on both engines, with the derived
 bandwidth beside each row.
 
-## Every `--no-think` take on ik_llama.cpp was thinking
+## The `--no-think` that was never off, and the flag that explains it
 
 The takes above had to be matched, so the first four-stream mistral.rs run used
 `--no-think` like the ik hero take it was meant to pair with, and then the answers were
@@ -112,18 +122,42 @@ Checking every Qwen3.6 tape committed here:
 | `qwen36-35b-a3b-q6k-1stream`, `-4stream`, `-4stream-hero`, `-4stream-short-prompts`, `q4kxl-1stream` | not requested | yes |
 
 > ~~The 09-17 hero take recorded four streams with thinking off.~~ **Struck the same day.**
-> The request carried `chat_template_kwargs: {enable_thinking: false}`; ik_llama.cpp at
-> c10fbbcc ignored it and the model thought for all 512 tokens of every stream. The card's
-> `thinking off` is honest about what was asked — the tape describes the request — and wrong
-> about what happened. Nothing else in that entry changes: 37.5 tok/s each and 149 aggregate
-> are what the machine did, on thinking tokens.
+> The request carried `chat_template_kwargs: {enable_thinking: false}`, the server dropped
+> it, and the model thought for all 512 tokens of every stream. The card's `thinking off` is
+> honest about what was asked — the tape describes the request — and wrong about what
+> happened. Nothing else in that entry changes: 37.5 tok/s each and 149 aggregate are what
+> the machine did, on thinking tokens.
 
-Two consequences. For this repo, a request parameter is not a measurement, and the check is
-one line: read the first tokens of the answer. For the recorder, the contradiction is
-detectable — a tape that asked for no thinking and holds an answer opening with the model's
-think tag can say so on the card instead of printing `thinking off`; sent as a requirement.
-For ik_llama.cpp it is a missing feature rather than a bug in ours, and worth a look as a
-contribution: mainline llama-server accepts `chat_template_kwargs`, that fork does not.
+> ~~ik_llama.cpp has no support for `chat_template_kwargs`; mainline llama-server does, and
+> the gap is worth a contribution.~~ **Struck within the half-hour, before anything was sent
+> anywhere.** The fork has the field (`common/chat.cpp:546`, `common/chat.h:181`). The cause
+> was on this side: [`tools/ik/ik-vram-take.sh`](../tools/ik/ik-vram-take.sh) never passed
+> `--jinja`, so the server used the legacy template path, where the kwargs are not read at
+> all and nothing says so. The production serving config had it right all along
+> ([`configs/qwen36-3090-serve.sh`](../configs/qwen36-3090-serve.sh) passes
+> `--jinja --chat-template-kwargs`), and so does the Qwen3.8 runner — only the one-card bench
+> runner was missing it. Measured immediately: the same prompt, the same flags, `--jinja`
+> added, `--no-think` sent — no think block, EOS at 244 tokens, 131.4 tok/s. **Reading the
+> code would have produced a wrong upstream report; one run cost 40 seconds.**
+
+The interesting by-product is that the two engines now agree on the prompt. toktape hashes
+the rendered prompt it gets from `/apply-template`, and ik's jinja rendering and the shim's
+jinja rendering of the same GGUF template produce the identical
+`0304d4f30b5d02a1db7026522bb7e24b2ec3dd1ca3c69bb8779fcfae15b5c135` — so the comparison above
+is two engines fed byte-identical text, not two engines each templating their own way.
+
+Three layers, because a request parameter that is not a measurement will happen again:
+
+- **Closed at the source**: `--jinja` is now unconditional in the ik bench runner, which also
+  makes the bench path the same template path production serves on.
+- **A gate, FAIL-first**: [`tools/check-take-nothink.py`](../tools/check-take-nothink.py)
+  reads a tape, and when no-think was requested and an answer opens with a thinking tag —
+  or the tape reports thinking tokens — it fails with the stream and the text. It fails on
+  the hero tape (`THOUGHT ANYWAY … 4 answer(s)`), passes on the seven other 0.2.4 tapes, and
+  does not judge a take that never asked. Both runners call it after the take and turn a
+  contradicting run into a failed one.
+- **Easier to see next time**: the recorder was asked to put the same contradiction on the
+  card, since the tape holds both halves of it.
 
 ## What the mistral.rs cards get wrong, and why
 
@@ -152,9 +186,10 @@ one number had to be picked for a like-for-like row above, it is the client one.
 
 ## State
 
-`tools/mrs/mrs-shim.py` and the runner `tools/mrs/mrs-take.sh` are on the box as
-`/home/user/mrs-shim.py` and `/home/user/mrs-take.sh`, both owned by `user`. Five tapes and
-their cards are in `assets/` under `…-mistralrs-…` and `…-1stream-ik-think-…`; every one was
+`tools/mrs/mrs-shim.py`, the runner `tools/mrs/mrs-take.sh`, the amended
+`tools/ik/ik-vram-take.sh` and `tools/check-take-nothink.py` are on the box under
+`/home/user/`, all owned by `user`. Seven tapes and
+their cards are in `assets/` under `…-mistralrs-…`, `…-ik-think-…` and `…-ik-jinja-nothink-…`; every one was
 run through `tools/tape-sanitize.py` and `tools/check-tapes-sanitized.sh` before the commit.
 Probe captures and server logs stay on the box under `/home/user/mrs-take/`. The A6000 is
 idle, the lease released. Recorded with

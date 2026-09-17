@@ -1,0 +1,38 @@
+┌──────────────────────────────────────────────────────────────────────┐
+│ toktape v0.2.4               20260917-143118-qwen3-6-35b-a3b-ud-q6-k │
+├──────────────────────────────────────────────────────────────────────┤
+│ MODEL    Qwen3.6-35B-A3B-UD-Q6_K.gguf · UD-Q6_K · 27.3 GiB           │
+│ ENGINE   ik_llama.cpp c10fbbcc · linux 6.8.0-139-generic             │
+│          workstation                                                 │
+│ RIG      RTX A6000 48G · AMD Ryzen Threadripper PRO 5975WX 32-Cores  │
+│          252 GB DDR4-3600                                            │
+├──────────────────────────────────────────────────────────────────────┤
+│ Decode        147 tok/s aggregate · 41.2 tok/s each                  │
+│               ≈ 122–225 GB/s, 16–29% of peak                         │
+│ Prefill       175 tok/s aggregate · 44.1 tok/s each                  │
+│               238 prompt tokens · engine prefill 5393 ms             │
+│               queue 55 ms · TTFT p50 5448 ms                         │
+│ Context       2048 (238 in / 201 out)                                │
+│ Prefix cache  0% hit (0/238) · warm                                  │
+│ Sampling      greedy (temp 0) · thinking off · chat                  │
+│ Streams       4 streams · 41.2 tok/s each · 147 tok/s aggregate      │
+│               TTFT p50 5448 ms p95 5451 ms · slots busy max ?        │
+├──────────────────────────────────────────────────────────────────────┤
+│ MEMORY   GPU0 [██████░░░░] 28.1/48.0 GiB                             │
+│          weights 26.8 | kv ? | compute ? GiB                         │
+│          Host placed 0.5 GiB (all in RAM)                            │
+│          Host RSS 1.8 GiB (file 0.7 / anon 1.1)                      │
+│          Page faults 0.0 maj/token (0 during decode)                 │
+├──────────────────────────────────────────────────────────────────────┤
+│ HOST     GPU0 70°C 285 of 300 W · throttled: no · contended: no      │
+├──────────────────────────────────────────────────────────────────────┤
+│ FLAGS    -ngl 99 -fa on -b 2048 -ub 512 -ctk default -ctv default    │
+│          -t 32                                                       │
+│          -m /models/Qwen3.6-35B-A3B/Qwen3.6-35B-A3B-UD-Q6_K.gguf     │
+│          -c 8192 -np 4 --jinja --host 127.0.0.1 --port 8012          │
+├──────────────────────────────────────────────────────────────────────┤
+│ ! engine commit c10fbbcc read from the checkout next to the binary,  │
+│   not from the binary                                                │
+├──────────────────────────────────────────────────────────────────────┤
+│                toktape · github.com/midagedev/toktape                │
+└──────────────────────────────────────────────────────────────────────┘
