@@ -1,0 +1,35 @@
+┌──────────────────────────────────────────────────────────────────────┐
+│ toktape v0.2.4               20260917-150823-qwen3-6-35b-a3b-ud-q6-k │
+├──────────────────────────────────────────────────────────────────────┤
+│ MODEL    Qwen3.6-35B-A3B-UD-Q6_K.gguf · UD-Q6_K · 27.3 GiB           │
+│ ENGINE   ? · linux 6.8.0-139-generic · workstation                   │
+│ RIG      RTX A6000 48G · AMD Ryzen Threadripper PRO 5975WX 32-Cores  │
+│          252 GB DDR4-3600                                            │
+├──────────────────────────────────────────────────────────────────────┤
+│ Decode        279 tok/s aggregate · 76.9 tok/s each                  │
+│ Prefill       1892 tok/s aggregate · 2467 tok/s each                 │
+│               236 prompt tokens · engine prefill 100 ms              │
+│               queue 297 ms · TTFT p50 448 ms                         │
+│ Context       32768 (236 in / 512 out · 512 thinking)                │
+│ Prefix cache  0% hit (0/236) · warm                                  │
+│ Sampling      greedy (temp 0) · chat                                 │
+│ Streams       4 streams · 76.9 tok/s each · 279 tok/s aggregate      │
+│               TTFT p50 448 ms p95 499 ms · slots busy max 4          │
+├──────────────────────────────────────────────────────────────────────┤
+│ MEMORY   GPU0 [███████░░░] 32.4/48.0 GiB                             │
+│          weights 27.3 | kv 2.5 | compute ? GiB                       │
+│          Host RSS 0.0 GiB (file 0.0 / anon 0.0)                      │
+│          Page faults 0.0 maj/token (0 during decode)                 │
+├──────────────────────────────────────────────────────────────────────┤
+│ HOST     GPU0 74°C 299 of 300 W · throttled: no · contended: yes     │
+│          1 other GPU compute process                                 │
+├──────────────────────────────────────────────────────────────────────┤
+│ FLAGS    -fa default -b default -ub default -ctk default             │
+│          -ctv default                                                │
+├──────────────────────────────────────────────────────────────────────┤
+│ ! 3 caveats — answer cut: all 512 predicted tokens were reasoning —  │
+│   raise --n-predict · client_disagrees_with_server ·                 │
+│   machine_contended                                                  │
+├──────────────────────────────────────────────────────────────────────┤
+│                toktape · github.com/midagedev/toktape                │
+└──────────────────────────────────────────────────────────────────────┘

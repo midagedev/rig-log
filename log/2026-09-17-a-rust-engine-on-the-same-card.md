@@ -102,22 +102,30 @@ reason wrong.
 > *blockwise FP8* grouped GEMM and that `MISTRALRS_MOE_BACKEND=fused requires F16 or BF16
 > weights`, so a Q6_K GGUF would not reach either path even with the assembler present.
 
-Which kernels it did run is not yet measured. The plausible reading is candle's CUDA C
-kernels through FFI with the CUTLASS grouped-GEMM MoE path as the fallback the doctor names,
-but no take here logged a backend line, so that is a code-and-strings inference and not a
-measurement — a `-v` run settles it. Either way what was measured is a Rust host and
-scheduler over kernels of the same class ik_llama.cpp compiles itself, so the finding is
-about batching and scheduling, not about whether Rust can write a fast GEMM.
+Which kernels it did run was an inference for about four hours and is now measured: the
+server started with `-v` prints `Preloaded 698 Candle CUDA PTX functions`, so the kernels
+under these numbers are candle's, as the code read said. The same log line answers a
+question nobody here had asked — `Qwen3Next: 10 full attention layers, 30 linear attention
+(GDN) layers`, which is to say three quarters of this model's stack is a recurrent state
+update rather than a KV read. What was measured is therefore a Rust host and scheduler over
+kernels of the same class ik_llama.cpp compiles itself, so the finding is about batching and
+scheduling, not about whether Rust can write a fast GEMM.
 
 That makes the four-stream gap the interesting one and the open question the important one.
-The 09-16 ExLlamaV3 arm measured why concurrency usually buys nothing on a sparse MoE: two
-tokens from two streams route to different experts, so the bytes read per step scale with
-the streams and the aggregate stays flat. ik's +13 % at four streams (09-15) fits that
-arithmetic. mistral.rs's +170 % does not, and the two candidate explanations are testable:
-either its single stream is overhead-bound and batching amortises a fixed cost, or its
-indexed-MoE path gathers the union of the experts once per step where ik re-reads per
-sequence. The next take is a stream sweep — 1, 2, 4, 8 — on both engines, with the derived
-bandwidth beside each row.
+
+> ~~The 09-16 ExLlamaV3 arm measured why concurrency usually buys nothing on a sparse MoE: two
+> tokens from two streams route to different experts, so the bytes read per step scale with the
+> streams and the aggregate stays flat. ik's +13 % at four streams fits that arithmetic.
+> mistral.rs's +170 % does not, and the two candidate explanations are testable: either its single
+> stream is overhead-bound and batching amortises a fixed cost, or its indexed-MoE path gathers the
+> union of the experts once per step where ik re-reads per sequence.~~ **Struck the same day**, by
+> the sweep this paragraph asked for. Both candidates were guesses about the fast engine, and the
+> gap is on the other side: a second stream costs mistral.rs 11 % and costs ik 50 %, ik's decode
+> does not batch on a MoE model at all (measured on a second MoE model with no linear attention,
+> and against a dense model that scales normally in the same harness), and its concurrent prefill
+> falls back to single-token chunking at a named site. Neither CUDA graphs nor the fused-MoE path
+> survived intervention. The measurement, the reproducer and the upstream disposition are in
+> [2026-09-17-b](2026-09-17-b-where-the-four-stream-gap-actually-is.md).
 
 ## The `--no-think` that was never off, and the flag that explains it
 
