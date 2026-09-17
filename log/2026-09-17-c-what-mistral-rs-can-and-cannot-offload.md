@@ -153,6 +153,34 @@ Repo gates, run here: `cargo fmt --all -- --check` clean, `cargo clippy -p mistr
 in the PR body is attributed to v0.9.3, because a CUDA build of `d5ae0f1` was still compiling kernels
 when the PR went up and a figure is worth only the version it was measured on.
 
+That build finished at 20:58, in 36 min 25 s, and the box tree was still clean at `d5ae0f1` — so the
+same binary that the PR body could only describe was available to measure, unpatched, at exactly the
+commit named. Both halves, one lease each, twenty minutes apart, the mapping identical
+(`Layers 0-38: cuda[0]` / `Layers 39-39: cpu`, `DType selected is BF16`, 28 GB resident before the
+request):
+
+| build | one `max_tokens=1` completion | `dtype mismatch` lines |
+|---|---|---:|
+| `d5ae0f1`, unpatched | **http 500** `model_error`, `Model failed with error: moe experts forward` | 2 |
+| `d5ae0f1` + the PR's commit `b0f26d5c` applied verbatim | **http 200**, one token back | **0** |
+
+So the before-and-after is now the same commit on both sides rather than a release tag on one, which
+is what the PR body's evidence sentence should say. The patch that produced the second row was the
+PR commit's own diff piped to the box and `git apply`-ed, not a hand re-edit — the day's attribution
+accident was patching a tree mid-compile and then reading the result as unpatched, and applying the
+committed diff is what makes that impossible to repeat. The rebuild took 1 min 31 s and recompiled no
+CUDA kernels, so the second row is the first row's binary plus five lines.
+
+The runner is [`tools/mrs/mrs-offload-check.sh`](../tools/mrs/mrs-offload-check.sh), and it exists
+because `mrs-mech-probe.sh` answers this question only by accident: that probe's readiness loop
+demands a *successful completion*, so a server that loads and then fails every request keeps it
+asking for fifteen minutes — which is where the 232 errors above came from. The new runner's
+readiness is `/health`, which separates "the weights loaded" from "a forward pass works", and the
+distinction is the whole bug. It prints the VRAM figure at readiness as the witness that the verdict
+is about the forward pass and not about an unloaded model. The box tree is left patched on purpose;
+a session that wants upstream behaviour from `/home/user/mistral.rs` must `git -C … checkout --
+mistralrs-quant/src/gguf/cpu.rs` first.
+
 Their contribution rules are worth recording, since they are the opposite of ik_llama.cpp's. There is
 no `CONTRIBUTING.md`; the conventions live in `AGENTS.md` and a near-duplicate `CLAUDE.md`, both
 committed, and there is no disclosure rule for agent-written patches at all — the maintainer merges
