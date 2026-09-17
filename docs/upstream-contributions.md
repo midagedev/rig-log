@@ -110,14 +110,76 @@ dereferencing, and four callers, which would otherwise have received the
 `nullptr` and crashed one frame later. That needed three sentences, not a
 defence.
 
-Read the target's `CONTRIBUTING.md` and follow it exactly, including the
-parts about AI:
+Read the target's `CONTRIBUTING.md` and follow it exactly. **Its rules do not
+transfer between repositories, so read the one you are submitting to.** The
+bullets below were written from ik_llama.cpp's, whose CONTRIBUTING calls out AI
+slop in descriptions:
 
 - Disclose AI assistance in the body.
 - The commit **author** must be a person. No AI co-author trailer, whatever
   your local tooling appends by default.
 - No AI-generated comments in the diff. If in doubt, remove all of them.
 - Use the project's squashed-commit title format.
+
+mistral.rs is the counter-example, measured 2026-09-17: there is no
+`CONTRIBUTING.md` at all, the conventions live in a committed `AGENTS.md` and a
+near-duplicate `CLAUDE.md` addressed to agents, there is no disclosure rule of
+any kind, and the maintainer merges `Co-Authored-By: Claude` commits of his own
+(three of the four such commits in that history are his). Carrying ik's bullets
+there would have meant stripping a trailer the maintainer uses himself. What
+that repo does demand instead is a house style a default agent breaks on sight:
+comments default to **none**, one line each where they exist, ASCII only with no
+em-dashes and no `--`, magic values hoisted to named `const`s, no defensive
+handling for cases that cannot occur, and no "Test plan" section in a body.
+
+### Whether the patch carries a test: count, do not read
+
+The written rule points the wrong way often enough that reading it is not
+enough. mistral.rs's `AGENTS.md` says "Add tests and examples for new
+functionality" — and of its twenty-two most recently merged `fix` pull requests,
+**two** touched a test file, one of those a website JavaScript test and the
+other a twenty-five-file "address recent correctness regressions". The four
+adjacent single-purpose fixes, including a dtype bug in the same crate
+([#1755](https://github.com/EricLBuehler/mistral.rs/pull/1755)), were each one
+file with no test. So the convention there, for a fix, is no test, and the
+sentence in `AGENTS.md` is about new functionality.
+
+Counting is one `gh` loop over `gh pr list --search "fix in:title" --state
+merged` plus `pulls/<n>/files`, and it answers in a minute what a style
+document cannot.
+
+Our own four submissions, which is the same question asked from the other side:
+
+| PR | shipped a test |
+|---|---|
+| ik_llama.cpp [#2444](https://github.com/ikawrakow/ik_llama.cpp/pull/2444) | no (one file, +5/−1) |
+| exllamav3 [#376](https://github.com/turboderp-org/exllamav3/pull/376) | yes (+39, a guard that fails on the unpatched file) |
+| llama.cpp [#29008](https://github.com/ggml-org/llama.cpp/pull/29008) | shipped one, **asked to remove it**, merged without |
+| mistral.rs [#2430](https://github.com/EricLBuehler/mistral.rs/pull/2430) | no |
+
+The llama.cpp one is the cautionary datapoint and it is worth being precise
+about, because it was misread here once. A reviewer wrote "Please remove the
+tests and we can get this merged in" and **gave no reason** — the tree is full
+of parser tests in `tests/test-chat.cpp`, so it was not a rule about tests. A
+second maintainer's remark in the same thread ("the attempt to align something
+that won't align was just confusing") was read here as that reason, and it was
+not: his commit was `--whitespace`, undoing column alignment in the parser file,
+because the full-width `<｜User｜>` never lines up anyway. **A comment is
+evidence of what it is about, not of what you need it to be about.**
+
+So: **FAIL-first is a discipline, not necessarily an artifact.** Always measure
+the failure and the fix locally; ship the test only when the count says that
+repo ships tests for this class of change. Two further filters when it does:
+
+- **Assert only what the fix promises.** The BF16 test drafted for #2430
+  asserted that the BF16 path's values equalled the F32 path's exactly. It
+  passed, because the fixture was all ones and both sides were exactly
+  representable; with realistic values it fails, measured, `-3.859375` against
+  `-3.8654757`. The fix promises dtype transparency, not bit-identical results,
+  so the assertion was a trap for whoever edited the fixture next.
+- **Where it goes matters as much as whether.** That test landed in
+  `gguf/mod.rs`'s test module, which is entirely ISQ and UQFF plumbing. A
+  forward-pass dtype test is an outlier there even in a repo that wanted one.
 
 ## 5. Pre-flight: predict the objections
 
@@ -201,6 +263,9 @@ request.
 | 2026-09-14 | ik_llama.cpp | [#2438 comment](https://github.com/ikawrakow/ik_llama.cpp/issues/2438#issuecomment-5656281274) — the V4.1 port branch offered as a reference with its verified and unverified scope (PPL 2.2258 vs 2.2438, decode 18.4/19.0 vs 18.6/19.8 at the same split); asks the maintainer whether to split it into PRs or leave it, since the V4 port went in as his own work after an external PR closed. | answered 2026-09-15: two PRs |
 | 2026-09-15 | exllamav3 | [#376](https://github.com/turboderp-org/exllamav3/pull/376) — `BlockSparseMLP_CPU.can_defer_load` detected a static expert placement by reading `EXL3_MOE_CPU_SPLIT`, which `-mcs` never sets, so `-mcs` + `EXL3_MOE_CPU_SPLIT_STATS` let the router load after the permutation and the model generated garbage at a normal token rate. One line (read `infer_params.moe_cpu_split`, as the split registration already does) plus a unit test that fails on the unpatched 1.5.0 file. Three-arm reproducer on GLM-5.3-Flash 4.05 bpw; same fix sits inside the open #315, noted there. Base `dev`, AI-assistance disclosed in the #310 form. | open |
 | 2026-09-15 | TabbyAPI | #454 (llama.cpp-style `timings` on completion responses) — patch prepared by the toktape session, not by this repo; checked here on the workstation against TabbyAPI main 53da791 with the same exllamav3 1.5.0 build: main has no `timings` on any of six requests, the patch places it on the last streamed chunk or top level and returns null for n=2, its unit tests fail to import on main and pass 23 on the patch. Measured along the way that exllamav3's `time_generate` spans n decode passes (one token = one pass), so the rate is n / time, and that TabbyAPI rounds its times to 0.01 s. [Log](../log/2026-09-15-exl3-serve-and-tabbyapi-timings.md). | candidate, not filed (the toktape session files it) |
+| 2026-09-17 | mistral.rs | [#2430](https://github.com/EricLBuehler/mistral.rs/pull/2430) — a GGUF MoE with any layer mapped to host memory fails every forward with `moe experts forward / dtype mismatch in matmul, lhs: BF16, rhs: F32`. `GgufMatMul::quantized_act_type` returns `None` for CPU weights so the packed 2D matmul can widen BF16 itself, which also switches off the cast `QuantMethod::gather_forward` applies; the indexed path dequantizes experts to F32 instead of widening. Five lines in `gguf/cpu.rs`, placed after the `indexed_gemv` fast path so that path keeps its dtype. One file, no test, because that is what twenty of the repo's twenty-two most recent merged `fix` PRs are; the regression test was written, used as the FAIL-first, and dropped. Scoped in three launches: `-n 0:40` clean, a dense GGUF on the same split serves, one layer is enough to break a MoE one. `fmt`, `clippy -D warnings`, 362 crate tests clean. The body's first version claimed the bug was x86-only; the test failed on aarch64 too and the claim was struck before submission. | open |
+| 2026-09-17 | ik_llama.cpp | Qwen3Next concurrent prefill collapses from 2 582 to 119 tok/s because `src/llama.cpp:7051` chunks a mixed-sequence ubatch one token at a time — the 3.4 s to 10 s TTFTs measured on every four-stream take here. Already fixed by open PR [#2418](https://github.com/ikawrakow/ik_llama.cpp/pull/2418), so **nothing to file**: the contribution is the measurement as a comment there. [Log](../log/2026-09-17-b-where-the-four-stream-gap-actually-is.md). | duplicate of an open PR; comment pending |
+| 2026-09-17 | ik_llama.cpp | MoE decode barely batches: `llama-batched-bench -npp 238 -ntg 256 -npl 1,2,4,8` on DeepSeek-V2-Lite Q3_K_M gives decode 202.1 / **156.1** / 229.9 / 317.0 tok/s, so two sequences are slower in total than one, while dense Qwen2.5-7B in the same harness gives 120.7 / 195.5 / 290.7 / 388.5. CUDA graphs ruled out (`GGML_CUDA_DISABLE_GRAPHS=1` costs 7 %, the collapse survives) and `-no-fmoe` is worse. Three duplicate searches found nothing. **Held, not filed** — a reproducer without a cause is a symptom report; needs per-op timing (nsys or a timing build, ik has no profiler env var). | candidate, held |
 
 Findings that were investigated and deliberately not sent are worth a row
 too, once there are any: a negative result that took a day is the same

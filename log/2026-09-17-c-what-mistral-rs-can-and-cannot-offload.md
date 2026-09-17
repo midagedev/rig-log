@@ -106,8 +106,61 @@ control that works and a whole-GPU control that works", which is what was measur
 
 Duplicate search, three queries on `EricLBuehler/mistral.rs`: `"dtype mismatch in matmul"` (one hit,
 [#2072](https://github.com/EricLBuehler/mistral.rs/issues/2072), FP8 *loading*, a different path),
-`moe experts forward dtype mismatch` and `device-layers cpu offload gguf moe` — no match. **Not
-filed**; the reproducer and the controls are here, the decision is the user's.
+`moe experts forward dtype mismatch` and `device-layers cpu offload gguf moe` — no match.
+
+## The fix, the claim a test killed, and the test that did not ship
+
+Submitted as [EricLBuehler/mistral.rs#2430](https://github.com/EricLBuehler/mistral.rs/pull/2430),
+five lines in one file. The cause is one line up from where the error is thrown.
+`GgufMatMul::quantized_act_type` (`mistralrs-quant/src/gguf/mod.rs:560`) returns `None` for CPU
+weights, with the comment *"cpu handles bf16 activations natively (widened once inside the packed
+matmul)"* — true of the packed 2D matmul, and the `None` also switches off the cast that
+`QuantMethod::gather_forward` would otherwise apply. The indexed path does not widen: it dequantizes
+the experts to F32 and matmuls them against the activations as they arrive. So the fix casts to F32
+for that matmul and restores the input dtype, which is what `forward_raw` does for the non-indexed
+case and what the CUDA path does inside `quantize_input_q8_1`. It sits after the `indexed_gemv` fast
+path, which keeps its original dtype.
+
+Two reviewer questions were answered before submitting rather than after. Fixing
+`quantized_act_type` instead would put a cast on the 2D path that widens BF16 for free. And the
+`QMatMul::Tensor` branch two lines below has the same shape but cannot be reached with a mismatched
+dtype: the CPU early return is guarded by `if let QMatMul::QTensor(qt)`, so a plain tensor falls
+through to `Some(DType::F32)` and the trait casts for it already.
+
+> ~~`indexed_gemv` is aarch64 only, so an x86_64 host always reaches the dequantize fallback.~~
+> **Struck before submission, by a test that was never shipped.** The sentence was in the PR body
+> when it was written. The throwaway test — `QTensor::quantize(Q4K)`, a BF16 activation,
+> `gather_forward` — was expected to pass on this Apple Silicon Mac without the fix and to fail only
+> on the box. It failed on the Mac:
+> `Error: dtype mismatch in matmul, lhs: BF16, rhs: F32`. `indexed_gemv` also declines layouts its
+> repacked kernels cannot serve, so aarch64 reaches the same fallback. Third wrong scoping claim of
+> the day from reading code, and the first one a test caught before it left the machine.
+
+That test was written, used, and then **not shipped**. It is the FAIL-first — it errors on `d5ae0f1`
+without the change and returns BF16 with it, in a plain `cargo test -p mistralrs-quant` that needs no
+GPU — but shipping it would have gone against the repo rather than with it. Counted, not read: of
+mistral.rs's twenty-two most recently merged `fix` pull requests, **two** touch a test file, one a
+website JavaScript test and the other a twenty-five-file correctness sweep; the four adjacent
+single-purpose fixes, one of them a dtype bug in this same crate, are each one file with no test. The
+module the test had landed in is entirely ISQ and UQFF plumbing, so a forward-pass dtype test is an
+outlier there even where tests are wanted. `AGENTS.md` does say "add tests", for *new functionality*,
+which a fix is not. So the PR is one file, +5/−2, one commit — the shape those twenty had — and the
+before-and-after is a sentence in the body instead. FAIL-first is a discipline, not an artifact; the
+rule is now in [`docs/upstream-contributions.md`](upstream-contributions.md).
+
+Repo gates, run here: `cargo fmt --all -- --check` clean, `cargo clippy -p mistralrs-quant --tests --
+-D warnings` exit 0, `cargo test -p mistralrs-quant` **361 passed, 0 failed**. The server-level repro
+in the PR body is attributed to v0.9.3, because a CUDA build of `d5ae0f1` was still compiling kernels
+when the PR went up and a figure is worth only the version it was measured on.
+
+Their contribution rules are worth recording, since they are the opposite of ik_llama.cpp's. There is
+no `CONTRIBUTING.md`; the conventions live in `AGENTS.md` and a near-duplicate `CLAUDE.md`, both
+committed, and there is no disclosure rule for agent-written patches at all — the maintainer merges
+`Co-Authored-By: Claude` commits of his own. What the file does demand is a house style that a
+default agent violates on sight: comments default to **none**, one line each when they exist, ASCII
+only with no em-dashes or `--`, magic values hoisted to named `const`s, no defensive handling for
+cases that cannot occur, and no "Test plan" section in a PR description. This patch adds no comment
+at all.
 
 ## What it means for this box
 
@@ -117,8 +170,8 @@ current serving stack does daily. Two gaps, in order of how much they cost:
 1. **No expert-only placement.** Even with the dtype bug fixed, layer-granular offload cannot
    express "experts in RAM, attention on the card", and for a 100 GB-class MoE that recipe is the
    difference between served and not served. This is a feature-sized hole, not a bug.
-2. **MoE layers cannot go to the host at all right now.** A bug, small-looking, and the kind of
-   thing a first contribution to a repo is made of.
+2. **MoE layers cannot go to the host at all right now.** A bug, small-looking, and the first thing
+   this workstation has sent to the repo it may end up forking: PR #2430.
 
 The measurement that started this is in
 [2026-09-17-b](2026-09-17-b-where-the-four-stream-gap-actually-is.md); the probe that produced every
