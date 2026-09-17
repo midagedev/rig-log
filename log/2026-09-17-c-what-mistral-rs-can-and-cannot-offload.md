@@ -88,6 +88,38 @@ curl -s localhost:8013/v1/chat/completions -H 'Content-Type: application/json' \
   -d '{"model":"default","messages":[{"role":"user","content":"hi"}],"max_tokens":1}'
 ```
 
+## Against the two engines this box already runs
+
+The question "does mistral.rs have offloading" only means something next to the engines it would
+replace, so the same question was put to their binaries' own `--help` rather than to memory
+(`/home/user/{ik_llama.cpp,llama.cpp}/build/bin/llama-server`, both built on this box):
+
+| | llama.cpp | ik_llama.cpp | mistral.rs 0.9.3 |
+|---|---|---|---|
+| layers to the host | `-ngl` | `-ngl` | `-n ORD:NUM` |
+| tensor placement by name | `-ot NAME=buft` | `-ot NAME=buft` | **absent** |
+| all expert weights to the host | `-cmoe` | `-cmoe` | **absent** |
+| experts of the first N layers to the host | `-ncmoe N` | `-ncmoe N` | **absent** |
+| KV cache off the card | `-nkvo` | `-nkvo` | **absent** (`MISTRALRS_CPU_KV_F32` is a dtype) |
+| the same, for a draft model | `-otd`, `-cmoed`, `-ncmoed` | no | no |
+| per-layer *quantization* | no | no | `--topology` YAML |
+| NVMe or disk tier | no | no | no |
+
+Two corrections to how the earlier sections read. **The missing NVMe offload is parity, not a
+deficit** — no engine in this comparison has one, and every one of them relies on the same mechanism,
+mmap plus the page cache, for a file bigger than RAM. Saying mistral.rs "has no NVMe offload" is true
+and says nothing about the choice between them. And llama.cpp has more of this surface than ik does,
+not less: the whole `-ot`/`-cmoe`/`-ncmoe` family again for the *draft* model, which matters on a box
+that runs speculative decoding.
+
+What is left after removing the parity rows is one row that decides the question. `-ncmoe N` and
+`-ot exps=CPU` are how this workstation serves DeepSeek-V4.1-Flash at all, and mistral.rs cannot
+express either. Layer-granular offload is not a substitute: sending a whole layer to the host sends
+its attention and its KV with the experts, which is the opposite of the trade the recipe is making.
+So mistral.rs's offloading is **one tier of three** — it has the `-ngl` tier, it lacks the tensor
+tier entirely, and nobody has a disk tier. It gains one thing neither of the others has, per-layer
+quantization in `--topology`, which is interesting for fitting a model rather than for placing one.
+
 ## Scoping honestly, and the two models that could not be asked
 
 One MoE model is one model. The generality is **untested**, and not for want of trying — the two
