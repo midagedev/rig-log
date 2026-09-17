@@ -12,6 +12,12 @@ be published with the same wrong label.
 
 Exit 0 when nothing contradicts, 1 when a tape does (or cannot be read). A tape that never
 asked for no-think is not judged — that is not this check's business.
+
+**This is a per-take gate, not a repo-wide one.** Run over `assets/*.tape` it will always fail,
+because `qwen36-35b-a3b-q6k-4stream-hero-nothink-0.2.4.tape` is the mislabelled take this check
+exists because of, and it stays in the tree: the claim about it is struck in the log entry, not
+deleted, and a log that quietly removes its own wrong artefacts is worth nothing. So the runners
+call this on the tape they just recorded, and nobody should make the repo-wide run green.
 """
 import gzip
 import json
