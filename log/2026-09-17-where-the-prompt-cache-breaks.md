@@ -116,6 +116,37 @@ it argues with a maintainer decision and is not part of this patch.
 Also unchanged: the cold prefill itself. 13 167 tokens at 46 tok/s is 4 min 45 s on this
 placement whatever the cache does, and the tool schemas are two thirds of it.
 
+## Is it only DeepSeek?
+
+No, but the class is small. A parser without delimiters only costs something when the model's
+memory cannot roll back, and only five specialized parsers on master lack them: deepseek
+(this patch), lfm2, ministral3, gigachat_v3, kimi_k2 (plus functionary_v3_2, which has no
+`parsers.cpp` entry). GigaChat v3 loads through `src/models/deepseek2.cpp`, Ministral 3 through
+`mistral3.cpp`, Kimi K2 is DeepSeek-V3 shaped — full KV, no checkpoint needed, the omission is
+free. LFM2 is the other victim on paper: `src/models/lfm2.cpp` is shortconv recurrent and reads
+`LLM_KV_ATTENTION_SLIDING_WINDOW`, and its parser only names the assistant marker
+(`<|im_start|>assistant\n`); the user marker would be `<|im_start|>user\n`. Not measured
+here, and left out of the DeepSeek patch so the FAIL-first test covers everything the PR
+touches. Templates without a specialized parser get their `user_start` from the autoparser.
+
+## Duplicate search, 2026-09-17
+
+Nothing open or closed does this. Queries, so the absence can be checked: `gh pr list
+--search` for "message_delimiters", "deepseek delimiters", "deepseek checkpoint"; `gh issue
+list --search` for "deepseek prompt cache", "V4 checkpoint", "cache_n deepseek"; open PRs
+touching `common/parsers/deepseek.cpp` on master 4bc272fd7: #28612 and #28724, neither about
+delimiters (`gh search prs` returned nothing for every query and was not trusted). Adjacent:
+#24176 added delimiters to the parsers that existed on 2026-06-23 and the V3.2 parser from
+#21785 (2026-04-13) was not among them; #25452 reports DSV4-Flash divergent turns re-prefilling
+from the checkpoint boundary and attributes it to the cache's missing partial `seq_rm` — true,
+and this sits on top of it; #21831, #24055, #28302 are the checkpoint-policy neighbours.
+
+What merges here, read from #24176, #25472, #28302, #28466 and #26210: the template kept
+verbatim, an Overview of a few sentences, an Additional information section with the
+`prompt_n`/`cache_n` table and the untested cases named, and the AI use stated in the
+disclosure line (#28466 discloses that Codex drafted its description and was merged; #26244 was
+closed by the bot for an undisclosed AI-written description). The PR text is the author's.
+
 ## State
 
 Patch and test on the box: serving fork `llama.cpp-v41-merged` (the server now runs it) and a
