@@ -38,8 +38,16 @@ BUS=$(smi --query-gpu=pci.bus_id --format=csv,noheader | sed 's/^0000//' | tr 'A
 DEV=${BUS#0000}; DEV=0000${DEV}
 PARENT=$(basename "$(readlink -f /sys/bus/pci/devices/$DEV/..)")
 
+alive(){ [ -d /proc/$1 ] && [ "$(awk '"'"'{print $3}'"'"' /proc/$1/stat 2>/dev/null)" != "Z" ]; }
 cleanup(){ rc=${1:-1}
   for p in $WPID $BPID; do [ -n "${p:-}" ] && kill -0 $p 2>/dev/null && kill -TERM $p; done
+  # and say whether it actually died: "I sent a signal" is not "it is gone", which is how a
+  # witness outlived a whole run unnoticed (2026-09-17). `kill -0` is the wrong instrument here
+  # -- an unreaped child answers it as a zombie -- so read the state field instead.
+  for p in $WPID $BPID; do [ -n "${p:-}" ] || continue
+    for _ in 1 2 3 4 5; do alive $p || break; sleep 1; done
+    alive $p && say "WARNING: pid $p ($(cat /proc/$p/comm 2>/dev/null)) survived SIGTERM"
+  done
   [ -f $LEASE ] && grep -q "^$LEASE_TAG " $LEASE && rm -f $LEASE && say "lease released"
   [ $rc -eq 0 ] && echo GPUCHECK_DONE || echo GPUCHECK_FAILED; exit $rc; }
 WPID=""; BPID=""
@@ -74,8 +82,20 @@ if [ ! -x $TOOLS/cuda_memtest-bin ]; then   # the clone lives at $TOOLS/cuda_mem
 fi
 
 # --- witness ---
-smi --query-gpu=timestamp,power.draw,clocks.sm,clocks.mem,temperature.gpu,fan.speed,memory.used,utilization.gpu,clocks_throttle_reasons.active --format=csv -l 1 > $OUT/dmon.csv 2>/dev/null &
+# nvidia-smi spelled out rather than the smi() helper, because backgrounding a shell FUNCTION
+# makes $! the subshell, not the program. Bash normally exec-replaces a single-command subshell
+# and the two pids coincide, but a script with a trap set (this one) does not get that
+# optimisation, so `kill -TERM $WPID` killed the subshell and orphaned the nvidia-smi under it.
+# Measured 2026-09-17 on reseat-3090-1: the runner printed "lease released / GPUCHECK_DONE" at
+# 23:46:34 and the witness was still writing at 1 Hz at 23:49, 33 minutes old, dragging the
+# report's "under burn" means down with idle rows every time it was regenerated. Same family as
+# the runner that recorded a subshell pid and left a server holding both cards.
+nvidia-smi -i $GPU --query-gpu=timestamp,power.draw,clocks.sm,clocks.mem,temperature.gpu,fan.speed,memory.used,utilization.gpu,clocks_throttle_reasons.active --format=csv -l 1 > $OUT/dmon.csv 2>/dev/null &
 WPID=$!; echo $WPID > $OUT/witness.pid
+# Assert it, rather than trust the reasoning above: a pid we mean to signal has to BE the
+# program. This is the one check that catches the whole class the next time someone wraps it.
+WCOMM=$(cat /proc/$WPID/comm 2>/dev/null)
+[ "$WCOMM" = "nvidia-smi" ] || { say "refused: witness pid $WPID is '$WCOMM', not nvidia-smi — it would outlive this run"; cleanup 1; }
 
 # --- 1. VRAM test ---
 say "memtest: $MEMTEST_PASSES passes over all VRAM"
@@ -140,6 +160,20 @@ burn_verdict = [l for l in open(f"{out}/burn.log").read().splitlines() if "OK" i
 memtest_err = sum(1 for l in open(f"{out}/memtest.log") if ("ERROR" in l.upper() or "FAIL" in l.upper()) and "NVML runtime error" not in l)
 bw = open(f"{out}/pcie-bw.txt").read().strip()
 aer_b = open(f"{out}/aer-before.txt").read(); aer_a = open(f"{out}/aer-after.txt").read()
+# What counts as an AER change, in one place. The snapshot also carries LnkSta, and the link
+# sits at 2.5 GT/s when the card is idle and 16 GT/s just after a burn — the GPU's own
+# downclocking, measured 2026-09-16 and already the subject of a struck asterisk. Comparing the
+# whole file made that read as "AER registers CHANGED / CHECK" on a card with every error bit
+# clear (measured 2026-09-17 on reseat-3090-1), which is the worst kind of false alarm on a
+# sheet someone else reads: it teaches the reader to skip the row that would matter.
+def err_lines(t):
+    return [l.strip() for l in t.splitlines() if "UESta:" in l or "CESta:" in l]
+def link_line(t):
+    for l in t.splitlines():
+        if "LnkSta:" in l: return l.split("LnkSta:",1)[1].strip()
+    return "?"
+aer_changed = [f"{b} -> {a}" for b, a in zip(err_lines(aer_b), err_lines(aer_a)) if b != a]
+aer_same = not aer_changed and len(err_lines(aer_b)) == len(err_lines(aer_a))
 lines = []
 lines.append(f"# GPU sale check — {field('Product Name')} ({gpu})\n")
 lines.append(f"- VBIOS {field('VBIOS Version')} · serial {field('Serial Number')} · driver {field('Driver Version')}")
@@ -155,7 +189,10 @@ if pw:
     lines.append(f"| fan | max {max(fan):.0f} % | — |")
     lines.append(f"| throttle reasons seen | {', '.join(reasons)} | — |")
 lines.append(f"| kernel log delta (Xid/NVRM/AER) | {xid} lines | {'PASS' if xid==0 else 'FAIL'} |")
-lines.append(f"| PCIe AER registers unchanged | {'yes' if aer_b==aer_a else 'CHANGED'} | {'PASS' if aer_b==aer_a else 'CHECK'} |")
+# Two rows, because they answer different questions: one is an error comparison, the other is
+# a state. The changed row names what moved, so nobody has to ssh in and diff the files by hand.
+lines.append(f"| PCIe error registers (UESta/CESta) unchanged | {'yes' if aer_same else '; '.join(aer_changed) or 'line count differs'} | {'PASS' if aer_same else 'CHECK'} |")
+lines.append(f"| PCIe link, before (idle) -> after burn | {link_line(aer_b)} -> {link_line(aer_a)} | — |")
 lines.append("\n## PCIe bandwidth and compute\n```\n" + bw + "\n```\n")
 lines.append("## AER registers after\n```\n" + aer_a + "```\n")
 lines.append("Files: identity.txt, memtest.log, burn.log, dmon.csv, pcie-bw.txt, dmesg-delta.txt, aer-before/after.txt.")
