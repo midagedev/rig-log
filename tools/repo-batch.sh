@@ -101,11 +101,27 @@ curl -sf http://127.0.0.1:$PORT/health >/dev/null || { say "ABORT: never healthy
 say "healthy after ${i}s"
 
 cd /home/user/translate/rig-log
+# FILES names the subset to translate. Unset it and the batch walks the whole tree, which is
+# what the first pass wants; set it and the same runner does a follow-up round without a second
+# copy of the serving line. Added 2026-09-18, when five documents were left in English after the
+# rest of the tree had already moved -- re-running the whole tree to reach five files would have
+# re-translated forty-six that were already done, and --resume only protects against that while
+# the ledger and the output directory agree.
+if [ -n "${FILES:-}" ]; then
+  # shellcheck disable=SC2206
+  TARGETS=($FILES)
+  for f in "${TARGETS[@]}"; do
+    [ -f "$f" ] || { say "ABORT: FILES names $f, which is not in the tree"; exit 1; }
+  done
+else
+  TARGETS=(README.md $(ls docs/*.md) $(ls log/*.md))
+fi
+say "translating ${#TARGETS[@]} file(s)"
 python3 /home/user/translate/translate-batch.py \
   --url http://127.0.0.1:$PORT/v1/chat/completions --model "${MODEL:-solar2}" \
   "${CLIENT[@]}" \
   --out "$OUT" --root . --resume \
-  --files README.md $(ls docs/*.md) $(ls log/*.md)
+  --files "${TARGETS[@]}"
 rc=$?
 
 # The gates run here rather than in a separate pass, because a batch that finishes and is never

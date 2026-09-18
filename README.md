@@ -78,13 +78,45 @@
 
 ## 기록 색인
 
-날짜순 원본은 그대로 두고, 주제별 묶음만 적는다.
+실험당 한 파일, 날짜순. 칸 하나는 그날 무엇이 판명됐는지 한 줄과 그것을 대표하는 수치 하나다 — 상세는 항목이 진다. 색인이 항목을 요약하려 들면 색인이 자란다(2026-09-11 47자에서 2026-09-17 2,569자까지 아무도 결정한 적 없이 자랐다).
 
-- **V4.1 가동** — 오프로드, ik 이식, engram, 서빙: [09-11](log/2026-09-11-deepseek-v4-moe-offload.md), [09-12 첫 가동](log/2026-09-12-deepseek-v41-first-run.md), [09-13 ik 이식](log/2026-09-13-deepseek-v41-on-ik-llama.md), [09-13 engram Q8 재포장](log/2026-09-13-engram-q8-repack.md), [09-14 격차 해소](log/2026-09-14-v41-gap-closed-prefill-and-queue.md), [09-15 프리필](log/2026-09-15-prefill-ubatch-ik-vs-mainline.md), [09-15 서빙 노브](log/2026-09-15-serving-knob-sweep.md), [09-15 PR 분리](log/2026-09-15-splitting-the-v41-port.md), [09-16 engram·동시성](log/2026-09-16-engram-and-concurrency.md)
-- **하드웨어·설비** — 보드, 전원, 냉각, 패브릭, 3090: [BMC 워치독](log/2026-09-12-bmc-watchdog-reset-loop.md), [NVMe 쓰기 하한](log/2026-09-12-nvme-sustained-write.md), [이사 후 오프라인](log/2026-09-12-offline-after-a-move-and-an-ssd.md), [공랭 교체](log/2026-09-14-air-cooler-swap.md), [메모리 클럭](log/2026-09-14-memory-clock-3600.md), [클럭 캡 해제](log/2026-09-15-clock-cap-removed.md), [오버클럭과 패브릭](log/2026-09-16-the-overclock-and-the-fabric.md), [디퓨전 3체제](log/2026-09-16-diffusion-first-run-and-three-regimes.md), [고장 재현](log/2026-09-18-b-the-fault-reproduced.md), [3090 분리](log/2026-09-17-the-3090-comes-out.md), [3090 복귀](log/2026-09-18-the-3090-goes-back-in.md)
-- **모델 투어** — 한 카드 모델, GLM, Qwen, 이미지, 재검증: [한 카드에 드는 모델](log/2026-09-15-a-model-that-fits-one-card.md), [GLM-5.3 첫 수치](log/2026-09-15-glm-5.3-flash-first-run.md), [Qwen 두 모델](log/2026-09-16-qwen38-flash-next-and-coder-next.md), [두 거인은 능력 경계](log/2026-09-16-two-giants-is-a-capability-boundary.md), [전 모델 재검증](log/2026-09-16-every-kept-model-re-verified.md), [ExLlamaV3 서빙](log/2026-09-15-exl3-serve-and-tabbyapi-timings.md)
-- **엔진 비교** — mistral.rs, 배치, 오프로드, 캐시: [Rust 엔진](log/2026-09-17-a-rust-engine-on-the-same-card.md), [4스트림 격차](log/2026-09-17-b-where-the-four-stream-gap-actually-is.md), [mistral.rs 오프로드](log/2026-09-17-c-what-mistral-rs-can-and-cannot-offload.md), [오프로드 비용](log/2026-09-17-d-what-offloading-costs-each-engine.md), [프롬프트 캐시](log/2026-09-17-where-the-prompt-cache-breaks.md), [3090의 값](log/2026-09-16-what-the-3090-is-worth.md), [3090 단독 서빙](log/2026-09-16-echo-ingredients-and-the-3090-alone.md), [가이던스의 값](log/2026-09-16-what-guidance-was-not-for.md)
-- **메타** — 이 로그의 번역 측정: [로컬 모델이 로그를 번역하다](log/2026-09-18-c-a-local-model-translates-the-log.md)
+| 날짜 | 기록 | 무엇이 판명됐나 |
+|---|---|---|
+| 2026-09-11 | [두 GPU와 256 GB RAM에 걸친 284 B 모델](log/2026-09-11-deepseek-v4-moe-offload.md) | routed expert를 층 단위로 두 카드와 호스트에 나눠 **29 tok/s** |
+| 2026-09-12 | [347 GB 모델, 84 GB는 드라이브에 둔 채](log/2026-09-12-deepseek-v41-first-run.md) | engram 테이블 둘이 RAM에 안 올라가고 NVMe에서 읽혀 **20 tok/s**, 토큰당 3.3 ms |
+| 2026-09-12 | [10분마다 리셋되던 기계](log/2026-09-12-bmc-watchdog-reset-loop.md) | BIOS가 건 `OS Load` 워치독을 OS가 인계 안 받아 **9분 수명 부팅 넷**. 끄지 않고 인계받았다 |
+| 2026-09-12 | [캐시만 재던 디스크 벤치](log/2026-09-12-nvme-sustained-write.md) | 버스트는 동일, 갈리는 건 4분 뒤 하한 **3.70 대 1.47 GB/s**. 벼랑 전에 멈춘 벤치는 캐시 크기를 보고한다 |
+| 2026-09-12 | [이사 하나, SSD 하나로 겹친 단절](log/2026-09-12-offline-after-a-move-and-an-ssd.md) | 독립된 고장 둘이 각각 네트워크를 막기에 충분했다. **20시간** 암전 |
+| 2026-09-13 | [V4.1을 ik_llama.cpp에 이식](log/2026-09-13-deepseek-v41-on-ik-llama.md) | 빌드 열 개와 틀린 그래프 둘 끝에 PPL **2.2258 대 오라클 2.2438** |
+| 2026-09-13 | [engram 테이블만 Q8_0으로 되돌리기](log/2026-09-13-engram-q8-repack.md) | 아무도 안 읽는 **125 GB**를 더 쓰고 PPL 6% — 안 읽히는 바이트는 품질을 안 산다 |
+| 2026-09-14 | [AIO가 나가고 공랭이 들어오다](log/2026-09-14-air-cooler-swap.md) | 냉각수 40도 후반에 `warn cpu=89C`가 두 번 찍힌 뒤 교체 |
+| 2026-09-14 | [메모리 클럭 3200 → 3600](log/2026-09-14-memory-clock-3600.md) | 읽기 **131 → 148 GB/s**, 3666 위로는 세 번 다 실패 |
+| 2026-09-14 | [ik 격차는 페이지 폴트였다](log/2026-09-14-v41-gap-closed-prefill-and-queue.md) | engram 행 prefetch로 첫 패스 **13.6 → 18.4 tok/s**, 토큰당 폴트 41–62 → 1–11 |
+| 2026-09-15 | [서빙 모델 프리필: ubatch가 2.1배](log/2026-09-15-prefill-ubatch-ik-vs-mainline.md) | `-ub 1024 → 4096`이 11.9k 프리필을 ik에서 **236 → 500 tok/s**, 디코드는 불변 |
+| 2026-09-15 | [서빙 노브 여섯 개 스위프](log/2026-09-15-serving-knob-sweep.md) | 서는 것은 현재 프로파일 하나뿐 — 나머지 다섯은 대역 안이거나 손해 |
+| 2026-09-15 | [한 카드에 통째로 드는 모델](log/2026-09-15-a-model-that-fits-one-card.md) | **132 tok/s**, 그리고 어떤 노브로도 안 움직이는 상한 |
+| 2026-09-15 | [2.7 GHz 클럭 캡 해제](log/2026-09-15-clock-cap-removed.md) | AIO 루프용 열 대책이었고 루프가 갔다. 캡 없는 히어로 테이크 |
+| 2026-09-15 | [GLM-5.3-Flash 첫 숫자](log/2026-09-15-glm-5.3-flash-first-run.md) | 디코드가 대역폭-bound가 아니다 — 스레드 스위프가 평탄 |
+| 2026-09-15 | [llama-server 표면 뒤의 ExLlamaV3](log/2026-09-15-exl3-serve-and-tabbyapi-timings.md) | TabbyAPI `time_generate`가 무엇을 재는지 확인하고 exl3 베이스라인 확보 |
+| 2026-09-15 | [V4.1 이식을 PR 둘로 나누다](log/2026-09-15-splitting-the-v41-port.md) | 리뷰 가능한 단위로 쪼갠 것이 업스트림 조건이었다 |
+| 2026-09-16 | [남긴 모델 전부 재검증](log/2026-09-16-every-kept-model-re-verified.md) | 1.3 TB를 지우고 슬롯·클럭이 바뀐 상자에서 남긴 파일마다 한 번씩 로드 |
+| 2026-09-16 | [석 달 된 Qwen 두 모델](log/2026-09-16-qwen38-flash-next-and-coder-next.md) | 125B에 **51 tok/s** — 활성 6B에 n-gram 테이블 51B라 헤드라인 파라미터가 속도를 안 말한다 |
+| 2026-09-16 | [4스트림이 서로 다른 행을 원할 때](log/2026-09-16-engram-and-concurrency.md) | engram 행이 fresh 텍스트에 디코드 **6.8%**, 토큰당 major fault 22.1개 |
+| 2026-09-16 | [열 부팅의 밤, 마진 밖 슬롯 하나](log/2026-09-16-the-overclock-and-the-fabric.md) | 3090이 Xid 79로 버스에서 떨어지고 드라이버가 양 카드에 Xid 154를 찍었다 |
+| 2026-09-16 | [3090을 빼면 잃는 것](log/2026-09-16-what-the-3090-is-worth.md) | expert **20 GB**어치, 디코드 손실 **3% 미만**(warm 0.3%) — 호스트가 흡수한다 |
+| 2026-09-16 | [24 GB 카드 단독 서빙, 그리고 시트의 결함](log/2026-09-16-echo-ingredients-and-the-3090-alone.md) | 48 GB 카드를 디퓨전에 비우려고 서빙을 작은 카드로 옮겼다 |
+| 2026-09-16 | [같은 크기의 두 거인, 그리지 못한 모델](log/2026-09-16-two-giants-is-a-capability-boundary.md) | 이 기계 첫 이미지 생성. 크기가 같아도 할 수 있는 것이 다르다 |
+| 2026-09-16 | [고치지 못한 13.5배, 목표에 닿은 팬](log/2026-09-16-what-guidance-was-not-for.md) | guidance가 살 수 없던 것과, 팬을 100%로 고정해 얻은 것 |
+| 2026-09-16 | [한 카드 세 체제, 3.7분 늦는 팬](log/2026-09-16-diffusion-first-run-and-three-regimes.md) | 136초 실행 하나에 체제 셋. 팬 커브 지연이 램프 안 작업에 **16 °C** |
+| 2026-09-17 | [24 GB 카드가 기계에서 나오다](log/2026-09-17-the-3090-comes-out.md) | 마지막 검사가 뭐라 했는지와, 전원이 10초 먼저 나가 못 말한 것 |
+| 2026-09-17 | [같은 카드 위의 Rust 엔진](log/2026-09-17-a-rust-engine-on-the-same-card.md) | mistral.rs가 단독은 느리고 4스트림에 두 배 — `thinking off`가 꺼진 적 없다는 실행 증명 |
+| 2026-09-17 | [4스트림 격차의 실제 자리](log/2026-09-17-b-where-the-four-stream-gap-actually-is.md) | 격차는 엔진이 아니라 배치 경로에 있었다 |
+| 2026-09-17 | [mistral.rs의 오프로드 한계](log/2026-09-17-c-what-mistral-rs-can-and-cannot-offload.md) | 텐서 단위 배치가 아예 없고, MoE 한 층을 호스트에 두면 모든 요청이 실패한다 |
+| 2026-09-17 | [엔진마다 오프로드가 무엇을 무는가](log/2026-09-17-d-what-offloading-costs-each-engine.md) | 층·토큰당 ik **0.20 ms** 대 mistral.rs **442 ms** — 둘 다 호스트 연산이지 GPU 읽기가 아니다 |
+| 2026-09-17 | [프롬프트 캐시는 13k 접두사에서 깨진다](log/2026-09-17-where-the-prompt-cache-breaks.md) | 9줄 패치로 13,145 토큰 재사용, 턴당 **13.8 → 0.8초** |
+| 2026-09-18 | [24 GB 카드가 같은 슬롯에 돌아오다](log/2026-09-18-the-3090-goes-back-in.md) | 재장착 검사와 양 카드 상태 복귀 |
+| 2026-09-18 | [DDP 버스 이탈을 133초에 재현](log/2026-09-18-b-the-fault-reproduced.md) | 드라이버 소스로 Xid 79·154에 대한 기존 주장 **셋을 정정**했다 |
+| 2026-09-18 | [이 기계가 자기 로그를 번역하다](log/2026-09-18-c-a-local-model-translates-the-log.md) | 구조 게이트를 통과한 번역에도 천 단어당 **4.7건**의 의미 변경이 남는다 |
 
 ## Upstream
 
