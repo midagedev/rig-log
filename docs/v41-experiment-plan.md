@@ -1,343 +1,168 @@
-# What to run, in what order, and what would prove it wrong
+# 무엇을, 어떤 순서로 실행하며, 무엇이 이를 반증할 것인가
 
-**2026-09-12.** A plan, written before the first run rather than after it, so
-that the numbers it produces can disagree with it.
+**2026-09-12.** 첫 실행 이후에가 아니라 그 전에 작성된 계획이다. 따라서 이 계획이 산출하는 숫자들이 계획과 불일치할 수 있다.
 
-[The lever survey](throughput-model.md) projects **16–18 tok/s** for
-DeepSeek-V4.1-Flash on this machine and ranks six ways to raise it. Every one
-of those figures rests on a single borrowed constant — 64.8 GB/s of effective
-memory bandwidth, back-calculated from a *different* model measured on
-2026-09-11. The first purpose of these experiments is to replace that constant.
-The second is to find out whether the premise the whole configuration is built
-on — that 84.6 GB of engram tables can stay on the drive — is true.
+[레버 조사](throughput-model.md)는 이 기계에서 DeepSeek-V4.1-Flash에 대해 **16–18 tok/s**를 예측하며, 이를 높이기 위한 여섯 가지 방법을 순위화한다. 이 수치들 모두 단일 차용 상수 — 2026-09-11에 *다른* 모델에서 실측된 값으로부터 역산한 유효 메모리 대역폭 64.8 GB/s — 에 의존한다. 이 실험들의 첫 번째 목적은 그 상수를 대체하는 것이다. 두 번째 목적은 전체 구성이 기반한 전제 — 84.6 GB의 engram 테이블이 드라이브에 머물 수 있다는 것 — 가 사실인지 확인하는 것이다.
 
-## The protocol every run follows
+## 모든 실행이 따르는 프로토콜
 
-**The machine must be quiet.** `llm.service` holds both GPUs and 113 GB of
-resident model; it stops first. The 510 GB original-weights download writes to
-the same NVMe that holds the model, which both evicts expert pages from the
-page cache and competes for exactly the IOPS these runs are trying to
-attribute to engram — it pauses too. It is resumable by design, so pausing
-costs nothing but time.
+**기계는 조용해야 한다.** `llm.service`가 두 GPU와 113 GB의 상주 모델을 모두 점유하므로 먼저 중지한다. 510 GB 원본 가중치 다운로드는 모델이 있는 동일한 NVMe에 기록되며, 이는 페이지 캐시에서 expert 페이지를 밀어내고 engram에 귀속시키려는 IOPS와 정확히 경쟁하므로 이 역시 일시 중지한다. 설계상 재개 가능하므로, 일시 중지는 시간만 소모할 뿐 다른 비용은 없다.
 
-**Measure with [`configs/bench-serve.sh`](../configs/bench-serve.sh).** It
-records, per run: decode and prefill throughput, `VmRSS` split into `RssAnon`
-and `RssFile`, major faults, and the model drive's read count and bytes — the
-last four as deltas across the run. Throughput on its own cannot distinguish a
-run slowed by expert pages missing from the page cache from one slowed by
-engram rows coming off the drive; those counters can.
+**[`configs/bench-serve.sh`](../configs/bench-serve.sh)로 측정한다.** 실행별로 다음을 기록한다: 디코드 및 프리필 속도, `RssAnon`과 `RssFile`로 분할된 `VmRSS`, major faults, 그리고 모델 드라이브의 읽기 횟수와 바이트 — 마지막 네 개는 실행 전후의 델타값으로 기록한다. 속도만으로는 페이지 캐시에서 누락된 expert 페이지로 인해 느려진 실행과 드라이브에서 읽어오는 engram 행으로 인해 느려진 실행을 구분할 수 없다. 해당 카운터들은 구분할 수 있다.
 
-**One variable per run.** The `-ot` split, `-c`, and the quantization each
-move VRAM around, and moving two at once produces a number that cannot be
-attributed. Where a change is expected to be free, say so in advance and let
-the run contradict it.
+**실행당 하나의 변수.** `-ot` 분할, `-c`, 양자화는 각각 VRAM을 이동시키며, 두 개를 동시에 변경하면 귀속할 수 없는 숫자가 나온다. 변경이 무료일 것으로 예상되는 경우, 미리 그렇게 명시하고 실행이 이를 반증하도록 둔다.
 
-## E0 — Does it load, and does the premise hold
+## E0 — 로드되는가, 그리고 전제가 성립하는가
 
-The only experiment whose result is not a number.
+결과가 숫자가 아닌 유일한 실험이다.
 
-Start the server as [`configs/v41-serve.sh`](../configs/v41-serve.sh) is
-written — deliberately conservative, four expert layers on the A6000 and two
-on the 3090 — and read the resident set once loading settles.
+[`configs/v41-serve.sh`](../configs/v41-serve.sh)에 작성된 대로 서버를 시작한다 — 의도적으로 보수적으로, A6000에 expert 레이어 4개, 3090에 2개 — 그리고 로드가 안정화된 후 상주 집합을 읽는다.
 
-| outcome | meaning | next |
+| 결과 | 의미 | 다음 |
 |---|---|---|
-| not-resident ≈ 84.6 GB | engram stayed on the file, as designed | E1 |
-| not-resident ≈ 0 | `--lazy-mode auto` did not mark the 42 GB tensors | retry with `--lazy-mode on` |
-| load fails or OOMs | the split is wrong, or the branch cannot serve this file | narrow the split, then read the error properly |
+| 비거주 ≈ 84.6 GB | engram이 설계된 대로 파일에 머물렀음 | E1 |
+| 비거주 ≈ 0 | `--lazy-mode auto`가 42 GB 텐서를 표시하지 않았음 | `--lazy-mode on`으로 재시도 |
+| 로드 실패 또는 OOM | 분할이 잘못되었거나, 이 브랜치가 이 파일을 서빙할 수 없음 | 분할을 좁힌 후, 오류를 제대로 읽음 |
 
-`auto` marks tensors above 4 GiB; the engram tensors are 42.2 GB each, so it
-should catch them. "Should" is why this is an experiment.
+`auto`는 4 GiB 초과의 텐서를 표시한다. engram 텐서는 각각 42.2 GB이므로 이를 포착해야 한다. "해야 한다"가 바로 이것이 실험인 이유다.
 
-The load itself is worth timing. 347 GB off a drive whose measured sustained
-read is around 6 GB/s is a floor of about a minute, and a load much slower
-than that says something about how the file is being read.
+로드 자체도 타이밍할 가치가 있다. 실측 지속 읽기 속도가 약 6 GB/s인 드라이브에서 347 GB를 읽는 것은 약 1분의 하한선이며, 그보다 훨씬 느린 로드는 파일이 어떻게 읽히는지에 대한 무언가를 말해준다.
 
-## E1 — The number that replaces the assumption
+## E1 — 가정을 대체하는 숫자
 
-A fixed prompt, `temperature 0`, 128 tokens, one stream.
+고정 프롬프트, `temperature 0`, 128 토큰, 단일 스트림.
 
-The projection is 17.4 tok/s. What matters is not whether it lands there but
-what the run implies about effective bandwidth, which is recoverable from it:
+예측치는 17.4 tok/s이다. 중요한 것은 그 값에 도달하는지 여부가 아니라, 실행이 유효 대역폭에 대해 무엇을 함의하는지이며, 이는 그로부터 복원 가능하다:
 
 ```
 effective GB/s = (bytes per token from RAM) / (ms per token)
 ```
 
-with bytes-per-token known from the measured budget and the `-ot` split. If it
-comes back near 64.8 GB/s, the V4 calibration transfers and the whole lever
-table stands. If it comes back near 115.8, the gather is not the problem and
-most of the table is wrong. If it comes back far below 64.8, something
-specific to this model — engram, hyper-connection, the host-side hash — is
-eating time that the budget does not account for, and E2 finds it.
+측정된 예산과 `-ot` 분할로부터 알려진 토큰당 바이트를 사용한다. 결과가 64.8 GB/s 근처로 돌아오면, V4 보정이 이전되어 전체 레버 테이블이 유효하다. 결과가 115.8 근처로 돌아오면, gather가 문제가 아니며 테이블의 대부분이 틀렸다. 결과가 64.8보다 훨씬 아래로 돌아오면, 이 모델에 특정한 무언가 — engram, 하이퍼 연결, 호스트 측 해시 — 가 예산이 설명하지 못하는 시간을 소모하고 있으며, E2가 이를 찾는다.
 
-## E2 — What engram actually costs
+## E2 — engram이 실제로 소모하는 비용
 
-The arithmetic says a token touches about 48 engram rows of 110 bytes each,
-which is nothing in bytes and possibly a lot in latency: 48 serial page faults
-at this drive's measured 0.056 ms QD1 random read would be **2.7 ms per
-token**, against a 3.6 ms budget for the entire rest of the per-token GPU work.
+산술상 토큰 하나가 각각 110 바이트인 약 48개의 engram 행에 접근하며, 이는 바이트로는 아무것도 아니지만 지연 시간으로는 많을 수 있다: 이 드라이브의 실측 0.056 ms QD1 임의 읽기에서 48개의 직렬 페이지 폴트는 토큰당 **2.7 ms**이며, 이는 토큰당 GPU 작업의 나머지 전체에 대한 3.6 ms 예산과 대비된다.
 
-This needs no new run — E1's counters answer it:
+이는 새 실행이 필요 없다 — E1의 카운터가 이에 답한다:
 
-- **major faults per token** near 48 means the rows are coming off the drive
-  one fault at a time, and the cost is fault latency, not bandwidth.
-- **near zero** means the rows are being served from the page cache, which
-  would be good for speed and bad for the premise: it means engram is
-  competing with expert weights for the 251 GB of RAM after all.
-- **drive bytes per token** much above 5 KB means read-ahead is amplifying
-  110-byte rows into pages, despite the `POSIX_MADV_RANDOM` the branch sets.
+- **토큰당 major faults**가 48 근처이면, 행들이 한 번에 하나의 폴트로 드라이브에서 읽어지고 있으며, 비용은 대역폭이 아닌 폴트 지연 시간이다.
+- **거의 0**이면, 행들이 페이지 캐시에서 서빙되고 있으며, 이는 속도에는 좋지만 전제에는 나쁘다: engram이 결국 expert 가중치와 251 GB의 RAM을 경쟁하고 있다는 뜻이다.
+- **토큰당 드라이브 바이트**가 5 KB를 훨씬 상회하면, 브랜치가 설정하는 `POSIX_MADV_RANDOM`에도 불구하고 읽기 선취가 110 바이트 행을 페이지로 증폭하고 있다.
 
-The middle case is the one to watch for, because it is the failure mode that
-looks like success.
+중간 경우가 주목해야 할 대상이다. 성공처럼 보이는 실패 모드이기 때문이다.
 
-## E3 — Widen the split until it stops paying
+## E3 — 더 이상 이득이 없을 때까지 분할을 넓힌다
 
-The starting split is six expert layers on the GPUs. The measured budget says
-about **9.6** fit once 4.0 GB of dense tensors and the KV cache are placed —
-but the KV size for this architecture at 32k is not yet measured, so the
-ceiling is a guess and E3 is how it gets found.
+시작 분할은 GPU에 expert 레이어 6개이다. 실측 예산은 밀집 텐서 4.0 GB와 KV 캐시가 배치된 후 약 **9.6개**가 들어간다고 말하지만, 32k에서 이 아키텍처의 KV 크기는 아직 실측되지 않았으므로 상한은 추측이며 E3가 이를 찾는 방법이다.
 
-Raise the count one layer at a time and record tok/s and free VRAM. Each layer
-moves `4.04/40 = 0.101 GB` per token off DDR4, which at 64.8 GB/s is 1.56 ms —
-about **+0.5 tok/s per layer** at this speed. That predicted slope is the
-point of the sweep: if the measured slope matches, the model of what is
-happening is right, and the remaining levers can be trusted. If tok/s is flat
-while layers move to VRAM, the bottleneck is not where this document says it
-is, and everything downstream needs rethinking.
+레이어 수를 한 번에 하나씩 늘리고 tok/s와 여유 VRAM을 기록한다. 각 레이어는 토큰당 `4.04/40 = 0.101 GB`를 DDR4에서 이동시키며, 이는 64.8 GB/s에서 1.56 ms — 이 속도에서 레이어당 약 **+0.5 tok/s** — 에 해당한다. 예측된 기울기가 이 스윕의 핵심이다: 실측 기울기가 일치하면, 무슨 일이 일어나고 있는지에 대한 모델이 옳으며, 나머지 레버들을 신뢰할 수 있다. tok/s가 레이어가 VRAM으로 이동하는 동안 평평하면, 병목은 이 문서가 말하는 곳이 아니며, 하류의 모든 것을 재고해야 한다.
 
-Stop when a layer fails to allocate, and keep the last configuration that
-loaded with headroom to spare. The previous model's entry records the cost of
-getting this wrong silently: a draft model that could not allocate its KV
-scheduler logged an error on every decode step and ran *slower* than no
-speculation, with nothing pointing at VRAM.
+레이어 할당에 실패할 때 중단하고, 여유 공간을 두고 로드된 마지막 구성을 유지한다. 이전 모델의 엔트리는 이를 조용히 잘못했을 때의 비용을 기록한다: KV 스케줄러를 할당할 수 없었던 초안 모델이 디코드 단계마다 오류를 로깅하고, 아무것도 가리키지 않은 채 추측 없음보다 *더 느리게* 실행되었다.
 
-## E4 — Concurrency — ~~which may be the largest number here~~ measured 2026-09-18, and it is not
+## E4 — 동시성 — ~~여기서 가장 큰 숫자일 수 있음~~ 2026-09-18 실측, 그리고 그렇지 않음
 
-~~The V4 run measured 47 tok/s aggregate against 29 single-stream — a 1.6× that costs nothing
-but a flag, because a layer's experts are read once and used by every token in the batch. If
-the goal is a served endpoint rather than one fast stream, this outranks every other lever on
-the list.~~ The premise is wrong for this model at this placement. `-c 32768 -np 3`, three
-real translation requests at temperature 0, [`tools/v41-concurrency.sh`](../tools/v41-concurrency.sh):
+~~V4 실행은 단일 스트림 29 tok/s 대비 집계 47 tok/s를 측정했다 — 1.6×로, 플래그 하나 외에 비용이 들지 않는다. 레이어의 expert는 한 번 읽혀 배치의 모든 토큰에 의해 사용되기 때문이다. 목표가 하나의 빠른 스트림이 아닌 서빙 엔드포인트라면, 이는 목록의 다른 모든 레버보다 우선한다.~~ 이 전제는 이 배치의 이 모델에 대해 틀렸다. `-c 32768 -np 3`, temperature 0에서 실제 번역 요청 3개, [`tools/v41-concurrency.sh`](../tools/v41-concurrency.sh):
 
-| streams | per-stream decode tok/s | summed | against one stream |
+| 스트림 | 스트림당 디코드 tok/s | 합계 | 단일 스트림 대비 |
 |---:|---|---:|---:|
 | 1 | 27.6 | 27.6 | — |
 | 3 | 12.8 / 9.5 / 12.0 | **34.3** | **1.24×** |
 
-A third of the theoretical 3×, and it is not free: `-c 32768` is what makes three slots of
-11 008 tokens, and it halves prefill. Single-stream prefill fell from **56.8 tok/s** at
-`-c 16384` to **31 tok/s** here, measured as prompt tokens over time-to-first-token on the same
-document. For a queue of 74 documents, prefill is about an hour of a 3.3-hour run, so paying
-half of that back to gain a quarter of the decode is close to a wash and may be a loss.
+이론적 3×의 3분의 1이며, 무료도 아니다: `-c 32768`이 11 008 토큰의 슬롯 3개를 만들며, prefill을 절반으로 줄인다. 단일 스트림 prefill은 `-c 16384`에서 **56.8 tok/s**에서 이곳 **31 tok/s**로 떨어졌으며, 동일 문서에서 프롬프트 토큰을 첫 토큰 생성 시간 대비 측정하여 얻었다. 74개 문서 큐의 경우, prefill은 3.3시간 실행 중 약 1시간이므로, decode의 4분의 1을 얻기 위해 그 절반을 지불하는 것은 거의 본전이며 손실일 수 있다.
 
-The reason to expect otherwise was that "a layer's experts are read once and used by every
-token in the batch". That is true when the layer is on a card. **Here the experts are on the
-host** (`exps=CPU`), and three tokens route to three different sets of eight experts, so three
-streams read roughly three times the bytes over the same memory bus. Batching cannot amortise
-what is not shared.
+그렇지 않을 것으로 예상한 이유는 "레이어의 expert는 한 번 읽혀 배치의 모든 토큰에 의해 사용된다"였다. 이는 레이어가 카드에 있을 때 참이다. **여기서 expert는 호스트에 있다** (`exps=CPU`). 세 토큰이 세 개의 서로 다른 8개 expert 집합으로 라우팅되므로, 세 스트림은 동일한 메모리 버스를 통해 대략 세 배의 바이트를 읽는다. 배치화는 공유되지 않는 것을 상각할 수 없다.
 
-This is the second engine and the second model to show it. The first is the finding held
-unfiled in [`upstream-contributions.md`](upstream-contributions.md): DeepSeek-V2-Lite Q3_K_M on
-ik_llama.cpp gives decode 202.1 tok/s at batch 1 and **156.1** at batch 2, slower in total,
-while dense Qwen2.5-7B in the same harness scales normally. That one is held because a
-reproducer without a cause is a symptom report. The explanation above is a cause, and it is
-testable: **a MoE that fits entirely in VRAM should batch normally.** Solar Open 100B IQ4_XS is
-55.5 GB against 72 GB of card, no expert on the host — it is the control this finding needs
-before anything is filed.
+이것이 이를 보여주는 두 번째 엔진이자 두 번째 모델이다. 첫 번째는 [`upstream-contributions.md`](upstream-contributions.md)에 미파일 상태로 보관된 발견이다: DeepSeek-V2-Lite Q3_K_M on ik_llama.cpp는 배치 1에서 디코드 202.1 tok/s, 배치 2에서 **156.1** tok/s로 총계가 더 느리며, 동일 하네스에서 밀집 Qwen2.5-7B는 정상적으로 스케일한다. 원인 없는 재현기는 증상 보고서이므로 후자는 보관된다. 위 설명은 원인이며, 테스트 가능하다: **VRAM에 완전히 들어가는 MoE는 정상적으로 배치되어야 한다.** Solar Open 100B IQ4_XS는 72 GB 카드 대비 55.5 GB이며, 호스트에 expert가 없다 — 이것이 무엇이든 제출되기 전 이 발견이 필요로 하는 대조군이다.
 
-The engram question is unanswered: these rows do not carry major-fault counts. It stays open.
+engram 질문은 미답변이다: 이 행들은 major-fault 카운트를 운반하지 않는다. 열린 상태로 둔다.
 
-### What the two flawed levels were
+### 두 개의 결함 있는 레벨이 무엇이었는가
 
-Levels 1 and 2 of that run are recorded but are not the measurement, and the reason is worth
-keeping. Every level re-sends the same first part, so at level 2 llama-server answered part 0
-from its prompt cache: time-to-first-token was **83.1 s** at level 1 and **18.0 s** at level 2
-for the same prompt. The level-2 aggregate of 27.7 tok/s is therefore against a prefill that
-did not happen. One stream also ran away to 4 100 tokens on a 935-word part and finished long
-after the other, so its per-stream rate is mostly a solo rate. Level 3's three streams overlap
-for most of their length, which is why it is the row quoted above. A corrected pass sets
-`cache_prompt: false` and discards a warm-up level.
+해당 실행의 레벨 1과 2는 기록되지만 측정값은 아니며, 그 이유는 보관할 가치가 있다. 모든 레벨이 동일한 첫 부분을 재전송하므로, 레벨 2에서 llama-server는 프롬프트 캐시에서 파트 0에 답했다: 첫 토큰 생성 시간은 레벨 1에서 **83.1 s**, 레벨 2에서 동일 프롬프트에 대해 **18.0 s**였다. 따라서 레벨 2 집계 27.7 tok/s는 발생하지 않은 prefill에 대한 것이다. 한 스트림은 935단어 파트에서 4 100 토큰까지 이탈하여 다른 스트림보다 훨씬 늦게 종료되었으므로, 그 스트림당 속도는 대부분 단독 속도다. 레벨 3의 세 스트림은 길이의 대부분에서 겹치므로, 위에 인용된 행이다. 수정된 패스는 `cache_prompt: false`를 설정하고 워밍업 레벨을 폐기한다.
 
-An earlier attempt at the same run measured nothing at all: without `--reasoning off` V4.1 put
-every token of an 8 192-token reply into `reasoning_content`, the answer was empty, and the
-harness reported 21.1 tok/s over 388 s — a rate for deliberation, against a cap, with nothing
-translated. The harness now counts reasoning deltas and says when a stream answered nothing.
+동일 실행에 대한 이전 시도는 아무것도 측정하지 못했다: `--reasoning off` 없이 V4.1은 8 192토큰 응답의 모든 토큰을 `reasoning_content`에 넣었고, 답변은 비어 있었으며, 하네스는 388초에 걸쳐 21.1 tok/s를 보고했다 — 상한 대비 숙고에 대한 속도이며, 번역된 것은 아무것도 없었다. 하네스는 이제 추론 델타를 계산하고 스트림이 아무것도 답변하지 않았을 때 이를 알린다.
 
-## E5 — Prefill, separately
+## E5 — 프리필, separately
 
-Prompt processing is compute-bound and batched, and the previous run found it
-moves in the opposite direction from decode: speculation lowered it, and so
-did a smaller batch. `-b 4096 -ub 4096` is the documented recommendation for
-heavy CPU offload; the current script uses `-b 2048 -ub 512`.
+프롬프트 처리는 연산에 의해 제한되며 배치 처리된다. 이전 런에서는 디코드과 반대 방향으로 움직이는 것을 확인했다. 추측(speculation)은 이를 낮췄고, 더 작은 배치도 마찬가지였다. `-b 4096 -ub 4096`은 무거운 CPU 오프로드에 대한 문서화된 권장 사항이며, 현재 스크립트는 `-b 2048 -ub 512`를 사용한다.
 
-Worth one sweep, reported separately from decode, because a configuration that
-is right for one can be wrong for the other and this repo has already published
-a table where that happened.
+디코드과 별도로 보고할 가치가 있는 한 번의 스윕이다. 한 쪽에 적합한 구성이 다른 쪽에는 틀릴 수 있으며, 이 리포지토리는 이미 그런 일이 발생한 표를 공개한 바 있다.
 
-## The queue as of 2026-09-14 morning
+## 2026-09-14 아침 기준 큐
 
-Measured since the sections above were written: the ik-against-mainline gap
-is a first-pass page-fault gap (warm, ik 18.8 against mainline 19.8 at the
-same split; [docs](v41-serving.md)), and long-prompt prefill on
-the served `-ub 512` profile is 214 tok/s against 343 at `-ub 2048` (4288
-tokens, earlier build). Three windows, in this order; each stops the
-production server, runs on port 8099, and restores it.
+위 섹션들이 작성된 이후 측정된 내용: ik 대 메인라인 격차는 1차 페이지 폴트 격차이다(웜 상태, ik 18.8 대 메인라인 19.8, 동일한 분할; [docs](v41-serving.md)). 그리고 서빙된 `-ub 512` 프로필에서 긴 프롬프트 프리필은 214 tok/s이며, `-ub 2048`에서는 343 tok/s이다(4288 토큰, 이전 빌드). 세 개의 윈도우가 있으며, 이 순서대로 진행한다. 각각은 프로덕션 서버를 중지하고, 포트 8099에서 실행한 후 복원한다.
 
-| # | window | what it settles | gate |
+| # | 윈도우 | 정착시키는 것 | 게이트 |
 |---|---|---|---|
-| Q1 | ik engram row prefetch (port of 86d01ece1 into `llama_set_engram_rows`), same six prompts, faults counted | whether the 41–62 faults a token and the 28 % first-pass loss are the engram rows | ik pass 1 from 13.6 toward 18.8; faults toward mainline's 13–21 |
-| Q2 | prefill: deterministic code prompt at ~4k and ~15k tokens, `-ub` 512 / 1024 / 2048 / 4096, PCIe link gen and width sampled during prefill, then `cache_prompt` on a growing prefix | E5 with numbers; whether prefill is PCIe-bound (the CUDA backend pulls CPU expert weights for batches ≥ 32, `ggml_backend_cuda_device_offload_op`), and how much a coding client's next turn actually prefills | tok/s per `-ub`; `prompt_n` on the second request of the pair |
-| Q3 | precision on the GPU-resident tensors (below) | whether attention and shared experts at Q8_0 change perplexity, at a VRAM cost and no decode cost | 4-chunk perplexity on the served file against the grafted one; decode within the load-to-load band |
-| Q4 | ~~re-distil the draft against the served target: fine-tune the tl37 draft head on the target's greedy continuations~~ corrected 2026-09-14 afternoon: the DSpark draft is not a head, it is three full V4.1 MoE blocks, 14.23 B parameters, 8 GB at MXFP4, and it reads the target's hidden states at layers 38–40 (`dflash.target_layers`). Training it needs (a) a PyTorch implementation of the dflash architecture, which does not exist yet (the transformers port ignores the draft weights; DeepSeek ships no training code), (b) a llama.cpp change to dump those three hidden states per token, and (c) memory for a 14 B model, which a 12 GB card does not have even at 4 bits with activations. WKS-16 stays open as a question, not a scheduled window | whether acceptance is bounded by draft/target mismatch at all: the engram Q3→Q8 change moved acceptance 58.0 → 58.9 % while target perplexity moved 6 %; a published MXFP4 target shows 51 % on prose and 79 % on code, in the same band as ours, so the mismatch may be costing nothing. The "60 → 70 %" figure is a projection with no measurement behind it | first, a reference acceptance on a higher-precision target (nothing on this machine reaches it; the fp8 figure is not published); only if that shows a real gap does the training pipeline earn its build |
-| Q5 | draft precision (WKS-17): convert the DSpark draft from the fp8 originals at Q8_0 (`convert_hf_to_gguf.py --dspark`), fix `target_layers` as tl37 was fixed, run the twenty-prompt drafted pair against the MXFP4 draft on the same target | whether the 58–60 % acceptance is the draft's own ceiling or its 4-bit quantization; the no-training half of the WKS-16 question | accepted/drafted and tok/s, same target file and placement; a flat result closes WKS-16 |
-| Q6 | routed experts at MXFP4 by graft (WKS-18): the uploader's "Q8_0" set keeps the experts at MXFP4 — the native 4-bit — in shards 1–7 (289 GB, 6.72 GiB a layer against the served mix's 6.47 GB); first the on-card layers (blk 0–7, shards 1–2), then all forty | how much of the perplexity is in the lossy Q3_K/Q4_K requantization of experts that were released at 4 bits; on-card layers cost VRAM only, the rest costs +11.6 % bytes a token | 4-chunk perplexity against 1.8992; decode on the twenty prompts for the all-layer file; MXFP4 CPU kernel speed per byte checked | **Stage 1 measured 2026-09-14: 1.8964 ± 0.0491 against 1.8992 — −0.15 %, within noise; the seven-layer placement no longer loads (+5.1 GB on the cards). Stage 2 parked.** |
-| Q7 | RAM experts lower by graft (WKS-19): the uploader's Q2_K set (experts Q2_K gate/up, Q3_K down, ~2.9 bpw) into the CPU-resident layers only, attention kept at Q8_0 | the tok/s side of the precision curve, about −25 % bytes a token on 32 layers | perplexity cost and drafted decode gain as a pair |
-| Q8 | engram lazy-mode row cost (WKS-20): served placement, experts warmed on other prompts, the twenty prompts three passes with the coolant gate between them, major faults per pass as the witness | what the 30–48 random 4 KB NVMe reads a token cost against rows already cached; shi3z's runtime gathers engram rows from host RAM at ~1 ms a token, the reference | pass-1 vs pass-2/3 median; first run 2026-09-14 12:10 gave pass 1 23.26 at 28.5 faults a token and lost pass 2 to the thermal guard | **Measured 13:04: 23.36 → 25.07 / 25.08, 22.1 → 0 faults a token — the rows cost 6.8 % of decode on fresh text; RAM pinning is the follow-up.** |
-| Q9 | fused lightning indexer on V4.1 (WKS-12 window 4): the port's indexer materialized [positions × tokens × 32 heads] fp32 twice, 135 GB at 256k and `-ub 2048`; commit 75a0eb4f1 takes `ggml_lightning_indexer` under `fused_lid` as the V4 path does | whether 256k loads at all, byte identity of twenty greedy outputs against the unfused binary, decode unchanged, then the prompt-cache prefix pair | c16k identity 20/20 and tok/s within the band; c64k, c256k KV q8_0 (code, `-ub 2048`), c256k (decode) load; `prompt_n` on the growing-prefix pair | **Measured 13:13: identity 20/20, warm 25.16; c64k and c256k (code, four layers) load, c256k decode (seven layers) does not; the cache pair pays a 2048-token SWA-checkpoint tax per hit — window 5 tries `--swa-full` and `-b 512`.** |
-| Q10 | host RAM bandwidth (WKS-22): **measured 2026-09-14** — read cap 132 GB/s (8 threads reach 92 %; clock, binding, interleave < 1 %); one CCD 40.2 GB/s, two 79.7, four 131.2, so the four-CCD 5975WX cannot draw eight channels and the full-load cap is memory-side (public 5975WX figure 147: ~10 % recoverable in BIOS memory clock/timings, not in flags); decode vs `-t`: 16 → 19.8, 24 → 23.2, 32 → 25.1, 48 → 24.1, 64 → 18.9 warm, physical cores win | ~~whether the 43 % of peak the bus is not delivering is threads, clock, TLB, or configuration~~ it is the CCD count and the memory side; next step is BIOS (memory 3400/3600 with FCLK 1:1, memtest + identity check), user's hands | done; BIOS step **done 2026-09-14 late**: DDR4-3600 at 1.30 V is the standing clock (147.7 GB/s, +12.6 %; 3666 fails a verifying stress, 3733+ no POST; decode 26.3 vs 26.0 at 3400, inside the band) — `log/2026-09-14-memory-clock-3600.md` |
-| Q11 | PCIe corrected errors on the A6000 link (WKS-21): 115 BadTLP since the 09-12 boot, none in the three boots before, clustered in load windows | which load type produces them (decode, prefill, NVMe graft), the link state under load, whether the rate climbs — a marginal link is a reseat or a slot move before it is anything else | dmesg timestamps against runner logs; CESta before and after a window; LnkSta at 16GT/s ×16 under load |
-| Q12 | expert routing histogram (WKS-23): log the router's top-k per layer over the twenty prompts and a coding transcript; byte-hit rate of an N-experts-per-layer GPU cache vs the whole-layer placement at equal VRAM | whether expert use is skewed enough that per-expert placement beats per-layer — shi3z's single-A100 run got 40–56 % hits on 80 cached experts | the histogram; hit rate at 45 GB of cache; go/no-go on a fork-level per-expert placement |
+| Q1 | ik engram 행 프리페치 (86d01ece1을 `llama_set_engram_rows`로 포팅, 동일한 6개 프롬프트, 폴트 카운트) | 토큰당 41–62 폴트와 28% 1차 손실이 engram 행인지 여부 | ik 패스 1이 13.6에서 18.8로 이동; 폴트가 메인라인의 13–21로 이동 |
+| Q2 | 프리필: ~4k 및 ~15k 토큰의 결정적 코드 프롬프트, `-ub` 512 / 1024 / 2048 / 4096, 프리필 중 PCIe 링크 세대 및 폭 샘플링, 이후 증가하는 프리픽스에 대한 `cache_prompt` | 숫자가 있는 E5; 프리필이 PCIe에 의해 제한되는지 여부(CUDA 백엔드는 배치 ≥ 32에 대해 CPU expert 가중치를 가져옴, `ggml_backend_cuda_device_offload_op`), 그리고 코딩 클라이언트의 다음 턴이 실제로 얼마나 프리필하는지 | `-ub`당 tok/s; 쌍의 두 번째 요청에서 `prompt_n` |
+| Q3 | GPU 상주 텐서의 정밀도 (아래 참조) | Q8_0에서 어텐션 및 공유 expert가 perplexity를 변경하는지 여부, VRAM 비용 발생 및 디코드 비용 없음 | 서빙된 파일에 대한 4-청크 perplexity 대 이식된 파일; 로드-투-로드 밴드 내 디코드 |
+| Q4 | ~~서빙된 대상에 대해 초안을 다시 증류: 대상의 greedy 연속에 대해 tl37 초안 헤드를 파인튜닝~~ 2026-09-14 오후 수정: DSpark 초안은 헤드가 아니라 3개의 완전한 V4.1 MoE 블록이며, 14.23 B 파라미터, MXFP4에서 8 GB이며, 대상의 은닉 상태를 레이어 38–40에서 읽는다(`dflash.target_layers`). 이를 학습하려면 (a) dflash 아키텍처의 PyTorch 구현이 필요하며, 이는 아직 존재하지 않는다(transformers 포트는 초안 가중치를 무시함; DeepSeek는 학습 코드를 제공하지 않음), (b) 토큰당 이 3개의 은닉 상태를 덤프하기 위한 llama.cpp 변경, (c) 14 B 모델을 위한 메모리가 필요하며, 12 GB 카드는 4비트 및 활성화 상태에서도 이를 충족하지 못한다. WKS-16은 예약된 윈도우가 아닌 질문으로 열린 상태로 유지 | 수용이 초안/대상 불일치에 의해 제한되는지 여부: engram Q3→Q8 변경은 수용을 58.0 → 58.9%로 이동시켰으며 대상 perplexity는 6% 이동; 게시된 MXFP4 대상은 산문에서 51%, 코드에서 79%를 보여주며, 우리와 동일한 밴드이므로 불일치가 아무것도 비용하지 않을 수 있음. "60 → 70%" 수치는 측정 없이 투영된 것임 | 먼저, 더 높은 정밀도 대상에 대한 참조 수용(이 기계의 어떤 것도 이에 도달하지 못함; fp8 수치는 게시되지 않음); 이것이 실제 격차를 보여줄 때만 학습 파이프라인이 빌드를 얻음 |
+| Q5 | 초안 정밀도 (WKS-17): DSpark 초안을 fp8 원본에서 Q8_0으로 변환 (`convert_hf_to_gguf.py --dspark`), tl37이 수정된 것처럼 `target_layers` 수정, 동일한 대상에서 MXFP4 초안에 대해 20개 프롬프트 초안 쌍 실행 | 58–60% 수용이 초안 자체의 한계인지 아니면 4비트 양자화인지 여부; WKS-16 질문의 무학습 절반 | 수용/초안 및 tok/s, 동일한 대상 파일 및 배치; 평탄한 결과는 WKS-16을 닫음 |
+| Q6 | 이식에 의한 MXFP4 라우팅 expert (WKS-18): 업로더의 "Q8_0" 세트는 expert를 MXFP4 — 네이티브 4비트 — 로 샤드 1–7에 유지 (289 GB, 서빙된 믹스의 6.47 GB 대비 레이어당 6.72 GiB); 먼저 온카드 레이어 (blk 0–7, 샤드 1–2), 이후 전체 40개 | 4비트로 릴리스된 expert의 손실성 Q3_K/Q4_K 재양자화에 perplexity가 얼마나 있는지; 온카드 레이어는 VRAM만 비용, 나머지는 토큰당 +11.6% 바이트 비용 | 1.8992 대비 4-청크 perplexity; 전체 레이어 파일에 대한 20개 프롬프트에서 디코드; 바이트당 확인된 MXFP4 CPU 커널 속도 | **1단계 측정 2026-09-14: 1.8964 ± 0.0491 대 1.8992 — −0.15%, 노이즈 내; 7-레이어 배치는 더 이상 로드되지 않음 (카드에 +5.1 GB). 2단계 주차.** |
+| Q7 | 이식에 의한 RAM expert 하향 (WKS-19): 업로더의 Q2_K 세트 (expert Q2_K 게이트/업, Q3_K 다운, ~2.9 bpw)를 CPU 상주 레이어에만, 어텐션은 Q8_0으로 유지 | 정밀도 곡선의 tok/s 측면, 32개 레이어에서 토큰당 약 −25% 바이트 | perplexity 비용 및 초안 디코드 이득을 쌍으로 |
+| Q8 | engram 지연 모드 행 비용 (WKS-20): 서빙된 배치, 다른 프롬프트에서 expert 웜, 쿨런트 게이트 사이에 20개 프롬프트 3패스, 증인으로서 패스당 주요 폴트 | 토큰당 이미 캐시된 행 대비 토큰당 30–48개의 랜덤 4 KB NVMe 읽기가 비용하는 것; shi3z의 런타임은 호스트 RAM에서 engram 행을 ~1 ms/토큰으로 수집, 참조 | 패스-1 대 패스-2/3 중앙값; 첫 실행 2026-09-14 12:10은 패스 1에서 28.5 폴트/토큰으로 23.26을 기록하고 열 가드로 패스 2를 잃음 | **측정 13:04: 23.36 → 25.07 / 25.08, 22.1 → 0 폴트/토큰 — 행은 새 텍스트에서 디코드의 6.8% 비용; RAM 핀닝이 후속 작업.** |
+| Q9 | V4.1에서 융합 라이트닝 인덱서 (WKS-12 윈도우 4): 포트의 인덱서는 [positions × tokens × 32 heads] fp32를 두 번 구체화, 256k 및 `-ub 2048`에서 135 GB; 커밋 75a0eb4f1은 V4 경로가 하는 것처럼 `fused_lid` 아래 `ggml_lightning_indexer`를 가져옴 | 256k가 로드되는지 여부, 융합되지 않은 바이너리 대비 20개 greedy 출력의 바이트 동일성, 디코드 변경 없음, 이후 프롬프트-캐시 프리픽스 쌍 | c16k 동일성 20/20 및 밴드 내 tok/s; c64k, c256k KV q8_0 (코드, `-ub 2048`), c256k (디코드) 로드; 증가하는-프리픽스 쌍에서 `prompt_n` | **측정 13:13: 동일성 20/20, 웜 25.16; c64k 및 c256k (코드, 4개 레이어) 로드, c256k 디코드 (7개 레이어)은 아님; 캐시 쌍은 히트당 2048-토큰 SWA-체크포인트 세금을 지불 — 윈도우 5는 `--swa-full` 및 `-b 512`를 시도.** |
+| Q10 | 호스트 RAM 대역폭 (WKS-22): **측정 2026-09-14** — 읽기 캡 132 GB/s (8개 스레드가 92% 도달; 클록, 바인딩, 인터리브 < 1%); CCD 1개 40.2 GB/s, 2개 79.7, 4개 131.2, 따라서 4-CCD 5975WX는 8개 채널을 끌어낼 수 없으며 풀-로드 캡은 메모리 측임 (공개 5975WX 수치 147: BIOS 메모리 클록/타이밍에서 ~10% 복구 가능, 플래그에서는 아님); 디코드 대 `-t`: 16 → 19.8, 24 → 23.2, 32 → 25.1, 48 → 24.1, 64 → 18.9 웜, 물리 코어가 승리 | ~~버스가 전달하지 않는 피크의 43%가 스레드, 클록, TLB, 또는 구성인지 여부~~ CCD 수와 메모리 측임; 다음 단계는 BIOS (FCLK 1:1로 메모리 3400/3600, memtest + 동일성 확인), 사용자의 손 | 완료; BIOS 단계 **완료 2026-09-14 늦은 시간**: DDR4-3600 at 1.30 V가 스탠딩 클록 (147.7 GB/s, +12.6%; 3666은 검증 스트레스 실패, 3733+ POST 없음; 3400에서 디코드 26.3 대 26.0, 밴드 내) — `log/2026-09-14-memory-clock-3600.md` |
+| Q11 | A6000 링크에서 PCIe 수정 오류 (WKS-21): 09-12 부팅 이후 115 BadTLP, 이전 3개 부팅에서는 없음, 로드 윈도우에 군집 | 어떤 로드 유형이 이를 생성하는지 (디코드, 프리필, NVMe 이식), 로드 하에서 링크 상태, 비율이 상승하는지 — 경계 링크는 다른 어떤 것보다 먼저 재시팅 또는 슬롯 이동임 | 러너 로그 대비 dmesg 타임스탬프; 윈도우 전후 CESta; 로드 하에서 16GT/s ×16에서 LnkSta |
+| Q12 | expert 라우팅 히스토그램 (WKS-23): 20개 프롬프트 및 코딩 트랜스크립트에 대해 레이어당 라우터의 top-k 로깅; 동일 VRAM에서 전체-레이어 배치 대비 N-expert-퍼-레이어 GPU 캐시의 바이트-히트율 | expert 사용이 충분히 치우쳐 있어서 expert-퍼-레이어 배치가 레이어-퍼-레이어 배치를 이기는지 여부 — shi3z의 단일-A100 런은 80개 캐시된 expert에서 40–56% 히트를 얻음 | 히스토그램; 45 GB 캐시에서 히트율; 포크-수준 expert-퍼-레이어 배치에 대한 진행/중지 |
 
 
-Measured since (2026-09-14 evening): chat-turn TTFT on the 256k profile is
-26–31 s and it is the checkpoint placement (WKS-12 comment, log section
-"The thirty seconds per turn are the checkpoint"); the short-prompt prefill
-floor is the per-ubatch PCIe copy of the CPU expert set and `--no-op-offload`
-beats it below ~700 tokens (WKS-27). Threshold sweep done: `GGML_OP_OFFLOAD_MIN_BATCH=768` closes the
-short-prompt floor (257 tok 10.2 → 4.5 s, long prefill unchanged, 1024
-and 2048 lose; log section "The offload threshold"). Queue now:
-~~end-of-prompt checkpoint patch A/B~~ **done 2026-09-15: the 26–31 s turns were the V4.1 port reporting `n_swa = 128` to the server (mainline hides it for dsv4); one-line fix in `llama_model_n_swa`, turns 21 → 8.8 s, `docs/v41-serving.md`** + CUDA-path KV q8_0 check (done, q8_0 accepted) → then Q11 PCIe AER, Q7, Q12, WKS-24/25/26.
+측정된 이후 (2026-09-14 저녁): 256k 프로필에서 채팅-턴 TTFT는 26–31초이며 이는 체크포인트 배치 (WKS-12 코멘트, 로그 섹션 "턴당 30초는 체크포인트임"); 짧은-프롬프트 프리필 플로어는 CPU expert 세트의 퍼-유배치 PCIe 복사이며 `--no-op-offload`는 ~700 토큰 아래에서 이를 이김 (WKS-27). 임계값 스윕 완료: `GGML_OP_OFFLOAD_MIN_BATCH=768`이 짧은-프롬프트 플로어를 닫음 (257 tok 10.2 → 4.5 s, 긴 프리필 변경 없음, 1024 및 2048 손실; 로그 섹션 "오프로드 임계값"). 큐 현재:
+~~프롬프트 끝 체크포인트 패치 A/B~~ **완료 2026-09-15: 26–31초 턴은 V4.1 포트가 서버에 `n_swa = 128`을 보고하고 있었기 때문 (메인라인은 dsv4에 대해 이를 숨김); `llama_model_n_swa`의 한 줄 수정, 턴 21 → 8.8 s, `docs/v41-serving.md`** + CUDA-경로 KV q8_0 확인 (완료, q8_0 수용) → 이후 Q11 PCIe AER, Q7, Q12, WKS-24/25/26.
 
-### Priority as of 2026-09-14 afternoon
+### 2026-09-14 오후 기준 우선순위
 
-Running now, in chain: Q9 (fused indexer, then the prompt-cache pair) →
-Q8 (engram cost, second run). Then, in order of expected decode gain per
-hour of machine time: **Q10** (bandwidth — the wall everything else sits
-behind; a threads-and-clock sweep is one window and needs no download),
-**Q11** (AER correlation — reads only, piggybacks on any window), **Q7**
-(RAM experts Q2_K — bytes a token down 25 % on 32 layers, one download),
-**Q12** (routing histogram — instrumentation, no download), WKS-11(2)
-(intermediate engram precision), Q5 (draft precision — blocked on a V4.1
-DSpark export). Q6 stage 2 is parked on the stage-1 result. Q4 is struck.
+현재 체인에서 실행 중: Q9 (융합 인덱서, 이후 프롬프트-캐시 쌍) → Q8 (engram 비용, 두 번째 실행). 이후, 기계 시간 시간당 예상 디코드 이득 순서로: **Q10** (대역폭 — 다른 모든 것이 뒤에 있는 벽; 스레드-및-클록 스윕은 하나의 윈도우이며 다운로드 필요 없음), **Q11** (AER 상관관계 — 읽기 전용, 어떤 윈도우에도 편승), **Q7** (RAM expert Q2_K — 32개 레이어에서 토큰당 바이트 25% 감소, 하나의 다운로드), **Q12** (라우팅 히스토그램 — 계측, 다운로드 없음), WKS-11(2) (중간 engram 정밀도), Q5 (초안 정밀도 — V4.1 DSpark 내보내기에 블록됨). Q6 2단계는 1단계 결과에 따라 주차됨. Q4는 취소선을 긋는다.
 
 
-The likely outcome of Q2 is two serving profiles — decode (the current one)
-and coding (larger `-ub`, longer context, possibly no draft) — rather than
-one compromise.
+Q2의 가능한 결과는 두 개의 서빙 프로필 — 디코드 (현재 것) 및 코딩 (더 큰 `-ub`, 더 긴 컨텍스트, 아마도 초안 없음) — 이며, 하나의 타협이 아니다.
 
-### Closed as of 2026-09-15 morning
+### 2026-09-15 아침 기준 종료
 
-The 2026-09-14/15 stretch settled, in order: **Q10** twice over — the host
-read cap and then the memory clock itself (DDR4-3200 → 3600 at 1.30 V,
-131 → 147.7 GB/s, `log/2026-09-14-memory-clock-3600.md`); **Q2** on the
-served V4-Flash file (`-ub 1024 → 4096` is 2.1× on prefill, applied to
-serving, `log/2026-09-15-prefill-ubatch-ik-vs-mainline.md`); the checkpoint
-tax (a fork-only `n_swa` omission, vcruz305/llama.cpp#3); and a six-arm
-serving-knob sweep in which the live profile stood
-(`log/2026-09-15-serving-knob-sweep.md`). Q11 stays a watch item (two
-corrected AER events on the A6000 root port during the 3600 stress). Q7 and
-WKS-11(2) are still downloads-and-grafts waiting for a window.
+2026-09-14/15 스트레칭은 순서대로 정착: **Q10** 두 번 — 호스트 읽기 캡 및 이후 메모리 클록 자체 (DDR4-3200 → 3600 at 1.30 V, 131 → 147.7 GB/s, `log/2026-09-14-memory-clock-3600.md`); 서빙된 V4-Flash 파일에서 **Q2** (`-ub 1024 → 4096`은 프리필에서 2.1×, 서빙에 적용, `log/2026-09-15-prefill-ubatch-ik-vs-mainline.md`); 체크포인트 세금 (포크 전용 `n_swa` 누락, vcruz305/llama.cpp#3); 그리고 라이브 프로필이 서 있었던 6-암 서빙-노브 스윕 (`log/2026-09-15-serving-knob-sweep.md`). Q11은 주시 항목으로 유지 (3600 스트레스 동안 A6000 루트 포트에서 수정된 AER 이벤트 2개). Q7 및 WKS-11(2)는 윈도우를 기다리는 다운로드-및-이식 상태.
 
-What comes next is not on this V4.1 list. The layer-placement results say
-the on-card tensors are free to read and the RAM experts are the whole
-decode cost, so the next program is **placement-aware quantization**: Q12's
-routing histogram first, then a per-tensor cost model (bytes × placement ×
-routing frequency × sensitivity), then a file assembled for this box rather
-than for a download size. It gets its own document when the histogram
-exists. In parallel, a second architecture — GLM-5.3-Flash on ik main,
-`log/2026-09-15-glm-5.3-flash-first-run.md` — checks whether the V4-derived
-rules generalize; the first numbers say they do not (a layer moved to a card
-buys 1 % of decode there, against 2.2 % of expert bytes).
+다음에 오는 것은 이 V4.1 목록에 없다. 레이어-배치 결과는 온카드 텐서가 읽기 자유로우며 RAM expert가 전체 디코드 비용임을 말하므로, 다음 프로그램은 **배치-인지 양자화**이다: 먼저 Q12의 라우팅 히스토그램, 이후 퍼-텐서 비용 모델 (바이트 × 배치 × 라우팅 빈도 × 민감도), 이후 다운로드 크기가 아닌 이 박스를 위해 조립된 파일. 히스토그램이 존재하면 자체 문서를 얻는다. 병행하여, 두 번째 아키텍처 — ik 메인에서 GLM-5.3-Flash, `log/2026-09-15-glm-5.3-flash-first-run.md` — 는 V4 파생 규칙이 일반화되는지 확인; 첫 번째 수치는 그렇지 않음을 말함 (카드로 이동된 레이어는 거기서 디코드의 1%를 구매하는 반면, expert 바이트의 2.2%에 대비).
 
-**Storage pass, 2026-09-16.** `/models` went from 3.1 TB to 1.9 TB. The rule
-applied was to keep a file only if an open or candidate upstream PR needs it,
-plus whatever gets served. Kept: the fp8 originals and the Q8_0 engram source
-(every future graft starts from these), the published `Q3_K_M` upload (every
-number in PR #2455 is measured on it, and the rebase promised there has to be
-re-measured on it), the served attention-Q8_0 file, the stage-1 MXFP4 file, the
-EXL3 4.05 bpw GLM (the exllamav3 MTP draft-depth candidate still owes a
-reproducer on a second placement), the DSpark drafts and the two small models.
-Deleted: the six engram and head/embedding ablation arms, and the whole ik-side
-GLM set — `graft{B,C,D}` and `UD-Q4_K_XL`. Their numbers are in the logs and
-stay there; what is gone is the ability to re-measure them. The engram arms are
-re-graftable from the kept sources in under an hour each
-(`tools/engram-repack/repack_all.sh`); the GLM ik arms are a 186 GB download.
-The GLM half of the paragraph above is therefore closed unless that file comes
-back.
+**스토리지 패스, 2026-09-16.** `/models`는 3.1 TB에서 1.9 TB로 감소. 적용된 규칙은 열린 또는 후보 업스트림 PR이 필요로 하는 파일과 서빙되는 것만 유지하는 것. 유지: fp8 원본 및 Q8_0 engram 소스 (모든 미래 이식은 이들로부터 시작), 게시된 `Q3_K_M` 업로드 (PR #2455의 모든 수치는 이것에서 측정되며, 거기에 약속된 리베이스는 이것에서 다시 측정되어야 함), 서빙된 어텐션-Q8_0 파일, 1단계 MXFP4 파일, EXL3 4.05 bpw GLM (exllamav3 MTP 초안-깊이 후보는 여전히 두 번째 배치에서 재현자를 빚짐), DSpark 초안 및 두 개의 작은 모델. 삭제: 6개 engram 및 헤드/임베딩 절제 암, 및 전체 ik-사이드 GLM 세트 — `graft{B,C,D}` 및 `UD-Q4_K_XL`. 이들의 수치는 로그에 있으며 그곳에 머무름; 사라진 것은 재측정 능력임. engram 암은 유지된 소스에서 각각 1시간 미만에 재이식 가능 (`tools/engram-repack/repack_all.sh`); GLM ik 암은 186 GB 다운로드임. 따라서 위 단락의 GLM 절반은 해당 파일이 돌아오지 않는 한 종료됨.
 
-### Q3 — raise precision where the bandwidth is not the bottleneck
+### Q3 — 대역폭이 병목이지 않은 곳에서 정밀도 높이기
 
-The user's question was whether the experts that sit in RAM could be
-quantized less, for quality, without losing tok/s. The served file, read by
-tensor group (2026-09-14, the `engramQ8-tokembdBF16` shards):
+사용자의 질문은 RAM에 있는 expert가 tok/s를 잃지 않고 품질을 위해 덜 양자화될 수 있는지였다. 서빙된 파일, 텐서 그룹별 읽기 (2026-09-14, `engramQ8-tokembdBF16` 샤드):
 
-| group | quant | size |
+| 그룹 | 양자화 | 크기 |
 |---|---|---:|
-| engram tables | Q8_0 | 209.2 GB |
-| routed experts | Q3_K 155.7 · Q4_K 96.8 · Q5_K 6.2 | 258.7 GB |
-| attention | Q3_K | 2.2 GB |
-| shared experts | Q3_K / Q4_K / Q5_K | 0.7 GB |
-| dense ffn, norms | BF16 / F32 | 0.2 GB |
-| token embedding / output | BF16 / Q6_K | 1.8 GB |
+| engram 테이블 | Q8_0 | 209.2 GB |
+| 라우팅 expert | Q3_K 155.7 · Q4_K 96.8 · Q5_K 6.2 | 258.7 GB |
+| 어텐션 | Q3_K | 2.2 GB |
+| 공유 expert | Q3_K / Q4_K / Q5_K | 0.7 GB |
+| 밀집 ffn, 노름 | BF16 / F32 | 0.2 GB |
+| 토큰 임베딩 / 출력 | BF16 / Q6_K | 1.8 GB |
 
-The routed experts cannot go up. Decode with experts on the CPU is bound by
-the bytes a token reads (3.44 GB at this quant against 115.8 GB/s), so every
-bit per weight added to the experts is subtracted from tok/s in proportion;
-Q3_K to Q4_K_M is roughly +35 % bytes. And 259 GB of experts plus 209 GB of
-engram already sit on 251 GB of RAM as memory-mapped files, which is where
-the first-pass faults come from; larger experts fault more.
+라우팅 expert는 올라갈 수 없다. CPU에서 expert로 디코드하는 것은 토큰이 읽는 바이트에 의해 제한됨 (이 양자화에서 3.44 GB 대 115.8 GB/s), 따라서 expert에게 추가된 가중치당 비트마다 tok/s에서 비례하여 차감됨; Q3_K에서 Q4_K_M은 대략 +35% 바이트임. 그리고 259 GB의 expert 플러스 209 GB의 engram은 이미 메모리-매핑된 파일로 251 GB의 RAM에 앉아 있으며, 이것이 1차 폴트가 나오는 곳임; 더 큰 expert는 더 많이 폴트함.
 
-What can go up is everything the GPU reads: attention (2.2 GB at Q3_K, the
-tensor group most sensitive to quantization), the shared experts (0.7 GB,
-read every token), and, at a VRAM price per layer, the eight routed-expert
-layers that live on the cards. Attention and shared experts at Q8_0 are
-about 5 GB more VRAM in total and zero bytes more per token on the CPU side.
-Five gigabytes is one expert layer's worth of card memory (about 3 % of
-decode), or comes out of the compute-buffer headroom if `-ub` stays at 512.
+올라갈 수 있는 것은 GPU가 읽는 모든 것: 어텐션 (Q3_K에서 2.2 GB, 양자화에 가장 민감한 텐서 그룹), 공유 expert (0.7 GB, 토큰마다 읽음), 그리고 카드에 상주하는 8개 라우팅-expert 레이어를 VRAM 가격으로. Q8_0에서 어텐션 및 공유 expert는 총 약 5 GB 더 많은 VRAM이며 CPU 측에서 토큰당 0바이트 더 많음. 5 GB는 카드 메모리의 expert 레이어 1개 분량 (디코드의 약 3%), 또는 `-ub`가 512에 머무르면 컴퓨팅-버퍼 헤드룸에서 나옴.
 
-How to build the file: the same graft the engram repack used
-([log](../log/2026-09-13-engram-q8-repack.md), `tools/engram-repack/repack.py`)
-with the attention and `_shexp` tensors taken from the uploader's Q8_0 build
-instead of the engram tensors. ~~Those tensors are spread across the Q8_0
-shards 1–7, which are not on disk (only 8–10, the engram shards, are); at
-about 6 GB of wanted tensors against 300 GB of shards, fetch them by HTTP
-range from the tensor offsets rather than downloading the shards.~~
-Corrected 2026-09-14 afternoon, from the shard headers: shards 1–7 hold
-only routed-expert tensors (12–18 a shard), and every attention, shared
-expert and indexer tensor of all forty layers — 924 tensors, Q8_0 where
-quantized — sits in shard 10, the 10 GB shard that is already on disk. No
-download is needed; the graft reads the source locally. (An HTTP-range
-extractor was written and run on a second machine before the headers were
-read; it fetched zero tensors, which is how the premise was found wrong.) The fp8
-originals are on disk (476 GB) as the fallback source. Perplexity: four
-chunks, 39 s a chunk on this placement, measured once on the current file
-first so the comparison has a baseline.
+파일을 빌드하는 방법: engram 리팩이 사용한 것과 동일한 이식 ([log](../log/2026-09-13-engram-q8-repack.md), `tools/engram-repack/repack.py`)을 사용하며, engram 텐서 대신 업로더의 Q8_0 빌드에서 어텐션 및 `_shexp` 텐서를 가져옴. ~~이 텐서들은 Q8_0 샤드 1–7에 걸쳐 퍼져 있으며, 이는 디스크에 없음 (engram 샤드인 8–10만 있음); 원하는 텐서 약 6 GB 대 샤드 300 GB에서, 샤드를 다운로드하는 대신 텐서 오프셋에서 HTTP 범위로 가져옴.~~
+2026-09-14 오후 수정, 샤드 헤더에서: 샤드 1–7은 라우팅-expert 텐서만 보유 (샤드당 12–18개), 그리고 40개 레이어 모두의 모든 어텐션, 공유 expert 및 인덱서 텐서 — 924개 텐서, 양자화된 경우 Q8_0 — 는 샤드 10, 이미 디스크에 있는 10 GB 샤드에 앉음. 다운로드 필요 없음; 이식은 소스를 로컬에서 읽음. (HTTP-범위 추출기가 작성되어 헤더를 읽기 전 두 번째 기계에서 실행됨; 제로 텐서를 가져왔으며, 이것이 전제가 틀렸음을 발견한 방법임.) fp8 원본은 대체 소스로 디스크에 있음 (476 GB). perplexity: 4개 청크, 이 배치에서 청크당 39초, 비교에 기준선이 있도록 현재 파일에서 먼저 한 번 측정.
 
-Not in Q3: `--tensor-type` overrides in `llama-quantize` from the fp8
-originals. That produces the same file at the cost of a full requantization
-pass; the graft is the cheaper route while the tooling exists.
+Q3에 없음: fp8 원본에서 `llama-quantize`의 `--tensor-type` 오버라이드. 이는 전체 재양자화 패스의 비용으로 동일한 파일을 생성함; 툴링이 존재하는 동안 이식이 더 저렴한 경로임.
 
-## Blocked, and on what
+## 차단된 항목과 그 이유
 
-These are the large levers, and none of them can run yet.
+이들은 큰 지렛대이며, 아직 어느 것도 실행할 수 없다.
 
-| experiment | what it would settle | blocked on |
+| 실험 | 이것이 확정할 내용 | 차단된 이유 |
 |---|---|---|
-| `-ser` sweep, 6 → 5 → 4 → 3 experts | the cheapest 1.4× available, and what it costs in perplexity | ik_llama cannot load `deepseek41` |
-| `-thp` | whether huge pages recover part of the missing 44% of memory bandwidth | same |
-| `-rtr` | whether repacking beats keeping engram off RAM — they are mutually exclusive | same |
-| MTP restored in conversion | speculation, projected 1.18× | a conversion change; original weights downloading |
-| experts at ~2.4 bpw | the largest single lever, projected 29 tok/s | ik support, plus requantizing 510 GB |
+| `-ser` sweep, 6 → 5 → 4 → 3 experts | 가장 저렴한 1.4× 사용 가능 여부와 그 perplexity 비용 | ik_llama가 `deepseek41`을 로드할 수 없음 |
+| `-thp` | huge pages가 누락된 메모리 대역폭의 44%를 일부 회복하는지 여부 | 동일 |
+| `-rtr` | repacking이 engram을 RAM에서 제외하는 것보다 우수한지 여부 — 둘은 상호 배타적임 | 동일 |
+| MTP restored in conversion | 추측, 예상 1.18× | 변환 변경; 원본 가중치 다운로드 |
+| experts at ~2.4 bpw | 가장 큰 단일 지렛대, 예상 29 tok/s | ik 지원, plus requantizing 510 GB |
 
-The ik architecture port unblocks the first three at once, which is the
-argument for doing it before the conversion work rather than after.
+ik 아키텍처 포트는 처음 세 가지를 한 번에 해제하며, 이것이 변환 작업 이후가 아니라 이전에 수행해야 하는 근거다.
 
-## What this plan is not measuring
+## 이 계획이 측정하지 않는 것
 
-Quality. Every lever in the middle of the table — fewer active experts, pruned
-experts, lower-bit quantization — buys speed with accuracy, and none of the
-runs above would notice. A perplexity baseline on this file, taken once while
-the machine is quiet, is what makes those trades comparable later. It is not
-on the critical path to a first number, and it should not be skipped on that
-basis.
+품질. 표 가운데의 모든 지렛대 — 활성 expert 수 감소, 가지치기된 expert, 저비트 양자화 — 는 정확도를 희생하여 속도를 얻으며, 위의 런 중 어느 것도 이를 알아차리지 못한다. 조용한 기계에서 한 번 측정한 이 파일의 perplexity 기준선은 나중에 그러한 절충을 비교 가능하게 만든다. 이것은 첫 번째 수치를 얻기 위한 임계 경로에 있지 않으며, 그 이유로 건너뛰어서는 안 된다.

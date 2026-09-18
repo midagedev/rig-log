@@ -39,16 +39,40 @@ TRANSLATE = [
     ("board",        r"\bboard(s)?\b",              ["보드"]),
     ("slot",         r"\bslot(s)?\b",               ["슬롯"]),
     ("run (a run)",  r"\brun(s)?\b",                ["런"]),
+    # `claim` is a noun in this repo -- a measured claim -- but the pattern also catches the
+    # verb, as in "the OS claims the timer", where 주장 would be wrong and 인수 is right.
+    # Left as is: a single-occurrence false positive costs one line of reading, and widening
+    # the accepted list would let a real untranslated 주장 through (2026-09-18).
     ("claim",        r"\bclaim(s|ed)?\b",           ["주장"]),
+    ("prefill",      r"\bprefill\b",                ["프리필"]),
+    ("decode",       r"\bdecode\b",                 ["디코드"]),
     ("measured",     r"\bmeasured\b",               ["실측", "측정"]),
 ]
 
 # Terms the glossary says to leave in English. Here the failure is the opposite one:
 # a translation that helpfully renders them has broken a rule just as surely.
+#
+# `prefill` and `decode` moved out of this list on 2026-09-18. They were asserting the
+# opposite of what this repo actually writes: counted over the Korean prose of log/, README
+# and the docs, with code spans and fences stripped, it is 프리필 166 against prefill 10 and
+# 디코드 247 against decode 7. The rule was marking a translation that used the repo's own
+# word as a MISS -- verified against a three-sentence probe before the change, which scored
+# `MISS decode  source 3  keep english: 0 kept` on a translation that wrote 디코드 three
+# times. They are ordinary glossary terms now, and the gate asserts the majority spelling
+# rather than the one whoever wrote the list happened to prefer. `load average` stays: it is
+# 3 against 3, and it is a field name in /proc output rather than a word.
 KEEP = [
     ("load average", r"load average",  r"load average"),
-    ("prefill",      r"\bprefill\b",   r"prefill"),
-    ("decode",       r"\bdecode\b",    r"decode"),
+    # `expert` and `engram` were not in this file at all until 2026-09-18, and nothing else
+    # looked at them either. A batch that day rendered them 전문가 and 엔그램 fifty-one and ten
+    # times across five documents and every gate passed -- 전문가 is a person with expertise,
+    # not a routed MoE tensor, and the sentence "전문가들은 DDR4에서 실측 ~116 GB/s로 읽어내며"
+    # says specialists read at that rate. Counted over the Korean prose already in the tree it
+    # is expert 348 against 전문가 0, engram 163 against 엔그램 0, so the repo had already
+    # settled both; the list simply did not know. Verified failing first on a three-sentence
+    # probe that scored `0/0 terms` -- the gate had no opinion to fail with.
+    ("expert",       r"\bexpert(s)?\b", r"expert"),
+    ("engram",       r"\bengram(s)?\b", r"engram"),
 ]
 
 

@@ -1,84 +1,49 @@
-# What this machine used to be
+# 이 기계이 과거에 무엇이었는가
 
-The table in [`README.md`](../README.md) says what the machine **is**. This
-file says what it **was**, and when each thing changed. The two are separate
-on purpose: a specification table that carries its own revision history stops
-being readable as a specification, and every superseded value in it is a
-number someone can quote by accident.
+[`README.md`](../README.md)의 표는 이 기계이 **현재 무엇인지**를 말한다. 이 파일은 이 기계이 **과거에 무엇이었는지**, 그리고 각 사항이 언제 바뀌었는지를 말한다. 두 문서는 의도적으로 분리되어 있다. 자체 수정 이력을 담는 사양 표는 사양으로서 가독성을 잃으며, 그 안의 모든 폐기된 값은 누군가 실수로 인용할 수 있는 숫자이기 때문이다.
 
-The rule that applies here is the repo's own — a claim that turns out to be
-wrong gets struck rather than deleted — so nothing below is removed, it is
-just kept out of the table. Each row links the entry that measured it.
+여기에 적용되는 규칙은 이 리포 자신의 규칙이다. 틀린 것으로 밝혀진 주장은 지우지 않고 선을 긋는다. 그래서 아래 내용은 제거된 게 아니라 표에서 빠졌을 뿐이다. 각 행은 해당 항목을 측정한 엔트리를 링크한다.
 
-## Memory
+## 메모리
 
 | when | from | to | why |
 |---|---|---|---|
-| 2026-09-14 | DDR4-3200 | **DDR4-3600, DRAM 1.30 V** | Bandwidth followed the clock one-for-one: 131.2 → 147.7 GB/s of 32-thread read. 3666 lost the 1:1 fabric and returned 139 wrong bytes in ten minutes *with the MCE counter at zero*; 3733 and up do not POST. DRAM voltage on Auto stays 1.2 V whatever the clock, so 3600 runs at a manual 1.30 V, and this firmware has no FCLK item at all. [Log](../log/2026-09-14-memory-clock-3600.md) |
-| 2026-09-14 | "ECC" | **non-ECC** | A description of the machine, not a change to it: `dmidecode` reports no error correction on these Samsung M378A4G43AB2-CWE UDIMMs. The earlier claim was wrong and the timing made it matter — the 3666 test above found silent wrong bytes the same week, which is exactly what ECC would have caught |
-| — | 115.8 GB/s | **147.7 GB/s** | The 115.8 figure predates the probe being fixed; it is not a DDR4-3200 measurement of anything. 3200 measured 131.2 |
+| 2026-09-14 | DDR4-3200 | **DDR4-3600, DRAM 1.30 V** | 대역폭이 클럭을 1:1로 따라갔다: 32스레드 읽기 기준 131.2 → 147.7 GB/s. 3666은 1:1 패브릭을 잃고 10분 동안 MCE 카운터가 0인 상태에서 139개의 잘못된 바이트를 반환했다; 3733 이상은 POST되지 않는다. Auto 설정의 DRAM 전압은 클럭과 무관하게 1.2 V로 유지되므로, 3600은 수동 1.30 V로 동작하며, 이 펌웨어에는 FCLK 항목이 전혀 없다. [Log](../log/2026-09-14-memory-clock-3600.md) |
+| 2026-09-14 | "ECC" | **non-ECC** | 기계에 대한 설명이지 변경 사항이 아니다: `dmidecode`는 이 삼성 M378A4G43AB2-CWE UDIMM들에 오류 수정이 없다고 보고한다. 이전 주장은 틀렸으며, 타이밍이 이를 중요하게 만들었다 — 위의 3666 테스트는 같은 주에 조용한 잘못된 바이트를 발견했으며, 이는 정확히 ECC가 잡아냈을 것이다 |
+| — | 115.8 GB/s | **147.7 GB/s** | 115.8 수치는 프로브가 수정되기 전의 것으로, DDR4-3200의 어떤 측정값도 아니다. 3200의 실측값은 131.2였다 |
 
-**Two probes disagree by 2 %, and it matters which one a ratio used.** The
-32-thread 8 GiB read probe gives **147.7 GB/s** at DDR4-3600. A second probe,
-run three times on 2026-09-16 after the slot move, gives **144.8 GB/s** — and
-144.8 is the figure passed to toktape as `--ram-gbs-measured`, so every host
-percentage on a recorded card is derived against that one, not against 147.7.
-Theoretical peak at this clock is 230.4 GB/s.
+**두 프로브는 2 % 차이가 나며, 어떤 프로브를 비율에 사용하는지가 중요하다.** 32스레드 8 GiB 읽기 프로브는 DDR4-3600에서 **147.7 GB/s**를 제공한다. 두 번째 프로브는 슬롯 이동 후 2026-09-16에 세 번 실행되어 **144.8 GB/s**를 제공했다 — 그리고 144.8이 toktape에 `--ram-gbs-measured`로 전달된 수치이므로, 기록된 카드의 모든 호스트 퍼센티지는 147.7이 아닌 이 수치를 기준으로 도출된다. 이 클럭에서의 이론적 최대치는 230.4 GB/s이다.
 [Log](../log/2026-09-16-the-overclock-and-the-fabric.md)
 
-## Cooling
+## 냉각
 
 | when | from | to | why |
 |---|---|---|---|
-| 2026-09-14 | NZXT Kraken AIO | **ARCTIC Freezer 4U-M tower air cooler** on CPU_FAN | The loop was letting a 2.7 GHz CPU decode reach Tctl 89 °C. The air cooler holds a 64-thread stress at 43 °C. [Log](../log/2026-09-14-air-cooler-swap.md) |
-| 2026-09-15 | 2.7 GHz clock cap + its boot service | **no cap** | The cap existed to work around the AIO, so it retired with it. Uncapped, the served V4.1 profile runs a decode-window mean of 3.44 GHz at Tctl 62–65 °C with the thermal guard silent. [Log](../log/2026-09-15-clock-cap-removed.md) |
+| 2026-09-14 | NZXT Kraken AIO | **ARCTIC Freezer 4U-M 타워 공랭 쿨러** on CPU_FAN | 이 루프는 2.7 GHz CPU decode가 Tctl 89 °C에 도달하게 했다. 공랭 쿨러는 64스레드 스트레스에서 43 °C를 유지한다. [Log](../log/2026-09-14-air-cooler-swap.md) |
+| 2026-09-15 | 2.7 GHz 클럭 캡 + 그 부트 서비스 | **캡 없음** | 이 캡은 AIO를 우회하기 위해 존재했으므로, AIO와 함께 퇴역했다. 캡이 없으면, 제공된 V4.1 프로파일은 열 가드가 조용한 상태에서 Tctl 62–65 °C로 디코드-window 평균 3.44 GHz를 실행한다. [Log](../log/2026-09-15-clock-cap-removed.md) |
 
-CPU boost stays disabled, which is not a change — it has been off throughout.
+CPU 부스트는 비활성화된 상태로 유지되며, 이는 변경 사항이 아니다 — 전체 기간 동안 꺼져 있었다.
 
-## GPUs and the fabric
+## GPU와 패브릭
 
 | when | what | why |
 |---|---|---|
-| 2026-09-16 | The A6000 moved out of the near-bottom slot, bus **01 → 61** | A four-condition experiment on its link (idle/loaded × Gen4/Gen3) put 27 corrected errors in 483 s of Gen4 under load against zero in every other cell: eye margin at 16 GT/s, not damage. The new slot gave zero in 502 s of the same load. The move changed slot and seating together and that is unrecoverable — it is one result, not two. [Log](../log/2026-09-16-the-overclock-and-the-fabric.md) |
-| 2026-09-16 | `CUDA_DEVICE_ORDER=PCI_BUS_ID` → **`CUDA_VISIBLE_DEVICES` by UUID** ([`configs/gpu-order.env`](../configs/gpu-order.env)) | The slot move put the A6000 on a *higher* bus than the 3090, so bus order made the 24 GB card device 0. Every `-ot` string, `-ts` and `-gs` in this repo assumes CUDA0 is the 48 GB card; a training launcher with `CUDA_VISIBLE_DEVICES=0` put a 38 GB job on the 3090 and OOMed at step 52000. Fixed once, by UUID, and proven by a load rather than by reading the file. [Log](../log/2026-09-16-every-kept-model-re-verified.md) |
-| 2026-09-16 | An asterisk removed from a week of PCIe-bound numbers | The idle 2.5 GT/s that had been read as a downgraded link is the GPU's own downclocking; all four ports read 16 GT/s ×16 under load on a clean boot. The numbers stand. [Log](../log/2026-09-16-the-overclock-and-the-fabric.md) |
-| 2026-09-18 | The 3090 **removed** (2026-09-17) and **reseated in the same slot**, bus 41 | It came out to be sold after a second hard hang. Back in, its battery completes: memtest 3 passes 0 errors, gpu_burn 30 min `GPU 0: OK`, and Gen4 x16 with every error bit clear on the card and root port `40:01.1` read **under full load** — the row the cut run of 09-17 never had. A reseat into the same slot cannot speak to the hang, whose fingerprint was a second CUDA context on a loaded card. [Log](../log/2026-09-18-the-3090-goes-back-in.md) |
-| 2026-09-18 | Both GPUs' fans: card-controlled → **`configs/gpu-fan.service`**, a curve per card | Measured in one 10-minute burn on both cards at once: the 300 W A6000 ran 88 °C against the 3090's 77, answered with 22 points less fan, and spent **500 s of 600 in SW thermal slowdown**. Both cards' own controllers treat their thermal target as somewhere to sit; the curves top out at it (75 °C for the 3090, 80 °C for the A6000). Worth 3 °C for the same peak fan on a matched three-minute pair on the 3090, and on the A6000 a peer session's five-hour training run read 87 °C at 72 % fan before and 77 °C at 92 % after, with its thermal-slowdown counter frozen across 5 h 16 m and its throughput 4 % *lower*. **Every thermal number on either card from this date is taken with a curve in place** — stop the unit for a matched pair against anything earlier. [Log](../log/2026-09-18-the-3090-goes-back-in.md) |
-| 2026-09-12 | Phison E18 4 TB NVMe added as `/models` | The root 980 PRO could not hold the model set |
+| 2026-09-16 | A6000이 최하단 슬롯에서 이동, 버스 **01 → 61** | 링크에 대한 4조건 실험(유휴/부하 × Gen4/Gen3)에서 Gen4 부하 483초 동안 27개의 수정 오류가 발생했고, 다른 모든 셀에서는 0개였다: 16 GT/s에서의 아이 마진 부족이지 손상이 아니다. 새 슬롯은 동일한 부하의 502초 동안 0개를 기록했다. 이 이동은 슬롯과 장착을 동시에 변경했으며, 이는 복구할 수 없다 — 두 결과가 아닌 하나의 결과이다. [Log](../log/2026-09-16-the-overclock-and-the-fabric.md) |
+| 2026-09-16 | `CUDA_DEVICE_ORDER=PCI_BUS_ID` → **`CUDA_VISIBLE_DEVICES`를 UUID로** ([`configs/gpu-order.env`](../configs/gpu-order.env)) | 슬롯 이동으로 A6000이 3090보다 *높은* 버스에 놓이게 되어, 버스 순서로 인해 24 GB 카드가 장치 0이 되었다. 이 저장소의 모든 `-ot` 문자열, `-ts`, `-gs`는 CUDA0이 48 GB 카드라고 가정한다; `CUDA_VISIBLE_DEVICES=0`을 사용하는 학습 런처는 38 GB 작업을 3090에 올려 52000 스텝에서 OOM이 발생했다. UUID로 한 번 수정했으며, 파일을 읽는 것이 아닌 부하로 증명했다. [Log](../log/2026-09-16-every-kept-model-re-verified.md) |
+| 2026-09-16 | PCIe 바운드 수치의 일주일치에서 별표 제거 | 다운그레이드된 링크로 읽혔던 유휴 2.5 GT/s는 GPU 자체의 다운클럭킹이었다; 모든 네 포트는 클린 부트에서 부하 시 16 GT/s ×16을 읽었다. 수치는 유효하다. [Log](../log/2026-09-16-the-overclock-and-the-fabric.md) |
+| 2026-09-18 | 3090 **제거됨** (2026-09-17) 및 **동일 슬롯에 재장착**, 버스 41 | 두 번째 하드 행 이후 판매를 위해 꺼냈다. 다시 넣은 후, 배터리 완료: memtest 3회 통과 0 오류, gpu_burn 30분 `GPU 0: OK`, 그리고 카드와 루트 포트 `40:01.1` 모두에서 모든 오류 비트가 깨끗한 Gen4 x16 — 09-17의 중단된 런이 결코 갖지 못했던 행 — 을 **풀 부하**에서 읽었다. 동일 슬롯으로의 재장착은 행에 대해 말할 수 없으며, 행의 지문은 로드된 카드에서 두 번째 CUDA 컨텍스트였다. [Log](../log/2026-09-18-the-3090-goes-back-in.md) |
+| 2026-09-18 | 두 GPU의 팬: 카드 제어 → **`configs/gpu-fan.service`**, 카드별 커브 | 두 카드에서 동시에 10분 번으로 측정: 300 W A6000은 3090의 77 °C 대비 88 °C로 동작했고, 22포인트 낮은 팬으로 응답했으며, **600초 중 500초를 SW 열 스로틀링**에서 보냈다. 두 카드의 자체 컨트롤러는 열 목표를 앉을 somewhere로 취급한다; 커브는 그 지점에서 최고조에 달한다(3090은 75 °C, A6000은 80 °C). 3090에서 매칭된 3분 페어에 대해 동일 최고 팬으로 3 °C 가치가 있으며, A6000에서는 피어 세션의 5시간 학습 런이 이전에 72 % 팬에서 87 °C, 이후에 92 % 팬에서 77 °C를 읽었고, 열 스로틀링 카운터는 5시간 16분 동안 동결되었으며 처리량은 4 % *낮아졌다*. **이 날짜부터 두 카드의 모든 열 수치는 커브를 적용한 상태로 측정된다** — 이전 어떤 것과도 매칭된 페어에 대해 유닛을 중지하라. [Log](../log/2026-09-18-the-3090-goes-back-in.md) |
+| 2026-09-12 | Phison E18 4 TB NVMe가 `/models`로 추가됨 | 루트 980 PRO가 모델 세트를 담을 수 없었다 |
 
-## Still open
+## 여전히 열려 있음
 
-**Why the 3090 leaves the bus under NCCL DDP.** Reproduced three times on
-2026-09-18 and narrowed a long way: not bus traffic (a DMA loop at 37 GB/s for
-900 s, two to three orders of magnitude above what DDP moves, clean), not
-sustained power (the same loop at 419 W, clean, against a fault at 384 W), not
-temperature (67 °C), not the link (error registers byte-identical across every
-run). **Both cards capped to 250 W ran the same DDP for 900 s clean at 1.51× the
-single-card rate**, which is a usable configuration but not a proof — nothing
-here can measure the transient the explanation rests on. The cable topology has
-not been inspected: the 3090 takes three 8-pin connectors and how many separate
-runs reach the PSU is unknown as of 2026-09-18.
+**NCCL DDP에서 3090이 버스를 떠나는 이유.** 2026-09-18에 세 번 재현되었으며 많이 좁혀졌다: 버스 트래픽이 아님(900초 동안 37 GB/s의 DMA 루프, DDP가 이동하는 것보다 2~3자릿수 높음, 깨끗함), 지속 전력이 아님(동일 루프가 419 W에서 깨끗함, 384 W에서 결함 발생), 온도가 아님(67 °C), 링크가 아님(모든 런에서 오류 레지스터가 바이트 단위로 동일함). **두 카드 모두 250 W로 캡된 상태에서 동일 DDP를 900초 동안 단일 카드 속도의 1.51배로 깨끗하게 실행했으며**, 이는 사용 가능한 구성이지만 증명은 아니다 — 여기에 있는 어떤 것도 설명이 의존하는 트랜지언트를 측정할 수 없다. 케이블 토폴로지는 검사되지 않았다: 3090은 8핀 커넥터 세 개를 사용하며, PSU에 도달하는 별도 런의 수는 2026-09-18 기준으로 알려지지 않았다.
 [Log](../log/2026-09-18-b-the-fault-reproduced.md)
 
-~~**Why the 3090 fell off the bus at 00:01 on 2026-09-16**~~ — Xid 79, then Xid 154
-~~on both cards~~ (**corrected 2026-09-18**: Xid 154 comes off a system-wide
-flag and is printed once per card, so only the 3090 fell), under another job's
-DDP. Its own link was clean throughout, and
-the marginal slot the same night's experiment *did* explain belonged to the
-other card. One `BadTLP` has been recorded on the 3090's root port since. This
-is the one hardware question on the machine with no answer.
+~~**2026-09-16 00:01에 3090이 버스에서 떨어진 이유**~~ — Xid 79, 그 다음 Xid 154 ~~두 카드 모두에서~~ (**2026-09-18 수정**: Xid 154는 시스템 전체 플래그에서 나오며 카드당 한 번씩 찍히므로, 3090만 떨어졌다), 다른 작업의 DDP 하에서. 그 자체의 링크는 내내 깨끗했으며, 같은 밤 실험의 한계 슬롯은 *다른 카드*에 속했다. 3090의 루트 포트에서 `BadTLP` 하나가 기록된 이후이다. 이것은 답이 없는 이 기계의 유일한 하드웨어 질문이다.
 [Log](../log/2026-09-16-the-overclock-and-the-fabric.md)
 
-Still open after the reseat of 2026-09-18. Ten minutes of both cards at full
-load added no kernel line and left the AER registers of both cards and both
-root ports byte-identical — but neither hang's trigger was reproduced, and the
-one that would (a load plus a loop creating a second CUDA context on the same
-card) has not been run. The ranked causes are in
-[the 09-17 entry](../log/2026-09-17-the-3090-comes-out.md).
+2026-09-18 재장착 후에도 여전히 열려 있음. 두 카드 모두 풀 부하로 10분 동안 커널 라인이 추가되지 않았고 두 카드와 두 루트 포트의 AER 레지스터가 바이트 단위로 동일하게 남았지만 — 두 행 중 어느 것의 트리거도 재현되지 않았으며, 재현될 것 같은 것(동일 카드에서 두 번째 CUDA 컨텍스트를 생성하는 루프와 함께 부하)은 실행되지 않았다. 순위화된 원인은 [09-17 엔트리](../log/2026-09-17-the-3090-comes-out.md)에 있다.
 
-**Why the `SW Thermal Slowdown` counter and the reason bits disagree on the
-3090** — new on 2026-09-18. The counter read 5.0 s and was static across three
-samples at 23:33, and 476 s by 23:58, accrued during a burn whose reason column
-said `SW Power Cap` and nothing else and whose die never passed 75 °C. One of
-the two instruments is measuring something other than what its name says.
+**3090에서 `SW Thermal Slowdown` 카운터와 이유 비트가 불일치하는 이유** — 2026-09-18에 새로 발생. 카운터는 5.0초를 읽었고 23:33에 세 샘플에서 정적이었으며, 23:58까지 476초였는데, 이는 이유 열이 `SW Power Cap` 및 그 외 아무것도 말하지 않았고 다이가 75 °C를 결코 넘지 않았던 번 동안 누적된 것이다. 두 계측기 중 하나는 이름이 말하는 것과 다른 것을 측정하고 있다.
 [Log](../log/2026-09-18-the-3090-goes-back-in.md)

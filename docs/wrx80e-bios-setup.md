@@ -1,152 +1,76 @@
-# BIOS setup for the WRX80E workstation
+# WRX80E 워크스테이션의 BIOS 설정
 
-The board is an ASUS Pro WS WRX80E-SAGE SE WIFI (WRX80, Threadripper PRO
-5975WX, two GPUs, 256 GB DDR4). This is the firmware side of running it as an
-unattended LLM host: what to set, where each item hides, and why. Menu paths
-and page numbers are from the official
-[BIOS manual (E18120)](https://dlcdnets.asus.com/pub/ASUS/mb/SocketTRX4/Pro_WS_WRX80E-SAGE_SE_WIFI/E18120_PRO_WS_WRX80E-SAGE_SE_WIFI_BIOS_Manual_EM_WEB.pdf).
+보드는 ASUS Pro WS WRX80E-SAGE SE WIFI (WRX80, Threadripper PRO 5975WX, GPU 2개, DDR4 256 GB)이다. 이 문서는 무인 LLM 호스트로 운영할 때의 펌웨어 측면, 즉 무엇을 설정해야 하는지, 각 항목이 어디에 숨어 있는지, 그리고 그 이유를 다룬다. 메뉴 경로와 페이지 번호는 공식 [BIOS 매뉴얼 (E18120)](https://dlcdnets.asus.com/pub/ASUS/mb/SocketTRX4/Pro_WS_WRX80E-SAGE_SE_WIFI/E18120_PRO_WS_WRX80E-SAGE_SE_WIFI_BIOS_Manual_EM_WEB.pdf) 기준이다.
 
-Two settings on this board are not where a desktop BIOS keeps them, and both
-cost time to find: the CPU power limit is buried in AMD CBS under a name that
-is not "power limit", and there is no fan-curve page in the documented menu at
-all. Both are resolved below.
+이 보드의 두 가지 설정은 데스크톱 BIOS에서 일반적으로 찾는 위치에 있지 않으며, 둘 다 찾는 데 시간이 걸린다. CPU 전력 제한은 AMD CBS 내에서 "power limit"이 아닌 이름 아래에 묻혀 있고, 문서화된 메뉴에는 팬 커브 페이지가 전혀 없다. 둘 다 아래에서 해결한다.
 
-## Where each thing lives
+## 각 항목의 위치
 
-| What | Menu path | Manual |
+| 항목 | 메뉴 경로 | 매뉴얼 |
 |---|---|---|
-| CPU power limit (PPT / cTDP) | Advanced → AMD CBS → NBIO Common Options → SMU Common Options | p.53 |
-| Turn boost off in firmware | Advanced → AMD CBS → CPU Common Options → Core Performance Boost | p.39 |
-| Large-VRAM mapping for 2 GPUs | Advanced → PCI Subsystem Settings → Above 4G Decoding | p.25 |
-| MMIO aperture for above-4G | Advanced → AMD PBS → Mmio Above 4G Limit | p.35 |
-| Auto power-on after outage | Advanced → APM Configuration → Restore AC Power Loss | p.34 |
+| CPU 전력 제한 (PPT / cTDP) | Advanced → AMD CBS → NBIO Common Options → SMU Common Options | p.53 |
+| 펌웨어에서 부스트 끄기 | Advanced → AMD CBS → CPU Common Options → Core Performance Boost | p.39 |
+| GPU 2개용 대용량 VRAM 매핑 | Advanced → PCI Subsystem Settings → Above 4G Decoding | p.25 |
+| 4G 이상 MMIO 애퍼처 | Advanced → AMD PBS → Mmio Above 4G Limit | p.35 |
+| 정전 후 자동 전원 켜기 | Advanced → APM Configuration → Restore AC Power Loss | p.34 |
 | Wake-on-LAN | Advanced → APM Configuration → Power On By PCI-E | p.34 |
-| BMC / remote KVM | Server Mgmt → BMC Support, BMC network configuration | p.67, 69 |
-| Boot watchdog (**not** a hung-OS check — see below) | Server Mgmt → OS Watchdog Timer | p.68 |
-| Memory clock | Advanced → AMD CBS → UMC Common Options → DDR4 Common Options → DRAM Timing Configuration → Accept → Overclock [Enabled] → Memory Clock Speed (MEMCLK, half the DDR figure) | p.42 |
-| DRAM voltage (does **not** follow the clock on Auto) | Ai Tweaker → DRAM ABCD Voltage / DRAM EFGH Voltage, type the value | p.18 |
-| Infinity Fabric clock | **no item on this firmware** — follows the memory clock 1:1 up to 1800 MHz on its own | — |
-| Fan curves | not in the BIOS on this board; the BMC drives the headers (CPU_FAN reads a constant 2200 rpm) | — |
-| Read-only fan/temp/voltage | Tool → IPMI Hardware Monitor | p.63 |
+| BMC / 원격 KVM | Server Mgmt → BMC Support, BMC network configuration | p.67, 69 |
+| 부트 워치독 (**hung-OS 체크 아님** — 아래 참조) | Server Mgmt → OS Watchdog Timer | p.68 |
+| 메모리 클럭 | Advanced → AMD CBS → UMC Common Options → DDR4 Common Options → DRAM Timing Configuration → Accept → Overclock [Enabled] → Memory Clock Speed (MEMCLK, DDR 수치의 절반) | p.42 |
+| DRAM 전압 (Auto에서 클럭을 따라가지 **않음**) | Ai Tweaker → DRAM ABCD Voltage / DRAM EFGH Voltage, 값 직접 입력 | p.18 |
+| Infinity Fabric 클럭 | **이 펌웨어에는 항목 없음** — 메모리 클럭을 1:1로 따라가며 1800 MHz까지 자체 동작 | — |
+| 팬 커브 | 이 보드의 BIOS에 없음; BMC가 헤더를 구동함 (CPU_FAN은 상수 2200 rpm으로 읽힘) | — |
+| 읽기 전용 팬/온도/전압 | Tool → IPMI Hardware Monitor | p.63 |
 
-## CPU power limit — the item that is not called "power limit"
+## CPU 전력 제한 — "power limit"이라 불리지 않는 항목
 
-AMD does not expose a "Power Limit" field. The package power ceiling is PPT,
-and it lives in **Advanced → AMD CBS → NBIO Common Options → SMU Common
-Options** (p.53), not in Ai Tweaker:
+AMD는 "Power Limit" 필드를 노출하지 않는다. 패키지 전력 상한은 PPT이며, 이는 Ai Tweaker가 아닌 **Advanced → AMD CBS → NBIO Common Options → SMU Common Options** (p.53)에 있다:
 
-- **Power Package Limit Control** — `Auto` uses the fused PPT (280 W on the
-  5975WX). Set to `Manual` to expose **Power Package Limit** and enter a lower
-  ceiling.
-- **cTDP Control** / **cTDP** — the thermal-design-power ceiling, same pattern:
-  `Manual` to set a value.
+- **Power Package Limit Control** — `Auto`는 퓨즈된 PPT(5975WX 기준 280 W)를 사용한다. 더 낮은 상한을 설정하려면 `Manual`로 설정하여 **Power Package Limit**을 노출한다.
+- **cTDP Control** / **cTDP** — 열 설계 전력 상한, 동일한 패턴: 값을 설정하려면 `Manual`.
 
-Lowering PPT trades a little all-core clock for a large drop in temperature
-and fan noise. For this workload that trade is favourable: CPU-side decoding
-is memory-bandwidth bound — the experts are read out of DDR4 at ~116 GB/s
-measured, and that is the bottleneck, not core clock — so capping PPT should
-cost little throughput while pulling the package well back from the 81 °C
-sustained / 91 °C prefill-burst figures in the
-[first log entry](../log/2026-09-11-deepseek-v4-moe-offload.md). The exact
-tok/s cost at a given cap is **not yet measured**; that is the next bench.
+PPT를 낮추면 올코어 클럭이 약간 줄어드는 대신 온도와 팬 소음이 크게 감소한다. 이 워크로드에서는 그 트레이드오프가 유리하다. CPU 측 디코드은 메모리 대역폭에 종속적이다. expert는 DDR4에서 실측 ~116 GB/s로 읽어내며, 이것이 병목이지 코어 클럭이 아니다. 따라서 PPT를 제한해도 처리량 손실은 거의 없으면서 패키지를 첫 [로그 엔트리](../log/2026-09-11-deepseek-v4-moe-offload.md)의 실측 81 °C 지속 / 91 °C 프리필-burst 수치에서 크게 멀어지게 할 수 있다. 주어진 제한에서의 정확한 tok/s 비용은 **아직 실측되지 않았다**; 이것이 다음 벤치이다.
 
-Pair it with **Core Performance Boost → `Disabled`** (AMD CBS → CPU Common
-Options, p.39) to pin all cores at base clock. This is the firmware-permanent
-form of the `cpufreq/boost=0` the machine was setting from Linux.
+**Core Performance Boost → `Disabled`** (AMD CBS → CPU Common Options, p.39)와 함께 사용하여 모든 코어를 베이스 클럭에 고정한다. 이는 Linux에서 `cpufreq/boost=0`으로 설정하던 것의 펌웨어 영구 버전이다.
 
-## Two GPUs: address space
+## GPU 2개: 주소 공간
 
-- **Above 4G Decoding → `Enabled`** (p.25). A 48 GB card and a 24 GB card must
-  map above the 4 GB line; without this their BARs do not fit.
+- **Above 4G Decoding → `Enabled`** (p.25). 48 GB 카드와 24 GB 카드는 4 GB 라인 위에 매핑되어야 한다. 이것이 없으면 BAR가 맞지 않는다.
 - **Re-Size BAR Support → `Auto`** (p.25).
-- **Mmio Above 4G Limit → `Auto`** (AMD PBS, p.35; only appears once Above 4G
-  Decoding is enabled). If PCIe enumeration misbehaves, `43` is the fallback.
-- **SR-IOV → `Disabled`** unless doing GPU SR-IOV.
+- **Mmio Above 4G Limit → `Auto`** (AMD PBS, p.35; Above 4G Decoding이 활성화된 후에만 나타남). PCIe 열거가 잘못 동작하면 `43`이 폴백이다.
+- **SR-IOV → `Disabled`** (GPU SR-IOV를 수행하지 않는 한).
 
-The Linux counterpart to this is `pci=realloc=off` on the kernel command line,
-which this board needs or the 10 GbE ports drop — kept in the private host
-notes, not here. It lives in GRUB's config on disk, so changing BIOS settings
-does not threaten it, and it is worth not suspecting first: on 2026-09-11 it
-was the standing explanation for an outage it had nothing to do with.
+이것의 Linux 대응 항목은 커널 명령 줄의 `pci=realloc=off`이며, 이 보드는 이것이 없으면 10 GbE 포트가 떨어진다. 이는 개인 호스트 노트에 보관되어 있으며 여기에는 없다. 디스크의 GRUB 설정에 있으므로 BIOS 설정 변경이 이를 위협하지 않으며, 먼저 의심하지 않을 가치가 있다. 2026-09-11에는 이 보드와 무관한 정전의 설명으로 남아 있었다.
 
-The hazard that is real when opening this machine is **PCI renumbering**.
-Adding a device changes what sits in front of what: a 4 TB NVMe drive installed
-on 2026-09-12 took bus `0x23`, and the 10 GbE controller behind it moved from
-`0x24` to `0x25`. Every name derived from that address moves with it. `enp36s0f1` became
-`enp37s0f1`, the netplan file went on naming the old one, and the machine came
-up with no network and nothing logged, because a netplan stanza naming an
-absent interface is silently inert rather than an error. **Match interfaces on
-MAC address, never on a bus-derived name.** The config and the check that
-asserts it are in
-[`configs/01-lan.yaml`](../configs/01-lan.yaml) and
-[`configs/netplan-iface-check`](../configs/netplan-iface-check); the full
-account is in
-[the log entry](../log/2026-09-12-offline-after-a-move-and-an-ssd.md).
+이 기계을 열 때 실제로 존재하는 위험은 **PCI 리넘버링**이다. 장치를 추가하면 무엇이 무엇 앞에 오는지가 바뀐다. 2026-09-12에 설치된 4 TB NVMe 드라이브는 버스 `0x23`을 차지했고, 그 뒤의 10 GbE 컨트롤러는 `0x24`에서 `0x25`로 이동했다. 해당 주소에서 파생된 모든 이름이 함께 이동한다. `enp36s0f1`이 `enp37s0f1`이 되었고, netplan 파일은 이전 이름을 계속 참조했으며, 기계는 네트워크 없이 부팅되었고 로그도 남지 않았다. 존재하지 않는 인터페이스를 명명하는 netplan 스탠자는 오류가 아니라 조용히 무효화되기 때문이다. **인터페이스를 버스 기반 이름이 아닌 MAC 주소로 매칭하라.** 설정과 이를 검증하는 검사는 [`configs/01-lan.yaml`](../configs/01-lan.yaml) 및 [`configs/netplan-iface-check`](../configs/netplan-iface-check)에 있으며, 전체 설명은 [로그 엔트리](../log/2026-09-12-offline-after-a-move-and-an-ssd.md)에 있다.
 
-## Power and unattended behaviour (APM, p.34)
+## 전원 및 무인 동작 (APM, p.34)
 
-| Item | Value | Why |
+| 항목 | 값 | 이유 |
 |---|---|---|
-| Restore AC Power Loss | `Power On` | comes back by itself after a power blip |
+| Restore AC Power Loss | `Power On` | 전원 깜빡임 후 자동으로 복귀 |
 | Power On By PCI-E | `Enabled` | Wake-on-LAN |
-| ErP Ready | `Disabled` | Enabled cuts standby power in S5, killing WoL and the BMC |
+| ErP Ready | `Disabled` | Enabled는 S5 대기 전원을 차단하여 WoL과 BMC를 죽임 |
 
-## Remote recovery: the BMC (Server Mgmt, p.67–70)
+## 원격 복구: BMC (Server Mgmt, p.67–70)
 
-This board has an ASMB9-iKVM (ASPEED AST2500) baseboard controller — a full
-remote KVM already on the board, no add-in card. It answers even when the host
-is powered off, which is exactly what a headless box in another room needs.
+이 보드에는 ASMB9-iKVM (ASPEED AST2500) 베이스보드 컨트롤러가 있다. 추가 카드 없이 보드 자체에 완전한 원격 KVM이 탑재되어 있다. 호스트가 전원 꺼진 상태에서도 응답하므로, 다른 방에 있는 헤드리스 박스에 정확히 필요한 기능이다.
 
 - **BMC Support → `Enabled`** (p.67).
-- **BMC network configuration → Configure IPV4 support → Lan channel 1**
-  (p.69): set **Configuration Address source → `DynamicBmcDhcp`** for a DHCP
-  address, or `Static` and fill in the IP. The board has two LAN channels; if
-  only one cable is connected, the DHCP setting must be on the channel that
-  owns that port, so setting both is safest.
-- **OS Watchdog Timer → `Enabled`**, **OS Wtd Timer Policy → `Reset`**
-  (p.68), *but only with the OS side in place* — see the correction below.
+- **BMC network configuration → Configure IPV4 support → Lan channel 1** (p.69): DHCP 주소를 위해 **Configuration Address source → `DynamicBmcDhcp`**로 설정하거나, `Static`으로 설정하고 IP를 입력한다. 보드에는 두 개의 LAN 채널이 있다. 케이블이 하나만 연결되어 있다면 DHCP 설정은 해당 포트를 소유한 채널에 있어야 하므로, 둘 다 설정하는 것이 가장 안전하다.
+- **OS Watchdog Timer → `Enabled`**, **OS Wtd Timer Policy → `Reset`** (p.68), *단, OS 측 설정이 갖춰진 경우에만* — 아래 수정 사항 참조.
 
-  > **Corrected 2026-09-12.** This entry used to read "if the OS stops
-  > responding, the BMC resets the box on its own." That is wrong, and
-  > believing it cost an afternoon. `OS Watchdog Timer` arms a **boot**
-  > watchdog: IPMI timer use `OS Load`, a 600-second countdown started at POST,
-  > which the operating system is expected to take over or switch off once it
-  > has finished booting. It is not a liveness check on a running system —
-  > nothing about it notices whether the OS is still responding. With the
-  > setting enabled and no OS-side counterpart, a perfectly healthy machine is
-  > hard-reset ten minutes after every boot, forever, leaving no shutdown
-  > record because a hard reset does not get to write one. That is what
-  > happened here, four times, after this guide's own BIOS reset.
+  > **2026-09-12 수정.** 이 항목은 이전에 "OS가 응답을 멈추면 BMC가 자동으로 박스를 리셋한다"로 읽혔다. 틀린 설명이고, 그걸 믿은 탓에 오후 한나절을 날렸다. `OS Watchdog Timer`는 **부트** 워치독을 아밍한다. IPMI 타이머는 `OS Load`를 사용하며, POST에서 시작된 600초 카운트다운으로, 운영 체제는 부트가 완료된 후 이를 인수하거나 꺼야 한다. 실행 중인 시스템의 활성도 체크가 아니다. OS가 여전히 응답하는지는 아무것도 감지하지 못한다. 설정을 활성화하고 OS 측 대응 항목이 없으면, 완벽하게 건강한 기계가 매 부트 후 10분마다 하드 리셋되며, 하드 리셋은 종료 기록을 쓸 기회가 없으므로 로그도 남지 않는다. 이것이 이 가이드의 BIOS 리셋 후 네 번 발생한 일이다.
   >
-  > Keep it enabled **only** if the OS claims the timer. On Ubuntu that means
-  > loading `ipmi_watchdog` and setting `RuntimeWatchdogSec` so systemd pets
-  > it — the files are in [`configs/watchdog/`](../configs/watchdog), and the
-  > whole account is in
-  > [the log entry](../log/2026-09-12-bmc-watchdog-reset-loop.md). Doing that
-  > gets the thing the old sentence promised: a genuine runtime watchdog that
-  > resets a wedged kernel. Without it, set this to `Disabled`.
+  > OS가 타이머를 인수하는 경우에만 활성화 상태를 유지하라. Ubuntu에서는 `ipmi_watchdog`을 로드하고 systemd가 이를 펫하도록 `RuntimeWatchdogSec`을 설정하는 것을 의미한다. 파일은 [`configs/watchdog/`](../configs/watchdog)에 있으며, 전체 설명은 [로그 엔트리](../log/2026-09-12-bmc-watchdog-reset-loop.md)에 있다. 이렇게 하면 이전 문장이 약속한 것을 얻는다. 쐐기 박힌 커널을 리셋하는 진정한 런타임 워치독이다. 이것이 없으면 이 항목을 `Disabled`로 설정하라.
 
-Set the BMC's clock while in there, or at least know it may be wrong: on this
-board it was found eight hours off from the host, which makes the BMC event log
-— the one instrument that names a watchdog reset — hard to line up against the
-system journal exactly when that matters most.
+그 안에서 BMC의 시계를 설정하거나, 적어도 잘못되었을 수 있음을 인지하라. 이 보드에서는 호스트와 8시간 차이가 나는 것으로 확인되었으며, 이는 워치독 리셋을 명명하는 유일한 도구인 BMC 이벤트 로그를 시스템 저널과 정확히 맞춰야 할 때 가장 중요한 순간에 맞추기 어렵게 만든다.
 
-After first boot: reach the BMC at `https://<its IP>`, default login
-`admin` / `admin`, and **change that password immediately** — an unconfigured
-AMI BMC left on defaults is an open remote-power-and-console interface on the
-LAN. From there: power on/off/reset, live screen (POST codes, boot, kernel
-panics), and virtual media, all remote.
+첫 부트 후: `https://<its IP>`에서 BMC에 도달하며, 기본 로그인 `admin` / `admin`으로 접속 후 **즉시 비밀번호를 변경하라**. 기본값으로 남겨진 구성되지 않은 AMI BMC는 LAN 상의 개방형 원격 전원 및 콘솔 인터페이스이다. 여기서 전원 켜기/끄기/리셋, 라이브 화면(POST 코드, 부트, 커널 패닉), 가상 미디어를 모두 원격으로 수행할 수 있다.
 
+### Linux에서 팬 읽기 (2026-09-14)
 
-### Reading the fans from Linux (2026-09-14)
-
-Only the BMC sees the fan headers. The Super I/O (`nct6798`, driver
-`nct6775`) reads voltages and its own temperature inputs fine, but all seven
-fan channels report 0 RPM even while it drives PWM 1–5 at 60 %; the tach
-lines go to the ASPEED BMC. `asus_ec_sensors` does not list this board and
-the DSDT has neither the `ASMX` mutex nor the `BREC` region it needs, and
-`asus_wmi_sensors` loads without creating a hwmon device. What works, from
-the host, over the in-band IPMI interface:
+팬 헤더는 BMC만 볼 수 있다. Super I/O (`nct6798`, 드라이버 `nct6775`)는 전압과 자체 온도 입력을 잘 읽지만, 7개 팬 채널 모두 PWM 1–5를 60 %로 구동 중임에도 0 RPM을 보고한다. 타크 라인은 ASPEED BMC로 간다. `asus_ec_sensors`는 이 보드를 나열하지 않으며 DSDT에는 필요한 `ASMX` 뮤텍스나 `BREC` 영역이 없고, `asus_wmi_sensors`는 hwmon 장치를 생성하지 않고 로드된다. 호스트에서 인밴드 IPMI 인터페이스를 통해 작동하는 방법:
 
 ```
 sudo ipmitool sdr type fan          # CPU_FAN 2200 RPM, SOC_FAN 2700, CHIPSET_FAN 2500
@@ -154,106 +78,59 @@ sudo ipmitool sdr type temperature  # CPU Temp., LAN Temp., PCIE01 Temp.
 sudo ipmitool sensor get CPU_FAN    # lower critical threshold 1200 RPM
 ```
 
-The BMC's CPU_FAN lower-critical threshold is 1200 RPM, so a stopped or
-unplugged CPU fan shows up in the BMC event log on its own; the host-side
-thermal guard reads k10temp `Tctl` directly.
+BMC의 CPU_FAN 하한 임계값은 1200 RPM이므로, 멈추거나 뽑힌 CPU 팬은 BMC 이벤트 로그에 자동으로 나타난다. 호스트 측 열 가드는 k10temp `Tctl`을 직접 읽는다.
 
-### A temperature sensor per PCIe slot (2026-09-16)
+### PCIe 슬롯당 온도 센서 (2026-09-16)
 
-`sdr type temperature` carries `PCIE01` through `PCIE07`, one per slot, and
-the populated ones read. With the A6000 in the fifth slot under an hour of
-training and the 3090 idle:
+`sdr type temperature`는 슬롯당 하나씩 `PCIE01`부터 `PCIE07`까지 내놓고, 카드가 꽂힌 슬롯만 값을 읽는다. 5번 슬롯의 A6000에서 1시간 미만 훈련 중이고 3090이 유휴 상태일 때:
 
 ```
 PCIE01 Temp. | 34 degrees C      CPU Temp. | 43 degrees C
 PCIE05 Temp. | 86 degrees C      LAN Temp. | 51 degrees C
 ```
 
-Two uses. The slot reading is independent of the card, so 86 °C of slot
-against `nvidia-smi`'s 87 °C of die is confirmation that the air around the
-card is at that temperature rather than one sensor finding a hot spot. And
-it answers when the driver cannot: on 2026-09-16 both GPUs failed CUDA init
-after an Xid 154 and `nvidia-smi` could not open either card, while this
-channel would have kept reporting.
+두 가지 용도. 슬롯 읽기는 카드와 독립적이므로, 카드의 `nvidia-smi` 다이 온도 87 °C에 대한 슬롯 온도 86 °C는 카드 주변 공기가 그 온도라는 확인이지, 한 센서가 핫스팟을 찾은 것이 아니다. 그리고 드라이버가 할 수 없을 때 답을 제공한다. 2026-09-16에 두 GPU 모두 Xid 154 이후 CUDA 초기화에 실패했고 `nvidia-smi`는 어느 카드도 열 수 없었지만, 이 채널은 계속 보고했을 것이다.
 
-### What `Disabled` on a fan header means
+### 팬 헤더에서 `Disabled`의 의미
 
-All six `CHA_FAN` headers on this machine read `Disabled`. That is the BMC
-saying it sees no tachometer on the header — not that the case has no
-airflow. The chassis fans here are wired to the power supply directly, so
-they run at a constant speed with no curve and nothing reporting them. Since
-the BMC is the only thing on this board that can see a fan at all, a
-PSU-wired fan is invisible to every tool on the machine. Read `Disabled` as
-"nothing is plugged into this header".
+이 기계의 6개 `CHA_FAN` 헤더 모두 `Disabled`로 읽힌다. 이는 BMC가 헤더에서 타코미터를 보지 못한다는 의미이지, 케이스에 공기 흐름이 없다는 뜻이 아니다. 이곳의 섀시 팬은 전원 공급 장치에 직접 배선되어 있어 커브 없이 상수 속도로 돌아가며, 아무것도 보고하지 않는다. BMC가 이 보드에서 팬을 볼 수 있는 유일한 것이므로, PSU 배선 팬은 머신의 모든 도구에서 보이지 않는다. `Disabled`를 "이 헤더에 아무것도 꽂혀 있지 않음"으로 읽어라.
 
-## Fans: not in the documented menu
+## 팬: 문서화된 메뉴에 없음
 
-The Tool → IPMI Hardware Monitor page (p.63) is **read-only** — it shows fan
-RPM, temperatures and voltages but has no curve editor. The manual documents
-no Monitor menu at all, yet the firmware has one: fan curves are under the
-**Monitor** menu / the **`F6` Qfan Control** hotkey. This is why fans cannot be
-driven from Linux on this board — the headers answer to the ASUS controller,
-not to a hwmon the OS can write — and must be curved in firmware.
+Tool → IPMI Hardware Monitor 페이지 (p.63)는 **읽기 전용**이다. 팬 RPM, 온도, 전압을 보여주지만 커브 편집기는 없다. 매뉴얼에는 Monitor 메뉴가 전혀 문서화되어 있지 않지만, 펌웨어에는 있다. 팬 커브는 **Monitor** 메뉴 / **`F6` Qfan Control** 핫키 아래에 있다. 이것이 Linux에서 이 보드의 팬을 구동할 수 없는 이유이다. 헤더는 ASUS 컨트롤러에 응답하며, OS가 쓸 수 있는 hwmon이 아니다. 펌웨어에서 커브를 설정해야 한다.
 
-- ~~Radiator / chassis fans (CHA_FAN): an aggressive curve, ramping early on
-  core temperature, because the AIO coolant has little thermal headroom before
-  it plateaus.~~
-- ~~The Kraken pump is USB, not a fan header — pinned to 100 % from Linux with
-  liquidctl, independent of these curves.~~
+- ~~라디에이터 / 섀시 팬 (CHA_FAN): 코어 온도에 일찍 반응하는 공격적인 커브, AIO 냉각수가 정체되기 전 열적 여유가 거의 없기 때문.~~
+- ~~크라켄 펌프는 USB이며 팬 헤더가 아님 — Linux에서 liquidctl로 100 % 고정, 이 커브와 무관.~~
 
-  **Both stale since 2026-09-14**, when the AIO came out for an ARCTIC
-  Freezer 4U-M on `CPU_FAN` and liquidctl lost its device
-  ([log](../log/2026-09-14-air-cooler-swap.md)). There is no radiator to
-  curve now, and as of 2026-09-16 no chassis fan is on a header at all, so
-  the CHA_FAN curves drive nothing.
+  **둘 다 2026-09-14 이후 오래됨**, AIO가 `CPU_FAN`에 ARCTIC Freezer 4U-M으로 교체되었고 liquidctl이 장치를 잃음 ([로그](../log/2026-09-14-air-cooler-swap.md)). 이제 커브할 라디에이터가 없으며, 2026-09-16 현재 섀시 팬도 헤더에 없으므로 CHA_FAN 커브는 아무것도 구동하지 않는다.
 
-Exact curve points are set against the live graph on the machine and are not
-transcribed here yet.
+정확한 커브 포인트는 머신의 라이브 그래프를 기준으로 설정되었으며 아직 여기에 전사되지 않았다.
 
-## Memory clock (2026-09-14)
+## 메모리 클럭 (2026-09-14)
 
-Walked 3200 → 3400 → 3600 → 3666 with a bandwidth probe, a verifying
-memory stress, a greedy identity check and three decodes at each stop; the
-record is [`log/2026-09-14-memory-clock-3600.md`](../log/2026-09-14-memory-clock-3600.md).
-The standing configuration is **Memory Clock Speed 1800MHz (DDR4-3600) with
-DRAM ABCD/EFGH Voltage 1.30**. What settled it:
+대역폭 프로브, 검증 메모리 스트레스, 탐욕적 아이덴티티 체크 및 각 정지점에서 3회 디코드으로 3200 → 3400 → 3600 → 3666을 진행했으며, 기록은 [`log/2026-09-14-memory-clock-3600.md`](../log/2026-09-14-memory-clock-3600.md)에 있다. 현재 구성은 **Memory Clock Speed 1800 MHz (DDR4-3600), DRAM ABCD/EFGH Voltage 1.30**이다. 결정된 이유:
 
-- 3600 passed ten minutes of `stress-ng --vm --verify` at the Auto 1.2 V;
-  3666 at 1.3 V returned 139 wrong readbacks with MCE at zero (non-ECC, so
-  nothing else would have noticed), and lost 3 % of bandwidth because the
-  fabric stays at 1800 MHz. 3733, 3766 and 3800 do not POST.
-- Auto DRAM voltage is the SPD 1.2 V regardless of the clock chosen in AMD
-  CBS, and it does not move with load — the BMC read 1.22 V idle and under
-  stress. The manual item applies: 1.30 reads back 1.29/1.28 V.
-- 3600 is the last working step, so it gets the 0.1 V of margin.
+- 3600은 Auto 1.2 V에서 `stress-ng --vm --verify` 10분을 통과함; 1.3 V에서 3666은 MCE 0으로 139개의 잘못된 리드백을 반환했고(비 ECC이므로 다른 것은 알아차리지 못했을 것임), 패브릭이 1800 MHz에 머물러 대역폭의 3 %를 잃음. 3733, 3766, 3800은 POST되지 않음.
+- Auto DRAM 전압은 AMD CBS에서 선택한 클럭과 관계없이 SPD 1.2 V이며, 부하에 따라 움직이지 않음. BMC는 유휴 및 스트레스 상태에서 1.22 V를 읽음. 매뉴얼 항목이 적용됨: 1.30은 1.29/1.28 V로 읽힘.
+- 3600은 마지막으로 동작하는 단계이므로 0.1 V의 여유를 가짐.
 
-## Getting into Setup, and back out of a bad clock
+## Setup 진입 및 잘못된 클럭에서 복구
 
-`sudo systemctl reboot --firmware-setup` or `sudo ipmitool chassis bootdev
-bios` (one boot only; also works over `lanplus` from outside) both land in
-Setup on the next boot. A clock that does not train is recovered with the
-**CLR CMOS button on the case** — the BMC web UI has no remote CMOS clear or
-BIOS-defaults action.
+`sudo systemctl reboot --firmware-setup` 또는 `sudo ipmitool chassis bootdev bios` (한 부트만; 외부에서 `lanplus`로도 작동)는 다음 부트에 Setup으로 진입한다. 트레이닝되지 않는 클럭은 케이스의 **CLR CMOS 버튼**으로 복구한다. BMC 웹 UI에는 원격 CMOS 클리어 또는 BIOS-기본값 동작이 없다.
 
-### After a CMOS clear
+### CMOS 클리어 후
 
-Everything resets. The list re-entered on 2026-09-14, in the order it was
-found useful:
+모든 것이 리셋된다. 2026-09-14에 유용하다고 판단된 순서대로 다시 입력한 목록:
 
-1. AMD CBS → UMC Common Options → DDR4 Common Options → DRAM Timing
-   Configuration → Accept → Overclock Enabled → Memory Clock Speed 1800MHz
+1. AMD CBS → UMC Common Options → DDR4 Common Options → DRAM Timing Configuration → Accept → Overclock Enabled → Memory Clock Speed 1800 MHz
 2. Ai Tweaker → DRAM ABCD Voltage 1.30, DRAM EFGH Voltage 1.30
-3. Advanced → APM Configuration → Restore AC Power Loss = Power On, ErP Ready
-   = Disabled
-4. Advanced → PCI Subsystem Settings → Above 4G Decoding = Enabled, Re-Size
-   BAR Support = Auto (both GPUs must show in `nvidia-smi` afterwards)
-5. AMD CBS → DF Common Options → Memory Addressing → NUMA nodes per socket =
-   NPS1 (`lscpu` shows one node)
+3. Advanced → APM Configuration → Restore AC Power Loss = Power On, ErP Ready = Disabled
+4. Advanced → PCI Subsystem Settings → Above 4G Decoding = Enabled, Re-Size BAR Support = Auto (이후 두 GPU가 `nvidia-smi`에 표시되어야 함)
+5. AMD CBS → DF Common Options → Memory Addressing → NUMA nodes per socket = NPS1 (`lscpu`가 하나의 노드를 표시함)
 6. Server Mgmt → OS Watchdog Timer = Disabled
-7. Left at defaults on purpose: PPT (280 W), Core Performance Boost (Auto),
-   Global C-state (Auto), SMT, CSM (Disabled)
+7. 의도적으로 기본값으로 둠: PPT (280 W), Core Performance Boost (Auto), Global C-state (Auto), SMT, CSM (Disabled)
 
-## Still to measure
+## 아직 실측할 것
 
-- tok/s at a capped PPT versus the fused 280 W, to pick the cap.
-- A clean DDR4-3200 decode row (three single-stream 400-token runs) to close the 3200 → 3600 decode delta; bandwidth is +12.6 %, decode is not yet measured against the same baseline.
+- 퓨즈된 280 W 대비 제한된 PPT에서의 tok/s, 제한값 선택을 위해.
+- 3200 → 3600 디코드 델타를 닫기 위한 깨끗한 DDR4-3200 디코드 행 (3회 단일 스트림 400-토큰 런); 대역폭은 +12.6 %이나, 디코드은 아직 동일 기준선에 대해 실측되지 않음.
