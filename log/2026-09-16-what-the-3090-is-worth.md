@@ -1,34 +1,14 @@
-# What the 3090 is actually worth: 20 GB of expert layers, and under 3 % of decode
+# 3090의 값: expert 20 GB어치, 디코드 3% 미만
 
-**2026-09-16, 10:56–11:11.** The question came from a hardware decision rather
-than a curiosity: the 24 GB card is due for replacement, and the first thing
-worth knowing is what the machine loses when it comes out. The served
-DeepSeek-V4.1 profile holds 45.8 GB on the A6000 and 20.0 GB on the 3090, and
-the per-layer figures measured on other models — about 1 % of decode for each
-expert layer moved onto a card on GLM-5.3-Flash, about 3 % on
-Qwen3.8-Flash-Next — predict that the 3090's two-and-a-half expert-layer
-equivalents are worth 3–7 %.
+**2026-09-16 10:56–11:11.** 호기심이 아니라 하드웨어 결정에서 온 질문이다. 24 GB 카드 교체 예정, 빠지면 기계가 무엇을 잃는지부터 알아야 한다. 서빙 V4.1 프로파일이 A6000에 45.8 GB·3090에 20.0 GB를 올리고, 다른 모델 층별 수치(카드에 올린 expert 층당 디코드 GLM 1%·Qwen3.8 3%)는 3090의 2.5층어치가 3–7%라고 예측한다.
 
-They are worth less than that, and the reason the experiment could say so is
-also the reason it nearly could not.
+그보다 싸다. 실험이 말할 수 있었던 이유가 말할 뻔했던 이유이기도 하다.
 
-## The design, and the confound it was built against
+## 설계, 그리고 깔린 교란
 
-Four arms, **alternating**, because the bias here runs one way: the one-card
-arm reads more of the model out of host memory, so it gains more from a warm
-page cache than the two-card arm does. Running it second would have flattered
-it — the same mistake E4 had to add a control for. So: `2card`, `1card`,
-`2card`, `1card`, and the answer is the gap between the pairs rather than
-between two runs.
+arm 넷, **교대로** 돌린다. 편향이 한 방향이라서다. 한 카드 arm이 호스트 메모리에서 더 많이 읽으니 warm 페이지 캐시 이득이 크다. 뒤에 돌리면 띄워준다 — E4가 control을 덧붙인 같은 실수다. 그래서 `2card`, `1card`, `2card`, `1card`. 답은 두 실행 사이가 아니라 쌍 사이의 간격이다.
 
-Everything else is held. Same served file
-(`…-engramQ8-tokembdBF16-attnQ8`, 444.2 GiB), same DSpark draft at
-`--spec-draft-n-max 3`, `--lazy-mode auto`,
-`GGML_CUDA_NO_PINNED_WEIGHTS=1`, `-c 16384 -t 32 -b 2048 -ub 512`, the same
-five prompts at `n_predict` 200, `temperature` 0 and `cache_prompt` false —
-three of them once and two of them again, so each arm reports a cold pass and
-a warm one. The only thing that moves is `CUDA_VISIBLE_DEVICES` and the
-tensor override that follows from it:
+나머지 고정. 같은 서빙 파일(444.2 GiB), 같은 DSpark draft(`n_max=3`), `--lazy-mode auto`, `GGML_CUDA_NO_PINNED_WEIGHTS=1`, `-c 16384 -t 32 -b 2048 -ub 512`, 같은 프롬프트 다섯(`n_predict` 200, temperature 0, `cache_prompt` false) — 셋은 한 번, 둘은 두 번. arm마다 cold 한 번 warm 한 번 나온다. 움직이는 것은 `CUDA_VISIBLE_DEVICES`와 따라오는 텐서 오버라이드뿐이다.
 
 ```
 2card  blk\.[0-3]\.ffn_.*_exps=CUDA0,blk\.6\.ffn_down_exps=CUDA0,
@@ -36,91 +16,43 @@ tensor override that follows from it:
 1card  blk\.[0-3]\.ffn_.*_exps=CUDA0,blk\.6\.ffn_down_exps=CUDA0,exps=CPU
 ```
 
-Quiet box throughout: one lease (`v41-1card-20260916-105632`), no peer claim,
-`/proc/pressure/io` `some avg10` between 2.48 and 2.96 at the start of each
-decode window, page cache steady at 245–246 GiB, and no other session on the
-cards — `rig-log-f6` confirmed it was holding off for the duration.
+내내 조용한 상자. 임대 하나, 시작 시 io avg10 2.48–2.96, 페이지 캐시 245–246 GiB 정상, 카드에 다른 세션 없음.
 
-## The first answer is that the other card cannot take the work
+## 먼저: 다른 카드가 일을 못 받는다
 
-With only the A6000 visible the model loads to **47 260 MiB of 49 140** — 1 880
-MiB free, against roughly 6 500 MiB for one expert layer. The attention and
-hyper-connection tensors and the KV cache that had been split across two
-devices all land on the one card and eat the headroom, so the 20 GB the 3090
-was holding does not migrate to the A6000 at all. It goes to the host. The
-conservative override above is therefore already the *best* one-card
-placement, not a handicapped one, and there was no fifth arm to run.
+A6000만 보이면 모델이 **49,140 중 47,260 MiB**에 오른다. 1,880 MiB 남고 expert 한 층에 ~6,500 MiB다. 두 장치에 나눴던 어텐션·hyper-connection 텐서와 KV 캐시가 한 카드에 몰려 headroom을 먹는다. 3090이 쥐던 20 GB는 A6000으로 안 옮겨간다. 호스트로 간다. 그래서 위 보수적 오버라이드가 이미 한 카드 *최선* 배치지 불리한 배치가 아니다. 다섯 번째 arm은 없었다.
 
-## Then: under 3 % on the mean, and nothing at all on the warm rows
+## 다음: 평균 3% 미만, warm 행은 0
 
-| prompt | 2 cards | 1 card | Δ | draft accepted, 2 cards | 1 card |
+| 프롬프트 | 2카드 | 1카드 | Δ | draft accept, 2카드 | 1카드 |
 |---|---:|---:|---:|---:|---:|
-| write-ahead log, cold | 18.16 | 16.05 | **−11.7 %** | 117/244 = 48.0 % | 114/252 = 45.2 % |
-| swapped-out page, cold | 21.26 | 22.41 | **+5.4 %** | 120/237 = 50.6 % | 127/213 = **59.6 %** |
-| float associativity, cold | 21.88 | 20.05 | **−8.4 %** | 123/226 = 54.4 % | 122/230 = 53.0 % |
-| write-ahead log, warm | 23.26 | 21.59 | **−7.2 %** | 117/244 = 48.0 % | 114/252 = 45.2 % |
-| swapped-out page, warm | 24.41 | 25.93 | **+6.2 %** | 120/237 = 50.6 % | 127/213 = **59.6 %** |
-| **mean of all ten runs** | **21.80** | **21.21** | **−2.7 %** | | |
-| **mean of the four warm runs** | **23.84** | **23.76** | **−0.3 %** | | |
+| write-ahead log, cold | 18.16 | 16.05 | **−11.7%** | 48.0% | 45.2% |
+| swapped-out page, cold | 21.26 | 22.41 | **+5.4%** | 50.6% | **59.6%** |
+| float associativity, cold | 21.88 | 20.05 | **−8.4%** | 54.4% | 53.0% |
+| write-ahead log, warm | 23.26 | 21.59 | **−7.2%** | 48.0% | 45.2% |
+| swapped-out page, warm | 24.41 | 25.93 | **+6.2%** | 50.6% | **59.6%** |
+| **10실행 평균** | **21.80** | **21.21** | **−2.7%** | | |
+| **warm 4실행 평균** | **23.84** | **23.76** | **−0.3%** | | |
 
-Each cell is the mean of the two arms for that configuration, and the
-replicates are tight: the same configuration on the same prompt differed by
-0.54 tok/s on average and 1.13 at worst between arm *a* and arm *b*. So the
-instrument resolves about ±2 %, and the spread that matters is not noise
-between repeats — it is **between prompts**, where the same change is worth
-−11.7 % on one and +5.4 % on another.
+셀마다 같은 구성 두 arm 평균이고, 반복은 빡빡하다. 같은 구성·프롬프트 arm a/b 차이 평균 0.54, 최대 1.13 tok/s. 기기가 ±2%를 푼다. 의미 있는 흩어짐은 반복 노이즈가 아니라 **프롬프트 간**이다. 같은 변경이 하나에 −11.7%, 다른 하나에 +5.4%다.
 
-## The scatter is the draft, and it is a placement effect
+## 흩어짐은 draft, 배치 효과다
 
-The right-hand columns explain it. Within a configuration the draft statistics
-are byte-identical across arms — greedy sampling with no prefix cache, so the
-run is deterministic — but **they differ between configurations**: the
-write-ahead-log prompt drafts 244 tokens on two cards and 252 on one, and the
-swapped-page prompt accepts 50.6 % on two cards against 59.6 % on one.
+오른쪽 열이 설명한다. 구성 안에서는 draft 통계가 arm 너머 바이트 동일하다(탐욕 샘플링, prefix 캐시 없음, 결정적). **구성 사이에는 다르다.** write-ahead-log 프롬프트가 2카드 244토큰·1카드 252토큰을 미리 내밀고, swapped-page는 2카드 50.6% 대 1카드 59.6%를 받아들인다.
 
-That is the placement changing the numerics. A tensor reduced on a different
-device in a different order gives a slightly different logit, the greedy
-argmax eventually takes a different token, and from there the two
-configurations are answering with different text — so the draft is right a
-different fraction of the time. The prompt where one card wins by 6 % is
-exactly the prompt where one card drafts nine points better, and nine points
-of acceptance on a three-token block is worth more than two-and-a-half expert
-layers of bandwidth.
+배치가 수치를 바꾼 것이다. 다른 장치·다른 순서로 줄인 텐서가 logit을 미세하게 바꾸고, 탐욕 argmax가 결국 다른 토큰을 집고, 거기서 두 구성은 다른 텍스트에 답한다 — 초안이 맞는 분율이 달라진다. 1카드가 6% 이기는 프롬프트가 정확히 1카드 초안이 9포인트 좋은 프롬프트고, 3토큰 블록 수락 9포인트가 expert 2.5층 대역폭보다 비싸다.
 
-So the honest statement of the result is two-sided:
+정직한 서술은 양면이다.
 
-- **The aggregate cost of removing the 3090 is somewhere between nothing and
-  3 %**, and the warm rows — the ones that describe a served model answering
-  its second question — put it at 0.3 %, which this instrument cannot
-  distinguish from zero.
-- **This design cannot separate the bandwidth cost from the draft-acceptance
-  cost**, because the intervention changes both and they are the same size.
-  The 3–7 % the per-layer figures predicted is an over-estimate at this end,
-  but how much of the measured −2.7 % is the lost layers and how much is the
-  draft is not established here.
+- **3090 제거 총비용은 0과 3% 사이**다. warm 행 — 서빙 모델이 두 번째 질문에 답하는 행 — 은 0.3%. 이 기기가 0과 구분 못 한다.
+- **이 설계는 대역폭 비용과 draft-accept 비용을 못 나눈다.** 개입이 둘 다 바꾸고 둘이 같은 크기다. 층별 수치의 3–7% 예측은 이쪽 끝에서 과대다. 잰 −2.7% 중 잃은 층이 얼마고 draft가 얼마인지는 여기서 미확정이다.
 
-The clean follow-up is a no-draft arm: with `-md` removed the acceptance
-channel does not exist, and what is left is the bandwidth question on its own.
+깨끗한 후속은 no-draft arm이다. `-md`를 빼면 accept 채널이 없어지고 대역폭 질문만 남는다.
 
-One more thing the load times say, in passing: 217 s, 153 s, 121 s, 86 s, in
-the order the arms ran. The page cache warmed monotonically across the whole
-session, and because the arms alternate, the one-card configuration got the
-two warmer loads. If that biased anything it biased it toward one card, so the
-true cost is if anything slightly above −2.7 % rather than below it.
+로드 시간이 덤으로 말하는 것 하나. 실행 순서대로 217초·153초·121초·86초. 세션 내내 페이지 캐시가 단조롭게 데워졌고, arm이 교대라 한 카드 구성이 더 따뜻한 로드 둘을 받았다. 편향이 있다면 한 카드 쪽이다. 진짜 비용은 −2.7% 밑이 아니라면 위다.
 
-## What it means for the card
+## 카드에 대한 의미
 
-For the decision that prompted this, the answer is that the 20 GB is not what
-keeps the 3090 in the machine. Something else has to justify it — and after
-the workload for this box turned toward video and image generation, the
-argument that does is a different one: diffusion models do not pool across
-cards, so a second card is a second independent worker rather than a bigger
-GPU, and 24 GB at 936 GB/s is a real worker for 720p and for the
-music-generation end of that pipeline. That is a question for the queue in
-[`README.md`](../README.md), not a measurement here.
+물은 질문의 답: 20 GB가 3090을 기계에 두는 이유가 아니다. 다른 것이 정당화해야 한다. 이 상자 workload가 영상·이미지로 돈 뒤에는 논거가 따로 있다. 디퓨전 모델은 카드를 안 묶으니 두 번째 카드는 큰 GPU가 아니라 두 번째 독립 일꾼이고, 936 GB/s 24 GB는 720p와 음악 생성 끝단에 진짜 일꾼이다. [`README.md`](../README.md) 큐의 질문이지 여기서의 측정이 아니다.
 
-Runner: [`tools/v41/v41-one-card.sh`](../tools/v41/v41-one-card.sh), four arms,
-sentinel `V41_1CARD_DONE`. It takes a unique tag as its argument and refuses
-without one, because a chain script whose path is reused across launches can be
-re-read mid-word by bash while it runs. Signals only the pid recorded at spawn;
-the lease and the queue marker were both released on the way out.
+러너: [`tools/v41/v41-one-card.sh`](../tools/v41/v41-one-card.sh). 태그를 인자로 받고 없으면 거부한다. 경로 재사용 chain 스크립트를 실행 중 bash가 중간에 다시 읽을 수 있어서다. spawn 시 기록 pid에만 시그널. 임대·큐 마커는 나가는 길에 반납.

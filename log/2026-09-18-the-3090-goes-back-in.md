@@ -1,304 +1,143 @@
-# The 3090 goes back in: a clean reseat, a fan curve that was late rather than lazy, and three instruments that were lying
+# 3090이 돌아오다: 깨끗한 재장착, 늦었던 팬 커브, 거짓말하던 계기 셋
 
-**2026-09-17 23:07 – 2026-09-18 00:25.** The 24 GB card that came out on
-2026-09-17 to be sold is back in the machine, in the same slot. This entry is
-what its second first-night said: the reseat check, the fan curve that now runs
-as machine state on both cards, and the three measuring instruments that turned
-out to be wrong while we were using them.
+**2026-09-17 23:07 – 2026-09-18 00:25.** 팔려고 2026-09-17에 나간 24 GB 카드가 같은 슬롯에 돌아왔다. 두 번째 첫날 밤의 말이다. 재장착 검사, 양 카드 기계 상태에 도는 팬 커브, 쓰면서 거짓이던 측정 계기 셋.
 
-**The 09-17 entry's closing section, "What the machine is now", is superseded.**
-It said one card. The machine has two again as of this boot; nothing else in
-that entry changes.
+**09-17 기록 끝절 "기계의 현재"가 superseded.** 카드 하나라 말했다. 이 부팅부터 기계가 둘이다. 그 기록에 다른 바뀌는 것 없다.
 
-## The reseat, measured under load rather than after it
+## 재장착, 뒤가 아니라 부하 중에 측정
 
-`tools/gpu-sale-check.sh` ran against the 3090 alone, UUID-pinned, under the
-lease, from 23:15:29 — the same battery that was cut at 99.9 % by a power-off on
-2026-09-17, so the two runs are comparable.
+`tools/gpu-sale-check.sh`가 3090 단독에 돌았다. UUID 고정, 임대 밑, 23:15:29부터 — 2026-09-17 전원 오프에 99.9% 끊긴 같은 배터리라 두 실행이 비교된다.
 
-| | 2026-09-17 (cut) | 2026-09-18 (complete) |
+| | 2026-09-17(끊김) | 2026-09-18(완료) |
 |---|---|---|
-| cuda_memtest, 3 passes over 24 GB | rc 0, 27 s, 0 errors | rc 0, 28 s, **0 errors** |
-| gpu_burn 30 min, verified | 99.9 %, 0 errors, no verdict line | rc 0, **`GPU 0: OK`** |
-| compute | 26.2 TFLOP/s fp32 | 26 351 Gflop/s |
-| power | max 421 W | max 421 W |
-| die temperature | max 77 °C | max 75 °C |
-| kernel Xid / NVRM / AER | 0 lines | 0 lines |
-| PCIe link **under load** | not taken | **Gen4 ×16, UESta and CESta all clear** on the card and on root port `40:01.1` |
-| torch PCIe bandwidth | not run | H2D 25.5, D2H 27.1 GB/s; fp16 matmul 49.6 TFLOPS |
+| cuda_memtest 24 GB 3패스 | rc 0, 27초, 에러 0 | rc 0, 28초, **에러 0** |
+| gpu_burn 30분, 검증 | 99.9%, 에러 0, 판정 줄 없음 | rc 0, **`GPU 0: OK`** |
+| 연산 | 26.2 TFLOP/s fp32 | 26,351 Gflop/s |
+| 전력 | 최대 421 W | 최대 421 W |
+| 다이 온도 | 최대 77 °C | 최대 75 °C |
+| 커널 Xid / NVRM / AER | 0줄 | 0줄 |
+| 부하 중 PCIe 링크 | 미채취 | **Gen4 ×16, 카드·루트 포트 `40:01.1` UESta·CESta 전부 클리어** |
+| torch PCIe 대역폭 | 미실행 | H2D 25.5, D2H 27.1 GB/s, fp16 matmul 49.6 TFLOPS |
 
-The verdict line is the one the last run never got to print. The link row is the
-one that matters for a reseat: it was taken at 23:18 with the burn at full
-power, not from the idle snapshot either side, and it says the card negotiated
-16 GT/s ×16 with every error bit clear.
+판정 줄이 지난 실행이 못 찍은 줄이다. 링크 행이 재장착에 의미 있는 행이다. burn 풀파워 23:18에 잡았다.어느 쪽 idle 스냅샷도 아니다. 카드가 16 GT/s ×16에 에러 비트 전부 클리어로 협상했다고 말한다.
 
-What this does **not** test is the question the card left open. Both of its
-hangs had the same fingerprint — a second CUDA context arriving on a card
-already under load — and reseating into the same slot cannot speak to that. The
-ranked table in the 2026-09-17 entry still stands, and none of its tests have
-been run.
+**시험하지 않는 것**이 카드가 남긴 질문이다. 두 행이 같은 지문이었다 — 부하 중 카드에 두 번째 CUDA 컨텍스트 도착. 같은 슬롯 재장착이 말할 수 없다. 2026-09-17 기록 순위표가 그대로 서고, 그 테스트가 하나도 안 돌았다.
 
-One thing the kernel log gave up while we were reading it: this firmware does
-not hand AER to the OS at all. Every boot logs
-`acpi PNP0A08:0x: _OSC: platform does not support [AER LTR DPC]` for all four
-domains. A quiet `dmesg` on this board therefore means "the kernel was never
-told", not "nothing happened" — which is why the register reads through `lspci`
-are the instrument here and not a convenience.
+읽는 중에 커널 로그가 내놓은 것 하나. 이 펌웨어가 AER를 OS에 안 준다. 매 부팅 4도메인 전부 `acpi PNP0A08:0x: _OSC: platform does not support [AER LTR DPC]`를 찍는다. 이 보드의 조용한 `dmesg`는 "아무 일 없음"이 아니라 "커널이 통보 못 받음"이다 — `lspci` 레지스터 읽기가 여기 계기지 편의가 아닌 이유다.
 
-## The card's own fan curve is late, not lazy
+## 카드 자체 팬 커브가 늦다, 게으르지 않다
 
-The first reading looked like laziness: 63 °C and the blower at 30 %. The 1 Hz
-witness said something more specific. Reading the fan column against the
-temperature column for the first four minutes of the burn:
+첫 읽기가 게으름처럼 보였다. 63 °C에 블로워 30%. 1 Hz 증인이 더 구체적으로 말했다. burn 첫 4분 팬 열 대 온도 열에 읽기:
 
-| time into load | die | fan the card chose |
+| 부하 경과 | 다이 | 카드 선택 팬 |
 |---|---:|---:|
-| idle | 32 °C | 0 % (zero-RPM) |
-| +3 s | 44 °C | 30 % |
-| +46 s | **64 °C** | **31 %** |
-| +90 s | 73 °C | 50 % |
-| +4 min | 75 °C | 75 %, still climbing 1 % at a time |
-| +30 min | 75 °C | 80 % |
+| idle | 32 °C | 0%(zero-RPM) |
+| +3초 | 44 °C | 30% |
+| +46초 | **64 °C** | **31%** |
+| +90초 | 73 °C | 50% |
+| +4분 | 75 °C | 75%, 1%씩 상승 중 |
+| +30분 | 75 °C | 80% |
 
-It holds 30 % to 64 °C and then integrates its way up one point at a time,
-pinning the die at 75 °C while the blower catches up over half an hour. The
-steady state is fine; the transient is where the heat goes. This is the same
-shape the A6000 showed on an LTX-2.5 denoise on 2026-09-16, where its own curve
-took 3.7 minutes to reach 100 % and the die sat up to 5 °C above the target it
-was aiming at.
+64 °C까지 30%에 붙들고 한 포인트씩 적분 상승한다. 블로워가 30분에 따라오며 다이를 75 °C에 고정한다. steady state 멀쩡하다. 과도가 열 가는 자리다. 2026-09-16 LTX-2.5 denoise의 A6000 모양 그대로다. 자체 커브가 100%에 3.7분 걸리고 다이가 목표 위 최대 5 °C에 앉았다.
 
-Throttling during all of this was `SW Power Cap`, continuously, at a 420 W limit
-that is also the card's default. The board would allow 470 W. Raising it is not
-interesting: the power sweep of 2026-09-15 measured 47 % less power costing 15 %
-of the rate, so 420 W is already deep into diminishing returns. **A fan curve on
-this card buys thermal margin, not throughput**, and the entry says so rather
-than implying otherwise.
+내내 스로틀이 `SW Power Cap`이었다. 연속. 420 W 제한에. 카드 기본값이기도 하다. 보드가 470 W까지 허락한다. 올리는 재미없다. 2026-09-15 전력 스위프가 전력 47% 적게 속도 15%를 쟀다. 420 W가 이미 수확 체감 깊숙하다. **이 카드 팬 커브가 사는 것은 열 마진이지 처리량이 아니다.** 암시 말고 기록이 말한다.
 
-## The curve, and what it actually bought
+## 커브, 실제 산 것
 
-`configs/gpu-fan.service` now runs both cards' curves as machine state — one
-unit, one daemon, one curve per card, because the two cards do not share a
-target. The curves top out at the temperature each card was measured to settle
-at under full power: 75 °C for the 3090, 80 °C for the A6000. The card treats
-that temperature as somewhere to sit; the curve treats it as a line not to
-reach.
+`configs/gpu-fan.service`가 양 카드 커브를 기계 상태에 돌린다 — 유닛 하나, 데몬 하나, 카드당 커브 하나. 두 카드가 목표를 공유 안 해서다. 커브 꼭대기가 각 카드 풀파워 수렴 측정 온도에 있다. 3090에 75 °C, A6000에 80 °C. 카드는 그 온도를 앉을 자리로 대하고, 커브는 닿지 말 선으로 대한다.
 
-Matched against the same load, three minutes of `gpu_burn` either side:
+같은 부하 맞대응, 3090 `gpu_burn` 3분 어느 쪽:
 
-| | card's own curve | our curve |
+| | 카드 자체 커브 | 우리 커브 |
 |---|---:|---:|
-| max die | 75 °C | **72 °C** |
-| max fan | 71 % | 72 % |
-| max power | 420 W | 420 W |
+| 다이 최고 | 75 °C | **72 °C** |
+| 팬 최고 | 71% | 72% |
+| 전력 최고 | 420 W | 420 W |
 
-Three degrees for the same peak fan speed. The win is not a louder blower, it is
-the same blower arriving earlier.
+같은 피크 팬에 3도다. 이득이 시끄러운 블로워가 아니라 같은 블로워의 빠른 도착이다.
 
-Then ten minutes with **both cards burning at once** — the closest this machine
-gets to the 2026-09-16 condition that took both cards off the bus, and the
-realistic worst case for case air:
+이어서 **양 카드 동시 10분 연소** — 2026-09-16 두 카드를 버스에서 내린 조건에 이 기계 가장 가깝고, 케이스 공기의 현실 최악:
 
-| | RTX 3090, managed | RTX A6000, own curve |
+| | RTX 3090, 관리 | RTX A6000, 자체 커브 |
 |---|---:|---:|
-| max die | 77 °C | **88 °C** |
-| mean die | 72.3 °C | **83.9 °C** |
-| mean fan | **88.5 %** | 66.4 % |
-| mean SM clock | 1574 MHz | 1396 MHz |
-| max power | 421 W | 301 W |
-| SW thermal slowdown | — | **500 s of 600 — 83 % of the run** |
+| 다이 최고 | 77 °C | **88 °C** |
+| 다이 평균 | 72.3 °C | **83.9 °C** |
+| 팬 평균 | **88.5%** | 66.4% |
+| SM 클럭 평균 | 1574 MHz | 1396 MHz |
+| 전력 최고 | 421 W | 301 W |
+| SW 열 slowdown | — | **600 중 500초 — 실행의 83%** |
 
-The 300 W card ran 11 °C hotter than the 418 W card and answered with 22 points
-less fan, and spent five sixths of the run with its clocks cut for heat. That
-is the measurement that turned a 3090 fan round into a both-cards one. The
-3090's own 77 °C is five degrees above its solo 72 °C, which is the A6000's
-300 W arriving in its intake — the curve absorbed that by going to 98 %, which
-is what topping out at 75 °C is for.
+300 W 카드가 418 W 카드보다 11 °C 뜨겁게 돌고 팬 22포인트 적게 답했다. 실행 6분의 5를 열에 클럭 깎이며 보냈다. 3090 팬 라운드를 양 카드 라운드에 바꾼 측정이다. 3090 자체 77 °C가 단독 72 °C 위 5도다. A6000의 300 W가 흡기에 도착한 것이다 — 커브가 98%에 가서 흡수했다. 75 °C 꼭대기가 그 용도다.
 
-Nothing was logged: kernel delta 0 lines, and the AER registers of both cards
-and both root ports byte-identical before and after.
+로그된 것 없다. 커널 delta 0줄. 양 카드·양 루트 포트 AER 레지스터 전후 바이트 동일.
 
-Two things about fans on this box that were assumed and are now measured.
-NVML fan control **does** work on the GeForce — both channels, policy flipping
-`auto`→`manual`, readback converging over about ten seconds. And a manual 0 is
-not silence on **either** card: NVML accepts it, reports it set, and the fan
-holds 30 % for as long as anything but the card owns it. Zero RPM exists only
-under the card's own control. `gpu-fan-curve.py` grew `--auto-below` to hand the
-fan back for exactly that case, and then the user's call was that a fan turning
-slowly at idle is not worth carrying a second mode for — so the shipped unit
-runs in one state, manual, always, with a floor of 30 % that is the hardware's
-floor anyway. The option stays because the measurement behind it is real.
+상자 팬에 가정했고 이제 잰 것 둘. NVML 팬 제어가 GeForce에 **된다** — 양 채널, `auto`→`manual` 정책 뒤집기, 10초쯤 수렴하는 되읽음. 수동 0이 **어느 카드에도** 무음이 아니다. NVML이 받고, 박혔다 보고하고, 팬이 카드 말고 쥐는 동안 30%에 붙든다. Zero RPM은 카드 자체 제어 밑에만 있다. `gpu-fan-curve.py`가 정확히 그 경우에 팬을 돌려주려고 `--auto-below`를 키웠다. 사용자 결정은 idle 저속 팬이 두 번째 모드를 둘 값어치 없다는 것이다 — 출하 유닛이 한 상태에 돈다. manual 항상, 하드웨어 하한 그대로 30% 하한. 옵션은 남는다. 뒤 측정이 진짜라서다.
 
-`ExecStopPost` closes the case a daemon cannot: SIGKILL to the unit's main
-process and its python child restored both channels to the card's curve and the
-unit restarted five seconds later. That was run, not reasoned.
+`ExecStopPost`가 데몬이 못 닫는 경우를 닫는다. 유닛 main 프로세스·파이썬 자식에 SIGKILL이 양 채널을 카드 커브에 복원하고 유닛이 5초 뒤 재시작했다. 추론이 아니라 실행했다.
 
-## Three instruments that were lying while we used them
+## 쓰면서 거짓말하던 계기 셋
 
-None of these changed a conclusion, and all three would have.
+결론을 바꾼 것 하나도 없고, 셋 다 바꿀 뻔했다.
 
-**The report called a link downclock an AER change.** `REPORT.md` compared the
-whole `aer-before`/`aer-after` snapshot, which carries `LnkSta:` as well as the
-error registers. An idle card links at 2.5 GT/s and a card fresh off a burn at
-16 GT/s — the GPU's own downclocking, already investigated and struck as a
-non-finding on 2026-09-16 — so a card with every error bit clear reported
-`CHANGED / CHECK`. On a sheet someone else reads, a row that cries wolf on
-healthy hardware is worse than no row. The comparison now looks only at
-`UESta`/`CESta`, names the bit that moved, and reports the link as its own state
-row. [`tools/gpu-check-aer-gate.py`](../tools/gpu-check-aer-gate.py), 5 cases,
-lifted out of the shipped script so reverting it fails the gate.
+**보고가 링크 다운클럭을 AER 변화라 불렀다.** `REPORT.md`가 에러 레지스터뿐 아니라 `LnkSta:` 든 `aer-before`/`aer-after` 스냅샷 통째 비교했다. idle 카드가 2.5 GT/s에 링크하고 burn 직후 카드가 16 GT/s에 링크한다 — GPU 자체 다운클럭. 2026-09-16에 이미 조사·기각된 non-finding이다. 에러 비트 전부 클리어 카드가 `CHANGED / CHECK`을 보고했다. 남이 읽는 시트에, 멀쩡 하드웨어에 울리는 행이 없는 행보다 나쁘다. 비교가 이제 `UESta`/`CESta`만 보고, 움직인 비트를 지목하고, 링크를 자체 상태 행에 보고한다. [`tools/gpu-check-aer-gate.py`](../tools/gpu-check-aer-gate.py), 케이스 5개. 출하 스크립트에서 들어 올려서 되돌리면 gate가 깨진다.
 
-**The witness outlived its own run and moved the numbers.** The runner
-backgrounded a shell *function*, so `$!` named a subshell rather than
-`nvidia-smi`; bash normally exec-replaces a single-command subshell, but a
-script with a trap set does not get that optimisation. `kill -TERM $WPID` killed
-the wrapper. The witness was still writing at 1 Hz thirty-three minutes later,
-three minutes after the runner printed `GPUCHECK_DONE`, and every idle row it
-added dragged the report's "power under burn" mean down — 412 W when the report
-was first written, 390 W when it was regenerated, from the same run. The runner
-now spells out `nvidia-smi`, asserts `/proc/<pid>/comm` is the program before
-trusting the pid, and says so at cleanup when a pid survives SIGTERM — reading
-the process state rather than `kill -0`, which an unreaped child answers as a
-zombie. This is the third time on this machine that a pid has named the wrapper
-instead of the program.
+**증인이 자기 실행을 넘겨살고 숫자를 옮겼다.** 러너가 셸 *함수*를 백그라운드에 걸어서 `$!`가 `nvidia-smi`가 아니라 서브셸을 지목했다. bash가 보통 단일 명령 서브셸을 exec 대체하는데, trap 박힌 스크립트는 그 최적화를 못 받는다. `kill -TERM $WPID`가 래퍼를 죽였다. 증인이 1 Hz에 33분 뒤까지 썼다. 러너가 `GPUCHECK_DONE`을 찍고 3분 뒤까지. 추가 idle 행마다 보고의 "burn 중 전력" 평균을 끌었다 — 보고 첫 작성 412 W, 재생성 390 W. 같은 실행에서. 러너가 이제 `nvidia-smi`를 풀어 쓰고, pid 신뢰 전에 `/proc/<pid>/comm`이 프로그램인지 assert하고, SIGTERM에 살아남는 pid를 cleanup에 말한다 — `kill -0`가 아니라 프로세스 상태를 읽는다. 안 거둔 자식을 좀비로 답해서다. 이 기계 세 번째다. pid가 프로그램을 아니라 래퍼를 지목한 것이.
 
-**A fan tool documented behaviour its own code did not have.**
-`gpu-fan-curve.py` told the reader to use `--floor 0` for a zero-RPM card, while
-`target()` is flat below the curve's first point and `max(want, 0)` therefore
-returned the first point's 35 % at a 33 °C idle. The decision moved into one
-function, `command(curve, floor, temp)`, so a gate can ask it without a GPU;
-below the first point the floor is now the command.
-[`tools/gpu-fan-curve-gate.py`](../tools/gpu-fan-curve-gate.py), 15 cases, both
-shipped curves. Worth saying plainly: that gate tests arithmetic, and arithmetic
-is not the effect — it was green while the hardware was still pinning the fan at
-30 %, and only a readback on the card found that.
+**팬 도구가 코드에 없는 거동을 문서화했다.** `gpu-fan-curve.py`가 0 RPM 카드에 `--floor 0`을 쓰라 했다. `target()`이 커브 첫 점 밑에 평탄해서 `max(want, 0)`이 33 °C idle에 첫 점 35%를 돌려줬다. 결정이 함수 하나에 들어갔다. `command(curve, floor, temp)`. GPU 없이 gate가 물을 수 있게. 첫 점 밑에 하한이 이제 명령이다. [`tools/gpu-fan-curve-gate.py`](../tools/gpu-fan-curve-gate.py), 케이스 15개, 출하 커브 둘. 뻔히 말한다. 그 gate가 산술을 잰다. 효과가 아니다 — 하드웨어가 팬을 30%에 고정하는 동안 초록이었다. 카드 되읽음만 찾았다.
 
-## Open, and narrowed
+## 열림, 좁혀짐
 
-The `0x400` in the throttle-reason column, seen on both of this card's battery
-runs and never decoded, is **`Reliability`** — read by sampling the hex and
-nvidia-smi's named booleans at the same instant, which is the only way this
-driver names a bit. It appears for about thirty seconds at the start of
-`cuda_memtest` at 38–49 °C, never under `gpu_burn`, and the SM clock is 1980 MHz
-while it is set, so nothing visible is being cut. The other bit in the `0x600`
-that appeared alongside it is `Board Limit` **by position in the same named
-list, which is a derivation and not a measurement** — it did not reproduce.
+스로틀 사유 열의 `0x400`이 이 카드 배터리 두 실행에 보이고 해독 안 됐는데 **`Reliability`** 다 — 16진과 nvidia-smi 지명 boolean을 같은 순간 샘플에 읽었다. 드라이버가 비트를 지목하는 유일한 길이다. `cuda_memtest` 시작 30초쯤 38–49 °C에 나타나고 `gpu_burn` 밑에 안 나타난다. SM 클럭이 박힌 동안 1980 MHz라 눈에 잘리는 것 없다. 같이 나타난 `0x600`의 다른 비트가 같은 지명 목록의 위치상 `Board Limit`인데 **도출이지 측정이 아니다** — 재현 안 됐다.
 
-The `SW Thermal Slowdown` counter and the reason bits disagree on the 3090, and
-that is unresolved. The counter read 5.0 s at 23:33 and was not moving across
-three samples; by 23:58 it read 476 s. Somewhere in the second half of a burn
-whose reason column said `0x4` and nothing else, and whose die never passed
-75 °C, the card was counting thermal slowdown. One of the two instruments is
-measuring something other than what its name says, and this entry does not know
-which.
+3090의 `SW Thermal Slowdown` 카운터와 사유 비트가 안 맞는다. 미해결이다. 카운터가 23:33에 5.0초를 읽고 3샘플 안 움직이다 23:58에 476초를 읽었다. 사유 열이 `0x4` 말고는 없이 말하고 다이가 75 °C를 안 넘은 burn 후반 어딘가에서, 카드가 열 slowdown을 셌다. 두 계기 중 하나가 이름 말하는 것 말고 다른 것을 재고 있다. 이 기록이 어느 쪽인지 모른다.
 
-Hotspot and memory junction remain unmeasured, and now with a reason not to try
-the cheap route again: `nvmlDeviceGetFieldValues` returns `NOT_SUPPORTED` for
-`NVML_FI_DEV_MEMORY_TEMP` and for every `*_TLIMIT` field on this card and
-driver. The `gddr6` BAR0 reader is the only route. The curves above are driven
-by the die edge sensor and nothing else, which on a GDDR6X card is not
-obviously the binding axis.
+hotspot·메모리 접합이 미측정으로 남는다. 싼 길을 또 시도 안 할 이유와 함께. `nvmlDeviceGetFieldValues`가 이 카드·드라이버에 `NVML_FI_DEV_MEMORY_TEMP`와 모든 `*_TLIMIT` 필드에 `NOT_SUPPORTED`를 돌려준다. `gddr6` BAR0 리더가 유일한 길이다. 위 커브가 다이 엣지 센서 하나로 돈다. GDDR6X 카드에 binding 축이 그것인지는 안 봐도 모른다.
 
-## The A6000 curve, measured on somebody else's five-hour load
+## A6000 커브, 남의 5시간 부하에 측정
 
-The vocoder session that trains on this box overnight sent its own numbers the
-next morning, and they are better evidence than our ten-minute burn because the
-load is real and it ran for five and a quarter hours. Their per-60 s rows, read
-from `/webuta/logs/voc-thermal.log`:
+이 상자 밤에 학습하는 vocoder 세션이 다음 아침 자체 숫자를 보냈다. 진짜 부하가 5시간 15분에 돌았으니 우리 10분 burn보다 좋은 증거다. 60초 행들, `/webuta/logs/voc-thermal.log`에서 읽기:
 
-| | 2026-09-16, card's own curve | 2026-09-18, this unit |
+| | 2026-09-16, 카드 자체 커브 | 2026-09-18, 이 유닛 |
 |---|---|---|
-| die | **87 °C** | **77–78 °C** |
-| fan | 72 % | **91–93 %** |
-| power | 292.0–292.4 W | 294.6–297.2 W |
-| SM clock | 1650–1710 MHz | 1740–1860 MHz |
-| `SW Thermal Slowdown` counter | accruing, ~54 % duty | **500 539 606 µs, unchanged across 5 h 16 m** |
+| 다이 | **87 °C** | **77–78 °C** |
+| 팬 | 72% | **91–93%** |
+| 전력 | 292.0–292.4 W | 294.6–297.2 W |
+| SM 클럭 | 1650–1710 MHz | 1740–1860 MHz |
+| `SW Thermal Slowdown` 카운터 | 누적 중, duty ~54% | **500,539,606 µs, 5시간 16분 무변화** |
 
-That frozen counter is the same integer our dual burn left at 00:18. It did not
-advance by a microsecond for the whole run.
+얼어붙은 카운터가 00:18 dual burn이 남긴 같은 정수다. 실행 내내 1마이크로초도 안 나아갔다.
 
-Ten degrees for about twenty points of fan, on a production workload. Note also
-that the card's own curve does reach 72 % at 87 °C given hours — our ten-minute
-burn caught it at 66 % because it was still climbing, which is the same "late
-rather than lazy" shape as the 3090 and is the reason a short burn understates
-the factory curve's steady state.
+팬 20포인트쯤에 10도다. 프로덕션 workload에. 카드 자체 커브가 시간 주면 87 °C에 72%에 닿는 것도 보인다 — 우리 10분 burn이 오르는 중 66%에 잡았다. 3090과 같은 "늦지 게으르지" 모양이라 팩토리 커브 steady state를 짧은 burn이 과소평가하는 이유다.
 
-**And the throughput went down.** Their checkpoints land 64 minutes apart at
-1.042 steps/s, against 1.083 when the card was throttled half the time — about
-4 % slower with higher clocks and no thermal slowdown at all. So on this
-workload the curve bought temperature and nothing else, exactly as the burn
-predicted for the 3090, and the SM clock was not what was limiting it. Their
-conclusion, which we agree with: a power-limit sweep on their account would not
-tell them anything about their training rate.
+**처리량이 내려갔다.** 체크포인트가 1.042 steps/s에 64분 간격에 닿는다. 절반 시간 스로틀 때 1.083 대 — 클럭 높고 열 slowdown 0에 약 4% 느리다. 이 workload에 커브가 온도 말고는 사지 않았다. 3090의 burn 예측 그대로다. SM 클럭이 묶는 것이 아니었다. 걔네 결론, 동의한다. 자기 계정에 전력 제한 스위프가 학습 속도에 대해 말할 것은 없다.
 
-That session had attributed the eleven degrees to the slot move and to the 3090
-being out. Both are wrong as of this entry — the 3090 was reseated at 23:07 the
-night before and burned at 421 W for forty minutes of it — and the correction
-matters for them rather than being pedantry, because what they actually gained
-is a systemd unit somebody else owns and can stop.
+그 세션이 11도를 슬롯 이동과 3090 분리에 귀속했다. 이 기록 기준 둘 다 틀렸다 — 3090이 전날 밤 23:07에 재장착됐고 그중 40분을 421 W에 연소했다. 정정이 pedantry가 아니라 걔네 몫이라서 중요하다. 실제 얻은 것은 남이 소유하고 멈출 수 있는 systemd 유닛이라서다.
 
-What this is **not** is a matched pair: the two rows differ by a fan curve, by
-two days, and by a neighbour card that is present in the later one. The single
-variable version is cheap and is the next thing worth doing — the same load with
-`systemctl stop gpu-fan` on one arm — and it needs that session to be stopping
-anyway rather than us taking its card time.
+이게 **matched 쌍이 아니다.** 두 행이 팬 커브·이틀·나중에 있는 이웃 카드에 다르다. 단일 변수 버전이 싸고 다음 worth 일이다 — 같은 부하에 한 arm `systemctl stop gpu-fan`. 그 세션이 어차피 멈출 때 필요하지 우리가 카드 시간을 뺏는 게 아니다.
 
-## A fourth instrument, and this one was mine
+## 네 번째 계기, 내 것이었다
 
-The unit above shipped with a hole in it, and a peer session found it eight hours later by
-polling through a `systemctl stop` I ran at 06:01:23. Their rows, ten seconds apart, A6000
-fan and die under a 296 W training job:
+위 유닛이 구멍을 달고 출하됐고, peer 세션이 8시간 뒤에 찾았다. 내가 06:01:23에 건 `systemctl stop` 사이를 폴링해서다. 걔네 행들, 10초 간격. 296 W 학습 작업 밑 A6000 팬·다이:
 
-| | unit state | fan | die |
+| | 유닛 상태 | 팬 | 다이 |
 |---|---|---:|---:|
-| 06:02:21 | `deactivating` | 32 % | 60 °C |
-| 06:02:41 | `deactivating` | 32 % | 73 °C |
-| 06:02:51 | `deactivating` | 32 % | 79 °C |
-| 06:03:01 | `failed` | 52 % | 83 °C |
+| 06:02:21 | `deactivating` | 32% | 60 °C |
+| 06:02:41 | `deactivating` | 32% | 73 °C |
+| 06:02:51 | `deactivating` | 32% | 79 °C |
+| 06:03:01 | `failed` | 52% | 83 °C |
 
-Nineteen degrees with the fan pinned, and it only started moving once systemd gave up.
+팬 고정 19도. systemd가 포기해야 움직이기 시작했다.
 
-The mechanism: `ExecStart` ran the daemon under `uv run`, so systemd's main pid was `uv` and
-the daemon's own SIGTERM handler never fired — its `restored N card(s)` line is absent from
-the journal of every stop this unit ever had. systemd waited the full 90-second default
-`TimeoutStopSec`, SIGKILLed both processes, and the unit ended `failed`. The fans came back
-only because of the `ExecStopPost` belt added the day before for the SIGKILL case. The belt
-was carrying the whole load and nobody knew.
+메커니즘: `ExecStart`가 데몬을 `uv run` 밑에 돌려서 systemd main pid가 `uv`였고 데몬 자체 SIGTERM 핸들러가 안 탔다 — `restored N card(s)` 줄이 이 유닛의 모든 정지 저널에 없다. systemd가 기본 90초 `TimeoutStopSec` 전부를 기다리고 두 프로세스에 SIGKILL했고, 유닛이 `failed`에 끝났다. 팬이 돌아온 것은 SIGKILL 경우용 전날 `ExecStopPost` 벨트 덕분이다. 벨트가 전부 짊어지고 아무도 몰랐다.
 
-The part that matters more than the stop: **while the daemon is not processing its loop, the
-fan stays in `policy=manual` at its last commanded percent, and the card's own curve cannot
-intervene while manual is held.** A stalled controller holding a manual fan is worse than no
-controller — the factory curve would have been ramping through that entire climb. And the
-hazard is not confined to stopping: `Restart=always` covers a daemon that *exits* and does
-nothing for one that *hangs*, in which case the fan stays frozen at a stale percent under a
-rising load with no line in anybody's log.
+정지보다 중요한 부분: **데몬이 루프를 안 도는 동안 팬이 마지막 명령 %에 `policy=manual`로 남고, manual 잡힌 동안 카드 자체 커브가 개입 못 한다.** manual 팬 쥔 멈춘 컨트롤러가 없는 것보다 나쁘다 — 팩토리 커브가 그 상승 내내 올랐을 것이다. hazard가 정지에 국한 안 된다. `Restart=always`가 *나가버리는* 데몬을 커버하고 *걸리는* 데몬에 아무것도 안 한다. 걸리면 상승 부하 밑 오래된 %에 팬이 얼고 누구 로그에도 줄이 없다.
 
-Three changes, and the point of listing them separately is that each closes a different part:
-`ExecStart` is now the venv's python directly so the main pid is the daemon and SIGTERM
-reaches it; `TimeoutStopSec=10` so even a wedged daemon reaches `ExecStopPost` in seconds; and
-`Type=notify` with `WatchdogSec=30`, so a hung daemon is killed and restarted rather than
-holding a manual fan forever — which bounds the stale window to about forty seconds instead of
-unbounded. `sd_notify` is a datagram to `$NOTIFY_SOCKET` and a no-op outside systemd, so it
-adds no dependency.
-[`tools/gpu-fan-stop-check.sh`](../tools/gpu-fan-stop-check.sh) asserts all three: the unit
-reaches `inactive` rather than `failed`, within ten seconds, with no fan left in manual. It
-prints the milliseconds rather than a verdict alone, because "it works now" is not a number.
+변경 셋. 따로 나열하는 요점은 닫는 부분이 제각각이라서다. `ExecStart`가 이제 venv 파이썬 직접이라 main pid가 데몬이고 SIGTERM이 닿는다. `TimeoutStopSec=10`이라 쐐기 데몬도 수초에 `ExecStopPost`에 닿는다. `Type=notify`에 `WatchdogSec=30`이라 걸린 데몬이 죽고 재시작한다. manual 팬 영원 소유 대신 — stale 창이 무제한 대신 40초쯤에 묶인다. `sd_notify`가 `$NOTIFY_SOCKET`행 datagram이라 systemd 밖 no-op이다. 의존성 추가 없다. [`tools/gpu-fan-stop-check.sh`](../tools/gpu-fan-stop-check.sh)이 셋을 assert한다. 유닛이 `failed`가 아니라 `inactive`에 닿는지, 10초 안인지, manual 잔류 팬 없는지. 판정만 말고 밀리초를 찍는다. "이제 된다"가 숫자가 아니라서다.
 
-Two things worth saying plainly about this one. It was found by someone else's instrument, not
-ours — our own gates test the arithmetic of the curve and the effect of a SIGKILL, and neither
-looks at what happens during a stop. And it is the second time in two days that a gate here was
-green while the hardware was doing something else: the fan gate passed while the card was
-pinning a commanded 0 % at 30 %, and the SIGKILL test passed while an ordinary stop was taking
-ninety seconds. An effect that is only visible on the card has to be read on the card.
+뻔히 말할 것 둘. 남의 계기가 찾았지 우리가 아니다 — 우리 gate가 커브 산술과 SIGKILL 효과를 잰다. 정지 중 일어나는 것을 어느 쪽도 보지 않는다. 이틀 두 번째다. 여기 gate가 초록인데 하드웨어가 다른 데서 한 것이. 팬 gate가 카드가 명령 0%를 30%에 고정하는 동안 통과했고, SIGKILL 테스트가 평범 정지 90초 걸리는 동안 통과했다. 카드에만 보이는 효과는 카드에서 읽어야 한다.
 
 ## Housekeeping
 
-A lease held by this session from 23:46 to 00:25 delayed the midnight vocoder
-run by about half an hour, at the user's request. The crontab was not edited:
-the launcher waits up to eight hours on a live lease and ignores one whose pid
-is dead, so a delay expressed as a lease fails open if the session holding it
-dies — which is the opposite of the 2026-09-16 failure, where a stale lease cost
-a peer its night. The launcher logged `held by a peer session … waiting` every
-five minutes and started on release, exactly as designed.
+이 세션 임대가 23:46–00:25 자정 vocoder 실행을 사용자 요청에 30분쯤 늦췄다. crontab은 안 고쳤다. 런처가 live 임대 최대 8시간 기다리고 pid 죽은 것은 무시해서, 임대 표현 지연이 쥔 세션 죽으면 열린 채 실패한다 — 2026-09-16 failure의 반대다. peer 밤을 날린 stale 임대. 런처가 5분마다 `held by a peer session … waiting`을 찍고 해제에 시작했다. 설계 그대로다.
 
-That run is also the first real use of the A6000 curve, so its thermal numbers
-are the first on this machine taken with a fan curve in place.
+그 실행이 A6000 커브의 첫 실사용이라, 열 숫자가 팬 커브 장착 후 이 기계 첫 번째다.

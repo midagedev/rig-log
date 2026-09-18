@@ -1,157 +1,80 @@
-# Where the prompt cache breaks: a 13 167-token prefix, checkpoints only at the end, and a parser that never said where the user turns were
+# 프롬프트 캐시가 깨지는 자리: 13,167토큰 접두사, 끝에만 있는 체크포인트, user 위치를 말 안 한 파서
 
-**2026-09-17, 08:22–09:45, one A6000, DeepSeek-V4.1-Flash Q3_K_M with the DSpark draft, every
-expert layer on the host.** The question was why an agent turn on this model took five to
-seven minutes yesterday when its decode runs at 25 tok/s. The answer needed a logging proxy
-between the agent and the server, three server runs, and one read of the server's
-checkpoint code — and it turned out to be two separate things, one of which is a patch.
+**2026-09-17 08:22–09:45, A6000 1장, V4.1-Flash Q3_K_M + DSpark draft, expert 전층 호스트.** 어제 에이전트 턴 하나가 5–7분 걸린 이유. 디코드는 25 tok/s인데. 답에 에이전트–서버 사이 로깅 프록시, 서버 3실행, 서버 체크포인트 코드 리딩이 들었다. 두 가지였고, 하나는 패치다.
 
-## The instrument
+## 기구
 
-Hermes Agent was pointed at a small reverse proxy ([`tools/cache/logproxy.py`](../tools/cache/logproxy.py))
-that writes every request body and response to disk, and the server was started with
-`-lv 4`. Each response carries the server's own accounting — `prompt_n` (tokens actually
-prefilled), `cache_n` (tokens reused from the slot), `prompt_ms` — so nothing here is
-inferred from wall time. Replays were made with the captured bodies at temperature 0,
-`max_tokens` 8 ([`tools/cache/replay-cache.py`](../tools/cache/replay-cache.py)), so the only number
-that moves is the prefill.
+Hermes Agent를 요청·응답 전부 디스크에 쓰는 작은 리버스 프록시([`tools/cache/logproxy.py`](../tools/cache/logproxy.py))에 붙이고, 서버는 `-lv 4`에 띄웠다. 매 응답에 서버 자체 회계가 있다 — `prompt_n`(실제 프리필 토큰), `cache_n`(슬롯 재사용), `prompt_ms`. wall time 추론은 없다. 캡처 본문을 temperature 0, `max_tokens` 8에 리플레이([`tools/cache/replay-cache.py`](../tools/cache/replay-cache.py)) — 움직이는 숫자는 프리필뿐이다.
 
-## What the first agent turn actually spent
+## 첫 에이전트 턴의 실제 지출
 
-One Hermes turn ("what GPUs are in this machine, use tools") took 7 min 31 s and made six
-model calls:
+Hermes 한 턴("이 기계 GPU 뭐냐, 도구 써라") 7분 31초, 모델 호출 여섯.
 
-| call | messages | prompt tokens | reused | prefilled | prefill | decode |
+| 호출 | 메시지 | 프롬프트 토큰 | 재사용 | 프리필 | 프리필 | 디코드 |
 |---|---|---:|---:|---:|---:|---:|
-| 1 | system, user | 13 167 | 0 | 13 167 | **285 s** at 46 tok/s | 139 tok in 6 s |
-| 2 | + assistant, tool, tool | 14 412 | 13 305 | 1 107 | 26 s | 306 tok, 25 tok/s |
-| 3 | + tool call, result | 15 258 | 14 717 | 541 | 12 s | 438 tok, 21 tok/s |
-| 4 | | 16 038 | 15 696 | 342 | 7 s | 288 tok |
-| 5 | | 16 459 | 16 326 | 133 | 5 s | 191 tok |
-| 6 | | 16 752 | 16 649 | 103 | 5 s | 429 tok, 19 tok/s |
+| 1 | system, user | 13,167 | 0 | 13,167 | **285초** 46 tok/s | 139토큰 6초 |
+| 2 | + assistant, tool, tool | 14,412 | 13,305 | 1,107 | 26초 | 306토큰, 25 tok/s |
+| 3 | + tool call, result | 15,258 | 14,717 | 541 | 12초 | 438토큰, 21 tok/s |
+| 4 | | 16,038 | 15,696 | 342 | 7초 | 288토큰 |
+| 5 | | 16,459 | 16,326 | 133 | 5초 | 191토큰 |
+| 6 | | 16,752 | 16,649 | 103 | 5초 | 429토큰, 19 tok/s |
 
-So the cache works within a session exactly as designed: after the first call, only the new
-tokens are prefilled. Of the 13 167 tokens in that first prompt, the rendered template puts
-4 200 in the Hermes system text and about 8 950 in the 23 tool schemas; the user message is
-20. The five minutes were one cold prefill of that prefix at 46 tok/s, and then reasoning
-decode; tool count, not the agent's prompt layout, is the biggest lever on the cold cost.
+세션 안 캐시는 설계대로 돈다. 첫 호출 뒤에는 새 토큰만 프리필한다. 첫 프롬프트 13,167 중 렌더 템플릿이 Hermes 시스템 텍스트에 4,200, 23개 도구 스키마에 ~8,950을 넣는다. user 메시지는 20이다. 5분은 그 접두사 cold 프리필 46 tok/s 한 번 + reasoning 디코드였다. cold 비용의 가장 큰 레버는 도구 개수지 에이전트 프롬프트 배치가 아니다.
 
-A second session with the identical question got its first token **1 s** after the request:
-the two first requests were byte-identical (system prompt, tools, user message, all
-parameters) and the slot's cache matched all 13 167 tokens. Hermes' three-tier prompt —
-stable identity and guidance first, workspace context second, skills index, memory and a
-session-start timestamp last — is doing what its comments say it does. (That second session
-then looped for 15 329 tokens of "I need to." before it was stopped; identical prompt,
-server default temperature 0.8, no Hermes-side temperature. Recorded, not chased.)
+같은 질문 두 번째 세션은 요청 1초 뒤 첫 토큰을 받았다. 두 첫 요청이 바이트 동일(시스템·도구·user 메시지·파라미터 전부)이라 슬롯 캐시가 13,167 전부를 맞췄다. Hermes 3단 프롬프트 — 안정 정체·가이던스 먼저, 워크스페이스 컨텍스트 다음, 스킬 인덱스·메모리·세션 시작 타임스탬프 마지막 — 가 주석대로 돈다. (그 두 번째 세션은 이어서 "I need to." 15,329토큰을 루프하다 중단됐다. 동일 프롬프트, 서버 기본 temperature 0.8, Hermes측 temperature 없음. 기록만, 안 쫓는다.)
 
-## Where it breaks
+## 깨지는 자리
 
-Replays of the captured first request, one change each:
+캡처 첫 요청 리플레이, 변경 하나씩:
 
-| change | first differing token | reused (`cache_n`) | prefilled | wall |
+| 변경 | 첫 갈림 토큰 | 재사용(`cache_n`) | 프리필 | wall |
 |---|---:|---:|---:|---:|
-| none | — | 13 163 | 4 | 0.6 s |
-| new user question | 13 146 | 12 651 | 510 | 13.8 s |
-| one word at the end of the system prompt | 4 200 (32 %) | **0** | 13 168 | 236 s |
-| one word in a tool description | ~10 400 (79 %) | **0** | 13 170 | 227 s |
-| original again, after the above | — | **0** | 13 167 | 228 s |
-| same four with `--ctx-checkpoints 64 --checkpoint-min-step 1024` | | **0, 0**, 0 (new question, after a clobber), 12 645 | | |
+| 없음 | — | 13,163 | 4 | 0.6초 |
+| 새 user 질문 | 13,146 | 12,651 | 510 | 13.8초 |
+| 시스템 프롬프트 끝 한 단어 | 4,200(32%) | **0** | 13,168 | 236초 |
+| 도구 설명 한 단어 | ~10,400(79%) | **0** | 13,170 | 227초 |
+| 원본 다시, 위 다음 | — | **0** | 13,167 | 228초 |
+| 같은 넷 `--ctx-checkpoints 64 --checkpoint-min-step 1024` | | **0, 0**, 0(새 질문, clobber 뒤), 12,645 | | |
 
-Nothing before the last user message could be partially reused. A change at 32 % of the
-prompt cost the same as a change at 79 %: everything.
+마지막 user 메시지 앞은 부분 재사용이 없다. 프롬프트 32% 변경과 79% 변경이 같은 값을 냈다. 전부.
 
-The reason is in the model and in the server's answer to it. V4.1-Flash has sliding-window
-attention layers (`n_swa = 128`; the server builds an iSWA cache with 768 SWA cells beside
-the 65 536-cell full cache). A sliding-window cache cannot be rolled back to an arbitrary
-earlier position, so llama-server keeps **context checkpoints** — snapshots of the
-non-rollable state, 5.8 MiB each here — and on a partial prefix match restores the nearest
-checkpoint at or before the divergence and re-prefills from there. Where checkpoints are
-created is a design decision from upstream PRs #22929 and #24176: at the start of each user
-message, and 4 and 4+`n_ubatch` tokens before the end of the prompt. Ordinary mid-prompt
-checkpoints are skipped on purpose ("avoid periodic mid-prompt checkpoints when that
-position is known"), and `--checkpoint-min-step` does not bring them back — measured above.
-The log confirmed it: two checkpoints per prompt, at 12 651 and 13 163, nothing else.
+이유는 모델과 서버의 답에 있다. V4.1-Flash에 sliding-window 어텐션층(`n_swa = 128`. 서버는 65,536셀 full 캐시 옆에 768 SWA 셀 iSWA 캐시를 짓는다). SWA 캐시는 임의 과거 위치로 못 돌아가서, llama-server가 **컨텍스트 체크포인트**를 둔다 — 롤백 불가 상태의 스냅샷, 여기 5.8 MiB씩. 부분 접두사 일치가 오면 갈림점 이전 최근 체크포인트에 복원하고 거기서 다시 프리필한다. 체크포인트를 어디 찍을지는 업스트림 PR #22929·#24176의 설계 결정이다. 각 user 메시지 시작, 그리고 프롬프트 끝에서 4토큰·4+`n_ubatch`토큰 앞. 프롬프트 중간 주기 체크포인트는 일부러 스킵("위치 알 때 주기 중간 체크포인트 금지"), `--checkpoint-min-step`도 안 되돌린다 — 위에서 쟀다. 로그가 확인했다. 프롬프트당 체크포인트 둘, 12,651과 13,163, 다른 것 없음.
 
-That explains the 510-token re-prefill on a new question (restore to 12 651, redo the last
-516) and the zero everywhere else. It does not explain why there was no checkpoint at the
-user-message start, token 13 146, which the design promises. That is the second layer.
+새 질문 510토큰 재프리필은 설명된다(12,651에 복원, 뒤 516 다시). 다른 자리 0은 안 설명된다. user 메시지 시작 토큰 13,146에 체크포인트가 있어야 설계 약속인데 없다. 두 번째 층이다.
 
-## The parser never said where the user turns were
+## 파서가 user 턴 위치를 말한 적 없다
 
-The server finds user-message starts by scanning the prompt tokens for per-role
-delimiters that the chat-format parser publishes (`common_chat_params::message_delimiters`).
-The specialized parsers for Kimi-K3, MiniMax-M3 and Muse Glimmer set them. The DeepSeek
-V3.2/V4/V4.1 parser (`common/parsers/deepseek.cpp`, `common_chat_params_init_deepseek_v3_2`)
-never does, so for these three templates the span list is empty, `is_user_start` is never
-true, and the user-turn checkpoints do not exist. The near-end pair is all this model ever
-had.
+서버는 user 메시지 시작을 프롬프트 토큰에서 역할별 구분자로 스캔해서 찾는다(채팅 포맷 파서가 공개하는 `message_delimiters`). Kimi-K3·MiniMax-M3·Muse Glimmer 전용 파서는 박는다. DeepSeek V3.2/V4/V4.1 파서(`common/parsers/deepseek.cpp`)는 안 한다. 세 템플릿 span 목록 비어서 `is_user_start`가 한 번도 안 서고, user 턴 체크포인트가 없다. 이 모델이 가진 것은 끝 쌍뿐이다.
 
-The patch is nine lines of sibling parity — `<｜User｜>` and `<｜Assistant｜>`, which all three
-templates render — plus a test-chat case that loads each template and asserts the two
-delimiters are published and present in the rendered prompt. FAIL-first on the unpatched
-tree: `Expected: <｜User｜> Actual:` (empty), rc 134. On the patched tree test-chat passes.
+패치는 형제 parity 9줄 — 세 템플릿이 다 렌더하는 `<｜User｜>`·`<｜Assistant｜>` — + 각 템플릿 로드해 구분자 둘 공개·렌더 프롬프트 포함을 assert하는 test-chat 케이스. 미패치 트리 FAIL-first: `Expected: <｜User｜> Actual:`(빈), rc 134. 패치 트리 test-chat 통과.
 
-Rebuilt and re-measured, default checkpoint settings:
+재빌드 재측정, 기본 체크포인트 설정:
 
-| change | reused | prefilled | wall | before the patch |
+| 변경 | 재사용 | 프리필 | wall | 패치 전 |
 |---|---:|---:|---:|---|
-| cold | 0 | 13 167 | 306 s | same |
-| new user question | **13 145** | **16** | **0.8 s** | 12 651 / 510 / 13.8 s |
-| three user turns | 13 145 | 75 | 5.5 s | — |
-| second of three user turns edited | 13 145 | 79 | 5.0 s | would have been 0 / full |
+| cold | 0 | 13,167 | 306초 | 동일 |
+| 새 user 질문 | **13,145** | **16** | **0.8초** | 12,651 / 510 / 13.8초 |
+| user 턴 셋 | 13,145 | 75 | 5.5초 | — |
+| 셋 중 두 번째 편집 | 13,145 | 79 | 5.0초 | 0 / 전체였을 것 |
 
-The log now shows the third checkpoint at `n_tokens = 13145`, the first user message, and
-every later request restoring to it.
+로그에 세 번째 체크포인트가 `n_tokens = 13145`, 첫 user 메시지에 찍히고, 이후 매 요청 거기 복원한다.
 
-## What the patch does not fix
+## 패치가 안 고치는 것
 
-Any edit inside the system prompt or the tool schemas still costs the whole prefix. That is
-the design, not the parser: there is no anchor inside a 13k-token prefix that has no user
-message in it, and #22929 removed periodic checkpoints deliberately (its author's follow-up
-#24899 was closed). A narrower idea — checkpoints spaced by `--checkpoint-min-step` only in
-the region before the first user span, where there is no structure to anchor on — would
-recover Hermes' 4 200-token stable band when the volatile band changes between sessions, but
-it argues with a maintainer decision and is not part of this patch.
+시스템 프롬프트·도구 스키마 안 편집은 여전히 접두사 전체를 낸다. 설계지 파서가 아니다. user 메시지 없는 13k 접두사 안에 닻이 없고, #22929가 주기 체크포인트를 일부러 뺐다(후속 #24899는 닫힘). 좁은 아이디어 — 첫 user span 앞 무구조 구간에만 `--checkpoint-min-step` 간격 체크포인트 — 가 세션 사이 volatile 밴드 변경에 Hermes 4,200토큰 안정 밴드를 살리겠지만, 메인테이너 결정과 다투고 이 패치에 없다.
 
-Also unchanged: the cold prefill itself. 13 167 tokens at 46 tok/s is 4 min 45 s on this
-placement whatever the cache does, and the tool schemas are two thirds of it.
+cold 프리필 자체도 그대로다. 46 tok/s에 13,167토큰은 캐시가 뭐래도 이 배치에 4분 45초고, 도구 스키마가 3분의 2다.
 
-## Is it only DeepSeek?
+## DeepSeek만인가
 
-No, but the class is small. A parser without delimiters only costs something when the model's
-memory cannot roll back, and only five specialized parsers on master lack them: deepseek
-(this patch), lfm2, ministral3, gigachat_v3, kimi_k2 (plus functionary_v3_2, which has no
-`parsers.cpp` entry). GigaChat v3 loads through `src/models/deepseek2.cpp`, Ministral 3 through
-`mistral3.cpp`, Kimi K2 is DeepSeek-V3 shaped — full KV, no checkpoint needed, the omission is
-free. LFM2 is the other victim on paper: `src/models/lfm2.cpp` is shortconv recurrent and reads
-`LLM_KV_ATTENTION_SLIDING_WINDOW`, and its parser only names the assistant marker
-(`<|im_start|>assistant\n`); the user marker would be `<|im_start|>user\n`. Not measured
-here, and left out of the DeepSeek patch so the FAIL-first test covers everything the PR
-touches. Templates without a specialized parser get their `user_start` from the autoparser.
+아니지만 부류가 작다. 구분자 없는 파서가 비용이 되는 것은 메모리가 못 돌아가는 모델뿐이다. master 전용 파서 다섯이 없다. deepseek(이 패치)·lfm2·ministral3·gigachat_v3·kimi_k2(+ `parsers.cpp` 항목 없는 functionary_v3_2). GigaChat v3는 `deepseek2.cpp`, Ministral 3은 `mistral3.cpp`에 full KV로 로드 — 체크포인트 불필요, 생략 공짜다. Kimi K2는 DeepSeek-V3 모양이다. 종이 위 다른 피해자는 LFM2다. `lfm2.cpp`가 shortconv recurrent에 `LLM_KV_ATTENTION_SLIDING_WINDOW`을 읽고, 파서가 assistant 마커만 지목한다. user 마커는 `<|im_start|>user`일 것이다. 여기서 안 쟀고, FAIL-first 테스트가 PR 손대는 전부를 커버하게 DeepSeek 패치에 안 넣었다. 전용 파서 없는 템플릿은 autoparser에서 `user_start`를 받는다.
 
-## Duplicate search, 2026-09-17
+## 중복 조사, 2026-09-17
 
-Nothing open or closed does this. Queries, so the absence can be checked: `gh pr list
---search` for "message_delimiters", "deepseek delimiters", "deepseek checkpoint"; `gh issue
-list --search` for "deepseek prompt cache", "V4 checkpoint", "cache_n deepseek"; open PRs
-touching `common/parsers/deepseek.cpp` on master 4bc272fd7: #28612 and #28724, neither about
-delimiters (`gh search prs` returned nothing for every query and was not trusted). Adjacent:
-#24176 added delimiters to the parsers that existed on 2026-06-23 and the V3.2 parser from
-#21785 (2026-04-13) was not among them; #25452 reports DSV4-Flash divergent turns re-prefilling
-from the checkpoint boundary and attributes it to the cache's missing partial `seq_rm` — true,
-and this sits on top of it; #21831, #24055, #28302 are the checkpoint-policy neighbours.
+이것을 하는 open·closed 없다. 부재 확인용 쿼리: `gh pr list --search` "message_delimiters"·"deepseek delimiters"·"deepseek checkpoint", `gh issue list --search` "deepseek prompt cache"·"V4 checkpoint"·"cache_n deepseek". master 4bc272fd7의 `common/parsers/deepseek.cpp` 손대는 open PR #28612·#28724, 둘 다 구분자 아님(`gh search prs`는 전 쿼리 무응답이라 신뢰 안 함). 인접: #24176이 2026-06-23 당시 파서에 구분자를 넣었고 #21785(2026-04-13)의 V3.2 파서는 빠져 있었다. #25452는 DSV4-Flash divergent 턴이 체크포인트 경계에서 재프리필을 보고하고 캐시의 partial `seq_rm` 부재 탓이라 한다 — 맞고, 이게 위에 앉는다. #21831·#24055·#28302가 체크포인트 정책 이웃이다.
 
-What merges here, read from #24176, #25472, #28302, #28466 and #26210: the template kept
-verbatim, an Overview of a few sentences, an Additional information section with the
-`prompt_n`/`cache_n` table and the untested cases named, and the AI use stated in the
-disclosure line (#28466 discloses that Codex drafted its description and was merged; #26244 was
-closed by the bot for an undisclosed AI-written description). The PR text is the author's.
+머지되는 모양(#24176·#25472·#28302·#28466·#26210에서 읽음): 템플릿 verbatim 유지, 몇 문장 Overview, `prompt_n`/`cache_n` 표와 미측정 케이스 명명의 Additional information, disclosure 줄에 AI 사용 명시(#28466은 Codex가 설명 초안을 쓰고 머지됐고, #26244는 미공개 AI 작성 설명으로 봇이 닫았다). PR 글은 저자의 것.
 
-## State
+## 상태
 
-Patch and test on the box: serving fork `llama.cpp-v41-merged` (the server now runs it) and a
-standalone branch `deepseek-msg-delimiters` on upstream master in `llama.cpp-upstream-wt`
-(V3.2 and V4 templates in the test; V4.1's template is the separate DSML patch). Commit
-message and PR body are the author's to write. Probe artefacts: `/home/user/cache-probe`
-(three server logs, every request and response, the replay scripts). The agent bot was
-returned to its z.ai backend; the A6000 is idle and the lease released.
+패치·테스트 상자에 있다. 서빙 포크 `llama.cpp-v41-merged`(서버가 이제 돈다)와 업스트림 master의 단독 브랜치 `deepseek-msg-delimiters`(`llama.cpp-upstream-wt` 안. 테스트에 V3.2·V4 템플릿, V4.1 템플릿은 별도 DSML 패치). 커밋 메시지·PR 본문은 저자가 쓴다. 프로브 산물 `/home/user/cache-probe`(서버 로그 셋, 요청·응답 전부, 리플레이 스크립트). 에이전트 봇은 z.ai 백엔드로 복귀. A6000 idle, 임대 해제.

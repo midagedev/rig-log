@@ -1,194 +1,100 @@
-# Where the four-stream gap actually is
+# 4스트림 격차의 실제 자리
 
-*2026-09-17, 15:07–18:45. RTX A6000 48G, one card, one lease per take, io pressure 0 at every
-start. ik_llama.cpp c10fbbcc, mistral.rs 0.9.3, toktape 0.2.4.*
+*2026-09-17 15:07–18:45. RTX A6000 48G 1장, 테이크마다 임대 1개, 시작마다 io 압력 0. ik c10fbbcc, mistral.rs 0.9.3, toktape 0.2.4.*
 
-The [morning's entry](2026-09-17-a-rust-engine-on-the-same-card.md) measured a Rust engine against
-ik_llama.cpp on the same card and the same model and left the interesting half unexplained:
-mistral.rs went 105 → 283 tok/s from one stream to four, ik_llama.cpp went 130 → 149, and the two
-candidate explanations it offered both turned out to be wrong. This entry is the sweep that settled
-it, and the answer is not about mistral.rs at all.
+[아침 기록](2026-09-17-a-rust-engine-on-the-same-card.md)이 같은 카드·모델에 Rust 엔진을 재고 재미있는 절반을 미설명으로 남겼다. mistral.rs 105→283 tok/s(1→4스트림), ik 130→149. 아침의 후보 설명 둘은 다 틀렸다. 이 기록이 판가름한 스위프고, 답은 mistral.rs 이야기가 아니다.
 
-> ~~Either mistral.rs's single stream is overhead-bound and batching amortises a fixed cost, or its
-> indexed-MoE path gathers the union of the experts once per step where ik re-reads per sequence.~~
-> **Struck the same day.** Both were guesses about the fast engine. The gap is on the other side:
-> ik_llama.cpp leaves decode batching on the table on a MoE model, and its concurrent prefill falls
-> off a documented cliff. mistral.rs is the control that shows what the card can do.
+> ~~mistral.rs 싱글스트림이 고정비 bound라 배치가 분할하거나, indexed-MoE 경로가 expert 합집합을 스텝당 한 번 모으는데 ik가 시퀀스마다 다시 읽는다.~~ **같은 날 Struck.** 둘 다 빠른 엔진에 대한 추측이었다. 격차는 반대편이다. ik가 MoE 모델에 디코드 배치를 식탁에 두고 왔다. 동시 프리필은 문서화된 벼랑에 떨어진다. mistral.rs는 카드가 뭘 할 수 있는지 보여주는 대조다.
 
-## The sweep
+## 스위프
 
-Eight takes, one lease each, 1/2/4/8 streams on both engines, the same Qwen3.6-35B-A3B UD-Q6_K, the
-same eight distinct prompts (a repeated prompt would buy a prefix-cache hit that four real users
-would not), `-c 32768`, `-n 512`, thinking left on so that every stream runs to the cap — with
-`--no-think` the streams end at EOS at different lengths and the aggregate then measures a shrinking
-population rather than the engine. The server is built for eight slots in every row, so only the
-client's stream count moves. Driver: [`tools/engine-ab/stream-sweep.sh`](../tools/engine-ab/stream-sweep.sh);
-every figure below is read out of the tape by [`tools/tape-row.py`](../tools/tape-row.py), not off a
-progress line.
+테이크 여덟, 임대 각 하나. 양쪽 엔진에 1/2/4/8 스트림, 같은 Qwen3.6-35B-A3B UD-Q6_K, 같은 서로 다른 프롬프트 여덟(반복 프롬프트는 진짜 사용자 넷이 못 받는 prefix 캐시 적중을 산다). `-c 32768`, `-n 512`, thinking 켠 채 매 스트림 cap까지 달린다 — `--no-think`면 EOS 길이가 제각각이라 합계가 줄어드는 모집단을 잰다. 서버는 매 행 8슬롯 빌드라 움직이는 것은 클라이언트 스트림 수뿐이다. 드라이버 [`tools/engine-ab/stream-sweep.sh`](../tools/engine-ab/stream-sweep.sh). 아래 숫자는 전부 테이프에서 [`tools/tape-row.py`](../tools/tape-row.py)가 읽은 것, 진행 줄 아님.
 
 ### mistral.rs 0.9.3
 
-| streams | srv each | cli each | aggregate | gain | TTFT p50 | engine prefill | GPU W | ITL p50 |
+| 스트림 | 서버 각 | 클라이언트 각 | 합계 | 이득 | TTFT p50 | 엔진 프리필 | GPU W | ITL p50 |
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 1 | 111.1 | 104.6 | **105** | 1.00× | 160 ms | 140 ms | 246 | 9.5 ms |
-| 2 | 99.7 | 93.2 | **184** | 1.75× | 136 ms | 97 ms | 297 | 10.6 ms |
-| 4 | 76.9 | 72.2 | **279** | 2.66× | 448 ms | 100 ms | 299 | 13.7 ms |
-| 8 | 43.8 | 42.1 | **324** | 3.09× | 667 ms | 128 ms | 299 | 23.7 ms |
+| 1 | 111.1 | 104.6 | **105** | 1.00배 | 160 ms | 140 ms | 246 | 9.5 ms |
+| 2 | 99.7 | 93.2 | **184** | 1.75배 | 136 ms | 97 ms | 297 | 10.6 ms |
+| 4 | 76.9 | 72.2 | **279** | 2.66배 | 448 ms | 100 ms | 299 | 13.7 ms |
+| 8 | 43.8 | 42.1 | **324** | 3.09배 | 667 ms | 128 ms | 299 | 23.7 ms |
 
 ### ik_llama.cpp c10fbbcc
 
-| streams | srv each | cli each | aggregate | gain | TTFT p50 | engine prefill | GPU W | ITL p50 |
+| 스트림 | 서버 각 | 클라이언트 각 | 합계 | 이득 | TTFT p50 | 엔진 프리필 | GPU W | ITL p50 |
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 1 | 128.7 | 128.5 | **129** | 1.00× | 248 ms | 218 ms | 299 | 7.7 ms |
-| 2 | 65.5 | 65.4 | **130** | 1.01× | 372 ms | 294 ms | 299 | 15.1 ms |
-| 4 | 36.8 | 36.7 | **146** | 1.13× | 4 516 ms | 3 391 ms | 296 | 26.7 ms |
-| 8 | 19.1 | 19.1 | **152** | 1.18× | 12 529 ms | 10 071 ms | 241 | 51.5 ms |
+| 1 | 128.7 | 128.5 | **129** | 1.00배 | 248 ms | 218 ms | 299 | 7.7 ms |
+| 2 | 65.5 | 65.4 | **130** | 1.01배 | 372 ms | 294 ms | 299 | 15.1 ms |
+| 4 | 36.8 | 36.7 | **146** | 1.13배 | 4,516 ms | 3,391 ms | 296 | 26.7 ms |
+| 8 | 19.1 | 19.1 | **152** | 1.18배 | 12,529 ms | 10,071 ms | 241 | 51.5 ms |
 
-The second row is the whole story in one line. **ik's per-stream rate halves from one stream to two
-— 128.5 to 65.4 — and the aggregate does not move at all: 129 to 130.** Two clients take turns on a
-machine that is doing no more total work than it did for one. mistral.rs's second stream costs its
-first one 11 % and returns 1.75× in aggregate, which is what batching a memory-bound decode is
-supposed to look like. And ik's prefill does not merely fail to scale, it collapses: 218 ms for one
-238-token prompt, 10 071 ms for eight of them, which is 5.8× *more* engine time per prompt token at
-eight streams than at one.
+둘째 행이 한 줄에 이야기의 전부다. **ik 스트림당 속도가 1→2스트림에 반토막 — 128.5→65.4 — 합계는 안 움직인다. 129→130.** 클라이언트 둘이 한 명 일에 총일이 안 느는 기계에서 교대로 쓴다. mistral.rs 두 번째 스트림은 첫 스트림에 11% 값을 치르고 합계 1.75배를 돌려준다. 메모리-bound 디코드 배치가 그래야 한다. ik 프리필은 스케일이 안 되는 정도가 아니라 무너진다. 238토큰 프롬프트 하나에 218 ms, 여덟에 10,071 ms — 8스트림의 프롬프트 토큰당 엔진 시간이 1스트림의 5.8배 *더* 든다.
 
-Two notes on the tapes rather than the engines. The mistral.rs rows all carry `contended: yes` for a
-reason that is not contention: toktape identifies the attached server by process name, `mistralrs`
-is not in `procmon.IsServerCommand`, so it counts the engine's own process as `other_gpu_procs: 1`.
-Every witness in those tapes reads io pressure 0 and loadavg 0.6, and the lease was held by the
-sweep. Sent to the toktape session as a request rather than worked around here — the shim already
-knows the server's pid (`MRS_PID_FILE`) and could declare it in `/props`. Separately, the first two
-rows of one control run were taken while the model was still coming off NVMe (io pressure 17 and 9)
-and are not in any table here: the quiet-machine gate flagged them, which is what it is for.
+테이프 얘기 둘, 엔진이 아니라. mistral.rs 행 전부 `contended: yes`를 달고 있는데 경합이 이유가 아니다. toktape가 붙은 서버를 프로세스명으로 찾는데 `mistralrs`가 `procmon.IsServerCommand`에 없어서 엔진 자체 프로세스를 `other_gpu_procs: 1`로 센다. 그 테이프 증인 전부 io 압력 0·loadavg 0.6, 임대는 스위프가 쥐었다. 여기서 우회가 아니라 toktape 세션에 요청으로 보냈다 — shim이 서버 pid(`MRS_PID_FILE`)를 알고 `/props`에 선언할 수 있다. 따로, control 실행 한 번의 처음 두 행은 모델이 NVMe에서 내려오던 중 찍혔다(io 압력 17·9). 표에 없다. 조용한 기계 gate가 잡았고, gate의 일이다.
 
-## Two mechanisms, not one
+## 메커니즘 둘, 하나 아님
 
-The sweep says concurrency costs ik something the engine does not get back. It does not say what, and
-the server is in the way of asking: a take mixes the kernel path with slot scheduling, continuous
-batching and the KV layout. `llama-batched-bench` runs the same decode with N sequences in one
-process and no server at all, which makes the experiment small enough to be an answer
-([`tools/ik/ik-batch-scaling.sh`](../tools/ik/ik-batch-scaling.sh) is the lease-gated wrapper):
+스위프는 동시성이 ik에 돌려받지 못하는 값을 치른다고 말한다. 무엇인지는 안 말한다. 묻는 길에 서버가 있다. 테이크가 커널 경로에 슬롯 스케줄·연속 배치·KV 배치를 섞는다. `llama-batched-bench`가 서버 없이 한 프로세스에 N 시퀀스 같은 디코드를 돌린다. 답이 될 만큼 작아진다([`tools/ik/ik-batch-scaling.sh`](../tools/ik/ik-batch-scaling.sh)가 임대 gate 래퍼).
 
 ```
 llama-batched-bench -m <model> -c 32768 -ngl 99 -fa on -t 32 -b 2048 -ub 512 \
                     -npp 238 -ntg 256 -npl 1,2,4,8
 ```
 
-**DeepSeek-V2-Lite-Chat Q3_K_M — MoE, MLA attention, no linear attention:**
+**DeepSeek-V2-Lite-Chat Q3_K_M — MoE, MLA 어텐션, 선형 어텐션 없음:**
 
-| B | prefill t/s | **decode t/s** | decode vs B=1 |
+| B | 프리필 t/s | **디코드 t/s** | B=1 대비 |
 |---:|---:|---:|---:|
-| 1 | 1 960.8 | **202.1** | 1.00× |
-| 2 | 6 118.8 | **156.1** | **0.77×** |
-| 4 | 6 150.8 | **229.9** | 1.14× |
-| 8 | 5 908.1 | **317.0** | 1.57× |
+| 1 | 1,960.8 | **202.1** | 1.00배 |
+| 2 | 6,118.8 | **156.1** | **0.77배** |
+| 4 | 6,150.8 | **229.9** | 1.14배 |
+| 8 | 5,908.1 | **317.0** | 1.57배 |
 
-**Qwen2.5-7B-Instruct Q3_K_M — dense, same harness, same card, same minute:**
+**Qwen2.5-7B-Instruct Q3_K_M — dense, 같은 하네스·카드·분:**
 
-| B | prefill t/s | **decode t/s** | decode vs B=1 |
+| B | 프리필 t/s | **디코드 t/s** | B=1 대비 |
 |---:|---:|---:|---:|
-| 1 | 2 743.8 | **120.7** | 1.00× |
-| 2 | 4 785.7 | **195.5** | 1.62× |
-| 4 | 5 091.6 | **290.7** | 2.41× |
-| 8 | 5 178.7 | **388.5** | 3.22× |
+| 1 | 2,743.8 | **120.7** | 1.00배 |
+| 2 | 4,785.8 | **195.5** | 1.62배 |
+| 4 | 5,091.6 | **290.7** | 2.41배 |
+| 8 | 5,178.7 | **388.5** | 3.22배 |
 
-A decode step carrying two tokens instead of one is **slower in total** than the single-token step on
-the MoE model, and 1.62× faster on the dense one. Batch 3 lands at 194.8 and batch 4 at 227.7, so
-batch 1 is not beaten until four sequences are in flight. Re-run once with `-npl 1,2,3,4`: 201.4,
-155.0, 194.8, 227.7 — the same numbers to about half a percent, so this is not a fluke of one run.
-Prefill scales fine on both, which is what makes the decode column readable: the same weights, the
-same card, the same harness, and only the presence of an expert matmul differs.
+토큰 둘 든 디코드 스텝이 MoE 모델에 토큰 하나 스텝보다 **합계 느리다.** dense는 1.62배 빠르다. 배치 3이 194.8, 배치 4가 227.7이라 1배치는 비행 시퀀스 넷까지 안 깨진다. `-npl 1,2,3,4` 재실행에 201.4·155.0·194.8·227.7 — 0.5% 안 같은 숫자라 한 실행 우연이 아니다. 프리필은 둘 다 스케일돼서 디코드 열이 읽힌다. 같은 가중치·카드·하네스, expert matmul 유무만 다르다.
 
-Two interventions, both measured, both out:
+개입 둘, 다 재봤다, 다 탈락:
 
-* **CUDA graphs are not the cause,** although the code makes them look like it.
-  `ggml/src/ggml-cuda.cu:4493` disables graph capture for any `MUL_MAT_ID` node whose batch is not a
-  single token — the MoE expert matmul, exactly the op the dense model does not have — and the dense
-  model therefore keeps its graph at every batch size while the MoE model loses it at two. That is a
-  clean story and it is wrong: with `GGML_CUDA_DISABLE_GRAPHS=1` the single-stream rate on
-  DeepSeek-V2-Lite goes from 196.8 to 182.7 tok/s, a 7 % effect, and the 1 → 2 collapse survives
-  intact (155.4 aggregate, 78.2 per stream). Graph replay is worth 7 %, not 60 %.
-* **The fused-MoE path is not the cause.** `-no-fmoe` is worse at every stream count — 171.3 / 118.2
-  / 168.8 against 196.8 / 150.2 / 201.8 — so the fused kernel is helping, not standing in the way.
+- **CUDA 그래프가 원인이 아니다.** 코드가 범인처럼 보여도. `ggml/src/ggml-cuda.cu:4493`이 배치 1토큰 아닌 `MUL_MAT_ID` 노드 — 정확히 dense 모델에 없는 MoE expert matmul — 의 그래프 캡처를 끈다. dense 모델은 매 배치 그래프 유지, MoE는 2부터 잃는다. 깨끗한 이야기고 틀렸다. `GGML_CUDA_DISABLE_GRAPHS=1`에 DeepSeek-V2-Lite 싱글스트림이 196.8→182.7 tok/s, 7% 효과. 1→2 붕괴는 온전(합계 155.4, 스트림당 78.2). 그래프 리플레이는 7%어치지 60%가 아니다.
+- **fused-MoE 경로가 원인이 아니다.** `-no-fmoe`가 매 스트림 수에 나쁘다 — 196.8/150.2/201.8 대 171.3/118.2/168.8. fused 커널이 돕지 막지 않는다.
 
-What is left is the batch-2 expert matmul itself, and the tapes point the same way: the effective
-bandwidth toktape derives *falls* with the stream count on ik's MoE takes, 257 → 99 → 74 GB/s, while
-inter-token latency triples. A path that read the union of the experts per step would keep bandwidth
-high and the rate flat; bandwidth falling while latency rises is a decode that is waiting, not
-reading. The plausible shape is the awkward middle of a quantized MoE GEMM — one row per expert is a
-GEMV the kernel is tuned for, two rows is neither that nor a GEMM worth a tiled kernel — and
-[#1785](https://github.com/ikawrakow/ik_llama.cpp/pull/1785) ("Use MMQ for large-batch quantized
-matmuls on Volta") is the same family of problem at the other end of the batch range. **That is a
-hypothesis; the cause is not measured.** Settling it needs per-op timing, and ik has no profiler
-env var, so the next step is nsys or a timing build.
+남는 것은 배치-2 expert matmul 자체다. 테이프도 같은 쪽을 가리킨다. ik MoE 테이크에 toktape 도출 실효 대역폭이 스트림 수에 *떨어진다* — 257→99→74 GB/s. 토큰간 지연은 3배. 스텝당 expert 합집합을 읽는 경로는 대역폭을 높게 두고 속도를 평탄하게 둔다. 대역폭 떨어지고 지연 오르는 디코드는 읽는 게 아니라 기다린다. 유력한 모양은 양자화 MoE GEMM의 어중간한 중간이다 — expert당 1행은 튜닝된 GEMV, 2행은 그것도 타일 커널 감인 GEMM도 아니다. [#1785](https://github.com/ikawrakow/ik_llama.cpp/pull/1785)(Volta 대배치 양자화 matmul에 MMQ)가 배치 범위 다른 끝의 같은 집안 문제다. **가설이다. 원인은 안 쟀다.** 판가름에 per-op 타이밍이 들고, ik에 프로파일러 env가 없어서 다음은 nsys나 타이밍 빌드다.
 
-## The prefill cliff is a different bug, and it is already reported
+## 프리필 벼랑은 다른 버그고, 이미 보고됐다
 
-Running the same command on Qwen3.6-35B-A3B, ik prints the answer itself:
+Qwen3.6-35B-A3B에 같은 명령을 돌리면 ik가 답을 찍는다.
 
 ```
 llama_decode_internal: qwen3next mixed-sequence batch contains repeated seq_id values;
                        falling back to single-token chunking
 ```
 
-| B | prefill t/s | decode t/s |
+| B | 프리필 t/s | 디코드 t/s |
 |---:|---:|---:|
-| 1 | 2 581.9 | 133.8 |
+| 1 | 2,581.9 | 133.8 |
 | 2 | **119.7** | 137.9 |
 | 4 | **119.0** | 157.2 |
 
-`src/llama.cpp:7051` sets `n_tokens = 1` for the whole ubatch when it holds more than one distinct
-sequence *and* a repeated sequence id — which is precisely the shape of several prompts prefilling at
-once. Prefill drops from 2 582 to 119 tok/s, a factor of 21, and that is the 3 391 ms and 10 071 ms
-in the sweep table and the 2 705 ms TTFT recorded on 09-15. The guard came in with
-[#1266](https://github.com/ikawrakow/ik_llama.cpp/pull/1266), the WIP Qwen3Next support, so it is a
-correctness guard bought with throughput rather than an oversight.
+`src/llama.cpp:7051`이 서로 다른 시퀀스 둘 넘고 반복 seq id 있는 ubatch 전체에 `n_tokens = 1`을 박는다 — 동시에 프리필되는 프롬프트 몇 개의 정확한 모양이다. 프리필 2,582→119 tok/s, 21분의 1. 스위프 표의 3,391 ms·10,071 ms와 09-15 기록 2,705 ms TTFT가 그것이다. 가드는 [#1266](https://github.com/ikawrakow/ik_llama.cpp/pull/1266)(WIP Qwen3Next 지원)과 들어왔으니, 통과량으로 산 정확성 가드지 oversight가 아니다.
 
-It is also **already fixed in an open pull request**:
-[#2418](https://github.com/ikawrakow/ik_llama.cpp/pull/2418) (Thireus) reserves the graph-meta space
-that path needs and splits such a ubatch at sequence-run boundaries instead of at every token, so the
-batched path is used where it legitimately can be. Nothing to file here. What this box has that the
-PR body does not is the number — 21× on prefill, 5.6 s of TTFT on a four-user take — so the
-contribution is a measurement on that PR, not an issue of our own. **Posted 2026-09-17 21:12**, as
-[a comment](https://github.com/ikawrakow/ik_llama.cpp/pull/2418#issuecomment-5714136627) carrying the
-batched-bench table, the warning the engine prints, and the three TTFT figures. It says in the text
-that the branch was never built here, so it is the unpatched behaviour and not a verification of the
-fix — that repo's CONTRIBUTING asks contributors not to submit what they have not tested, and the
-same sentence is what keeps a measurement from being read as one. The duplicate search that found it:
-`repo:ikawrakow/ik_llama.cpp "single-token chunking" OR "mixed-sequence"`, which also turns up
-[#1932](https://github.com/ikawrakow/ik_llama.cpp/issues/1932) and the merged
-[#1933](https://github.com/ikawrakow/ik_llama.cpp/pull/1933) on recurrent-state corruption in the
-same path. The decode finding, searched three ways, has no match — it is an upstream candidate and it
-is not filed.
+**열린 PR에 이미 고쳐져 있다.** [#2418](https://github.com/ikawrakow/ik_llama.cpp/pull/2418)이 그 경로의 그래프-메타 공간을 예약하고 ubatch를 토큰마다가 아니라 시퀀스런 경계에 쪼갠다. 합법 자리에 배치 경로를 쓴다. file할 것 여기 없다. 이 상자가 PR 본문에 없는 것은 숫자다 — 프리필 21배, 4유저 테이크 TTFT 5.6초. 기여는 그 PR의 측정이지 우리 이슈가 아니다. **2026-09-17 21:12 게시**, [코멘트](https://github.com/ikawrakow/ik_llama.cpp/pull/2418#issuecomment-5714136627)에 batched-bench 표·엔진 경고·TTFT 셋 담아. 브랜치를 여기서 빌드한 적 없다고 본문에 썼다. 고침 검증이 아니라 미패치 거동이다 — 그 리포 CONTRIBUTING이 안 만져본 것을 내지 말라 하고, 같은 문장이 측정을 측정으로 읽히게 지킨다. 찾아낸 중복 조사: `repo:ikawrakow/ik_llama.cpp "single-token chunking" OR "mixed-sequence"`. 같은 경로 recurrent-state corruption의 [#1932](https://github.com/ikawrakow/ik_llama.cpp/issues/1932)·머지된 [#1933](https://github.com/ikawrakow/ik_llama.cpp/pull/1933)도 나온다. 디코드 발견은 세 갈래 조사에 매치 없음 — 업스트림 후보고 미제출이다.
 
-## What this does to the morning's headline
+## 아침 헤드라인의 처리
 
-"A Rust engine, 24 % slower alone and 90 % faster at four streams" is accurate and it is not a
-statement about Rust, about candle's kernels, or about mistral.rs's scheduler being clever. Read the
-two tables together: mistral.rs's single stream is the *slower* of the two (105 against 129) and its
-scaling is ordinary — 3.09× from eight streams on a memory-bound MoE decode is roughly what the
-arithmetic allows. ik's single stream is the fastest number measured on this card all day, and its
-concurrency is flat. The engine that looks 90 % faster at four streams is the one that is merely not
-leaving the batching on the table.
+"Rust 엔진, 단독 24% 느리고 4스트림 90% 빠름"은 정확하고, Rust·candle 커널·mistral.rs 스케줄러 명석함에 대한 서술이 아니다. 두 표를 같이 읽는다. mistral.rs 싱글스트림이 둘 중 *느린* 쪽(105 대 129)이고 스케일은 평범하다 — 메모리-bound MoE 디코드에 8스트림 3.09배는 산술이 허락하는 근처다. ik 싱글스트림이 그날 이 카드의 가장 빠른 숫자고, 동시성은 평탄하다. 4스트림에 90% 빨라 보이는 엔진은 식탁에 배치를 두고 오지 않은 쪽이다.
 
-That also settles what the morning entry was unsure about. Its open question borrowed the 09-16
-ExLlamaV3 arithmetic — two streams route to different experts, so bytes read scale with streams and
-the aggregate stays flat — and asked why mistral.rs escaped it. The answer is that the arithmetic was
-never a law about MoE decode: on the same model and card, a second stream costs mistral.rs 11 % and
-costs ik 50 %. Whatever ExLlamaV3 and ik share, mistral.rs does not share it.
+아침 기록의 미확정도 풀린다. 열린 질문이 09-16 ExLlamaV3 산술을 빌렸다 — 2스트림이 다른 expert에 라우팅되니 읽기 바이트가 스트림에 비례하고 합계가 평탄하다 — mistral.rs가 왜 비껴갔는지 물었다. 답: 그 산술은 MoE 디코드의 법칙이 아니었다. 같은 모델·카드에 2스트림 비용이 mistral.rs 11%·ik 50%다. ExLlamaV3와 ik가 공유하는 무엇이든 mistral.rs는 공유 안 한다.
 
-One correction from the same session, to a claim in the morning entry that was marked inferred: it is
-measured now. The `-v` server log prints `Preloaded 698 Candle CUDA PTX functions`, so the kernels
-under the mistral.rs numbers are candle's, as the code read said.
+같은 세션 정정 하나. 아침 기록 inferred 표시 주장에 대한 것인데 이제 쟀다. `-v` 서버 로그가 `Preloaded 698 Candle CUDA PTX functions`를 찍는다. mistral.rs 숫자 밑 커널이 코드 리딩대로 candle 것이다.
 
-## State
+## 상태
 
-Measured and settled: ik gains nothing from concurrency on MoE decode and scales normally on dense;
-mistral.rs scales on the same MoE model; CUDA graphs and the fused-MoE path are both ruled out by
-intervention; the Qwen3Next prefill cliff has a named site, a printed warning and an open upstream
-fix. Open: why a two-row expert matmul is slower than a one-row one, which needs per-op timing. Not
-filed: the decode finding, with `llama-batched-bench -npp 238 -ntg 256 -npl 1,2,4,8` on
-DeepSeek-V2-Lite Q3_K_M as its reproducer and the dense model in the same harness as its control.
-
-Tapes: `assets/qwen36-35b-a3b-q6k-{1,2,4,8}stream-{mistralrs,ik}-sweep-0.2.4.tape`. The
-batched-bench tables are console output, not tapes; the command lines above reproduce them.
+측정·판정: ik는 MoE 디코드 동시성 이득 0, dense 정상 스케일. mistral.rs는 같은 MoE 모델에 스케일. CUDA 그래프·fused-MoE 경로 둘 다 개입에 탈락. Qwen3Next 프리필 벼랑은 명명된 자리·찍힌 경고·열린 업스트림 고침. 열림: 2행 expert matmul이 1행보다 느린 이유. per-op 타이밍 필요. 미제출: 디코드 발견. 재현자는 `llama-batched-bench -npp 238 -ntg 256 -npl 1,2,4,8` DeepSeek-V2-Lite Q3_K_M에 dense 모델 같은 하네스 대조.

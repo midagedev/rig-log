@@ -1,253 +1,108 @@
-# A model that fits one card: 132 tok/s, and the ceiling that does not move
+# 한 카드에 드는 모델: 132 tok/s, 안 움직이는 상한
 
-**2026-09-15, 22:49.** Every number in this log for two weeks has been a
-300-billion-parameter model with most of its experts in host RAM, decoding at
-20 tok/s. This is the other end of the same machine: a model that fits whole on
-one card, measured the same way, in a thirty-second window at the end of the
-night.
+**2026-09-15 22:49.** 2주간 이 로그의 모든 숫자가 expert 대부분 호스트 RAM에 있는 3천억 모델의 20 tok/s였다. 같은 기계의 다른 끝이다. 카드에 통째로 드는 모델, 같은 재기, 밤 끝 30초 창.
 
-## The file, and why this one
+## 파일, 그리고 이 파일인 이유
 
-`unsloth/Qwen3.6-35B-A3B-GGUF`, UD-Q6_K, 27.3 GiB — 35 B parameters total but
-the router picks 8 experts of 256 a layer, so about 3 B are read per token. That
-ratio is the whole point: the weights that have to be read for one token fit in
-a fraction of the card, and the rest of the model sits resident without costing
-bandwidth. Q6_K rather than a smaller quant because the card has room for it and
-this is the value question, not the compression question. ik_llama.cpp at
-c10fbbcc (its `qwen35moe` arch), `-ngl 99 -fa on`, no `-ot` and no CPU tail,
-`CUDA_VISIBLE_DEVICES=0` so the 24 GB card is not even in the picture. The 48 GB
-card ends up 28.3 GiB full with 32k of context.
+`unsloth/Qwen3.6-35B-A3B-GGUF`, UD-Q6_K, 27.3 GiB — 파라미터 35 B지만 라우터가 층마다 256 중 8 expert를 골라 토큰당 ~3 B를 읽는다. 그 비율이 요점 전부다. 토큰당 읽는 가중치가 카드 일부에 들고, 나머지 모델은 대역폭 안 내고 상주한다. 작은 퀀트가 아니라 Q6_K인 이유는 카드에 자리 있어서다. 값 문제지 압축 문제가 아니다. ik c10fbbcc(`qwen35moe` 아키), `-ngl 99 -fa on`, `-ot`·CPU 꼬리 없음, `CUDA_VISIBLE_DEVICES=0`이라 24 GB 카드는 그림에도 없다. 48 GB 카드가 컨텍스트 32k에 28.3 GiB 찬다.
 
-Fetched with [`tools/fetch-gguf.sh`](../tools/fetch-gguf.sh) in six minutes;
-the same file over one connection was on course for seventeen.
+[`tools/fetch-gguf.sh`](../tools/fetch-gguf.sh)에 6분 수령. 같은 파일 1연결이면 17분 코스였다.
 
-| 22:49, `contended: no`, io avg10 0.9 | one stream | four streams (`-np 4`) |
+| 22:49, `contended: no`, io avg10 0.9 | 1스트림 | 4스트림(`-np 4`) |
 |---|---:|---:|
-| decode | **132 tok/s** | 37.5 tok/s each, **149 aggregate** |
-| derived bandwidth | ≈ 392 GB/s, **51 %** of the card's 768 | — |
-| TTFT | 146 ms | 2705 ms (176-token prompts) |
-| tokens out | 132 | 1025 over four streams |
+| 디코드 | **132 tok/s** | 각 37.5 tok/s, **합계 149** |
+| 도출 대역폭 | ≈ 392 GB/s, 카드 768의 **51%** | — |
+| TTFT | 146 ms | 2705 ms(176토큰 프롬프트) |
+| 출력 토큰 | 132 | 4스트림 합 1025 |
 | VRAM | 28.3 / 48.0 GiB | 28.5 / 48.0 GiB |
-| host RSS | 1.4 GiB | 2.1 GiB |
-| GPU power | 252 W, throttled | 293 W, throttled |
+| 호스트 RSS | 1.4 GiB | 2.1 GiB |
+| GPU 전력 | 252 W, throttled | 293 W, throttled |
 
-Clips: [one stream](https://drive.google.com/file/d/1jLwDpwliowrSvA_OFgAHYaZ5P0U0ldVO/view?usp=drivesdk)
-(7 s — the answer takes 1.1 s, which is the point) and
-[four streams](https://drive.google.com/file/d/1n29oTEWqVAKzSOkseMdj_1BqJIw733AQ/view?usp=drivesdk)
-(36 s). Recorded with [toktape](https://github.com/midagedev/toktape) v0.2.3;
-tapes `assets/qwen36-35b-a3b-q6k-1stream.tape` and `-4stream.tape`.
+클립: [1스트림](https://drive.google.com/file/d/1jLwDpwliowrSvA_OFgAHYaZ5P0U0ldVO/view?usp=drivesdk)(7초 — 답이 1.1초에 나온다. 그게 요점)과 [4스트림](https://drive.google.com/file/d/1n29oTEWqVAKzSOkseMdj_1BqJIw733AQ/view?usp=drivesdk)(36초). [toktape](https://github.com/midagedev/toktape) v0.2.3 녹음. 테이프 `assets/qwen36-35b-a3b-q6k-1stream.tape`·`-4stream.tape`.
 
-## 132 tok/s is half of the card, which is about what the RAM path gets too
+## 132 tok/s는 카드 절반, RAM 경로도 대개 그렇다
 
-The single-stream figure lands at 392 GB/s of derived read against the A6000's
-768 GB/s — **51 %**. The served 440 GiB model on the same box reaches 79.8
-GB/s of a 147.7 GB/s host bus — **54 %** — and today's ExLlamaV3 arm was in the
-same neighbourhood. Six times the tok/s, about the same fraction of the
-available bandwidth: a decode step keeps roughly half of a memory system,
-whether that memory is GDDR6 on a card or DDR4 behind eight channels. The
-absolute number changes with the bus, the efficiency does not.
+싱글스트림이 도출 읽기 392 GB/s에 닿는다. A6000 768 대비 **51%**다. 같은 상자 서빙 440 GiB 모델이 호스트 버스 147.7 중 79.8 GB/s — **54%** — 오늘 ExLlamaV3 arm도 같은 동네다. tok/s 6배, 가용 대역폭 분율은 대개 같다. 디코드 스텝이 메모리 시스템 절반을 쓴다. 카드의 GDDR6이든 8채널 뒤 DDR4든. 절대 숫자는 버스에 따라 바뀌고, 효율은 안 바뀐다.
 
-> ~~46 % of the card's 768 GB/s.~~ **Corrected the same night.** 392 against
-> 768 is 51 %, not 46 %, and the 46 % was the recorder's, not mine to repeat:
-> toktape derives the peak from its *predicted* placement, which reads the
-> GGUF and the command line but not `CUDA_VISIBLE_DEVICES`, so it split the
-> model across both cards and mixed the 3090's 936 GB/s into the denominator —
-> (1.274×768 + 1.696×936) / 2.970 = 864 GB/s, and 392/864 = 46 %. The same
-> tape carries the contradiction: `placement` predicts 13.1 GiB on GPU1 while
-> `gpus_at_end` measures GPU1 at 1 MiB. Sent to the recorder, which confirmed
-> it and closed it at the source the same night: when an *estimated* placement
-> puts at least a GiB on a device the end reading measures under a quarter of
-> that, the ratio is not printed at all and `card --explain` says why —
-> "placement ? — contradicted: GPU1 is estimated to hold 14.044 GB and held
-> 0.001 GB, so no ceiling is derived from the split" — with a caveat on the
-> card naming the device and both figures. The measured 392 GB/s stays, because
-> that one is active bytes × the measured rate and owes nothing to the split.
-> Re-rendered from these tapes on the recorder's `f592cee`, which this machine
-> has not built yet, so that rendering is theirs and not a measurement of mine.
-> The honest denominator for a single-card run is that card.
+> ~~카드 768 GB/s의 46%.~~ **같은 날 밤 정정.** 392 대 768은 51%지 46%가 아니다. 46%는 녹음기 것이지 따라할 내 것이 아니다. toktape가 피크를 *예측* 배치에서 도출하는데, GGUF와 명령줄은 읽고 `CUDA_VISIBLE_DEVICES`는 안 읽어서, 모델을 양 카드에 나누고 분모에 3090의 936 GB/s를 섞었다 — (1.274×768 + 1.696×936) / 2.970 = 864 GB/s에 392/864 = 46%. 같은 테이프가 모순을 싣고 있다. `placement`가 GPU1에 13.1 GiB를 예측하는데 `gpus_at_end`가 GPU1을 1 MiB에 잰다. 녹음기에 보내서 확인하고 같은 날 밤 원천에 닫았다. *추정* 배치가 끝 읽기 4분의 1 미만을 재는 장치에 1 GiB 이상 올리면 비율을 안 찍고 `card --explain`이 이유를 말한다 — "placement ? — contradicted: GPU1 is estimated to hold 14.044 GB and held 0.001 GB, so no ceiling is derived from the split" — 장치·두 수치 지목 caveat 카드에 달고. 실측 392 GB/s는 산다. active 바이트 × 실측 속도라 분할에 빚진 것이 없어서다. 녹음기 `f592cee`에서 이 테이프들 재렌더했는데, 이 기계가 아직 안 빌드해서 그 렌더링은 걔네 것이지 내 측정이 아니다. 싱글카드 실행의 정직한 분모는 그 카드다.
 
-## Four streams buy 13 %, and that closes the day's argument
+## 4스트림이 13%를 산다, 그날 논증이 닫힌다
 
-Four concurrent streams decode 37.5 tok/s each against 132 solo, for 149
-aggregate — **13 % more total throughput for four times the clients**. This is
-the third engine and the second kind of memory to give the same answer today.
-Two streams on ExLlamaV3 with experts in host RAM: per stream exactly half,
-aggregate within 5 % of solo. The MTP draft at 97 % acceptance: +12 %. And now
-four streams entirely inside a card: +13 %.
+동시 4스트림이 각 37.5 tok/s에 solo 132 — **클라이언트 4배에 총처리량 13%**다. 오늘 같은 답을 낸 세 번째 엔진·두 번째 메모리 종류다. 호스트 RAM expert의 ExLlamaV3 2스트림: 스트림당 정확히 절반, 합계 solo 5% 안. 97% accept MTP draft: +12%. 이제 카드 안 4스트림: +13%.
 
-The reason is the same each time, and it is the property of a sparse model
-rather than of a machine. A decode step reads the experts its token routes to.
-Two tokens from two streams route independently, so the step reads close to
-twice the rows and produces twice the tokens; tokens per byte barely moves, and
-a bandwidth-bound step cannot go faster than its bytes. What batching buys on a
-dense model — one weight read serving many tokens — is exactly what a
-mixture-of-experts gives up. Four clients are still worth serving: each one
-gets 37.5 tok/s, which is faster than reading, and the alternative is three of
-them waiting.
+이유는 매번 같고, 기계가 아니라 sparse 모델의 속성이다. 디코드 스텝이 토큰이 라우팅된 expert를 읽는다. 두 스트림 두 토큰이 독립 라우팅이라 스텝이 행을 거의 2배 읽고 토큰을 2배 낸다. 바이트당 토큰이 거의 안 움직이고, 대역폭-bound 스텝은 바이트보다 못 빨라진다. dense 모델에 배치가 사는 것 — 한 가중치 읽기가 토큰 여럿에 봉사 — 이 mixture-of-experts가 내놓는 정확히 그것이다. 클라이언트 넷은 그래도 서빙 값어치 있다. 각자 37.5 tok/s, 읽는 것보다 빠르다. 대안은 셋이 기다리는 것이다.
 
-One honest limit on the pair, and one that the next section closes. The A6000
-reports `throttled: yes` at 252 W solo and 293 W at four streams, so some of
-the gap to the card's peak could be the card protecting itself rather than the
-memory path — that is what the power sweep below was for. And the 4-stream card's derived bandwidth line reads 111 GB/s because it
-multiplies the *per-stream* rate by the model's active bytes — for concurrent
-streams the honest figure is a range between that and the aggregate rate, since
-the recorder cannot know how much the four tokens' expert sets overlapped.
-Sent to the recorder as a finding rather than used as a number.
+쌍의 정직한 제한 하나, 다음 절이 닫는 것 하나. A6000이 solo 252 W·4스트림 293 W에 `throttled: yes`를 보고해서, 카드 피크 간격 일부가 메모리 경로가 아니라 자기 보호일 수 있다 — 아래 전력 스위프가 물을 자리였다. 4스트림 카드의 도출 대역폭 줄이 111 GB/s를 읽는데, *스트림당* 속도에 모델 active 바이트를 곱해서다. 동시 스트림의 정직한 숫자는 그 사이 범위다. 네 토큰 expert 집합 겹침을 녹음기가 모른다. 숫자로 쓰지 말고 녹음기에 finding으로 보냈다.
 
-## "Slower than I expected" — three arms, and the wrong premise was mine
+## "예상보다 느림" — arm 셋, 틀린 전제는 내 것
 
-132 tok/s read as disappointing, which is the right reaction: this is a 3 B-active
-model on a card with 768 GB/s, and half a memory system is not a satisfying
-answer. Three arms in the twenty minutes that were left, all one stream, all the
-same prompt, all on the quiet machine with the lease held.
+132 tok/s가 실망으로 읽혔다. 맞는 반응이다. 768 GB/s 카드의 3 B-active 모델에 메모리 시스템 절반은 만족스러운 답이 아니다. 남은 20분에 arm 셋, 전부 1스트림·프롬프트 동일·임대 잡은 조용한 기계.
 
-### Fewer bytes per token: UD-Q4_K_XL
+### 토큰당 바이트 줄이기: UD-Q4_K_XL
 
-I predicted 175–190 tok/s if the run was bandwidth-bound, on the premise that
-UD-Q4_K_XL reads about 35 % fewer bytes per token than UD-Q6_K. **The premise was
-wrong**, and the tape said so before the take ran. The file is 24 % smaller; the
-per-token read is 7.3 % smaller, because a token does not read the file. It reads
-all of the attention, all of the output layer, and 8 experts of 256:
+대역폭-bound면 175–190 tok/s를 예측했다. UD-Q4_K_XL이 UD-Q6_K보다 토큰당 바이트 ~35% 적다는 전제에서다. **전제가 틀렸다.** 테이프가 테이크 전에 말했다. 파일이 24% 작다. 토큰당 읽기는 7.3% 작다. 토큰이 파일을 읽지 않아서다. 어텐션 전부, 출력층 전부, 256 중 8 expert를 읽는다.
 
-| per-token read, from the GGUF | UD-Q6_K | UD-Q4_K_XL |
+| 토큰당 읽기, GGUF에서 | UD-Q6_K | UD-Q4_K_XL |
 |---|---:|---:|
-| attention — every token | 1.092 GB | 1.092 GB |
-| output — every token | 0.540 | 0.540 |
-| other — every token | 0.287 | 0.287 |
-| router + shared expert — every token | 0.218 | 0.218 |
-| the 8 routed experts of 256 | 0.832 | 0.615 |
-| **active bytes/token** | **2.970 GB** | **2.753 GB** |
-| the whole file on disk | 27.3 GiB | 20.8 GiB |
+| 어텐션 — 매 토큰 | 1.092 GB | 1.092 GB |
+| 출력 — 매 토큰 | 0.540 | 0.540 |
+| other — 매 토큰 | 0.287 | 0.287 |
+| 라우터 + shared expert — 매 토큰 | 0.218 | 0.218 |
+| 256 중 라우팅 8 expert | 0.832 | 0.615 |
+| **토큰당 active 바이트** | **2.970 GB** | **2.753 GB** |
+| 디스크 전체 파일 | 27.3 GiB | 20.8 GiB |
 
-The always-read tensors are byte-for-byte identical across the two quants —
-2.138 GB of the read either way, which is 72 % of a Q6_K token and 78 % of a
-Q4_K_XL one. That is what "UD" means: unsloth's dynamic quant spends its bits on
-attention and output and takes them out of the routed experts — the right trade
-for quality, and almost no trade for speed, because the routed experts are the
-only part a smaller quant touches and they are a quarter of what a token reads.
+항상 읽는 텐서는 두 퀀트에 바이트 동일하다 — 어느 쪽도 토큰당 2.138 GB. Q6_K 토큰의 72%, Q4_K_XL 토큰의 78%다. "UD" 뜻이 그것이다. unsloth dynamic 퀀트가 비트를 어텐션·출력에 쓰고 routed expert에서 뺀다 — 품질에 맞는 트레이드고, 속도에 거의 트레이드 아니다. 작은 퀀트가 손대는 routed expert가 토큰 읽기의 4분의 1이라서다.
 
-Which makes the arm a sharper test than the one I proposed. Seven percent fewer
-bytes:
+그래서 arm이 내가 낸 것보다 날카로운 테스트다. 바이트 7% 적게:
 
-| one stream, one card | UD-Q6_K | UD-Q4_K_XL |
+| 1스트림 1카드 | UD-Q6_K | UD-Q4_K_XL |
 |---|---:|---:|
-| decode | 132 tok/s | **140 tok/s** |
-| active bytes/token | 2.970 GB | 2.753 GB |
-| derived bandwidth | 392 GB/s | 387 GB/s |
+| 디코드 | 132 tok/s | **140 tok/s** |
+| 토큰당 active 바이트 | 2.970 GB | 2.753 GB |
+| 도출 대역폭 | 392 GB/s | 387 GB/s |
 
-7.3 % fewer bytes bought 6.4 % more tokens, and the achieved bandwidth is the
-same number twice. That is what bandwidth-bound looks like from the inside: not
-"the smaller quant is faster" but "the rate is bytes divided by a constant", and
-the constant is about 390 GB/s.
+바이트 7.3% 적게 토큰 6.4% 더 많이 샀다. 달성 대역폭이 두 번 같은 숫자다. 안에서 본 bandwidth-bound가 그것이다. "작은 퀀트가 빠르다"가 아니라 "속도는 바이트를 상수로 나눈 것"이고, 상수는 ~390 GB/s다.
 
-> ~~Summing the placement classes by hand gives 2.76 and 2.54 GB, a constant
-> 0.21 GB below toktape's two numbers, so the derived GB/s may be ~8 % high.~~
-> **Withdrawn within the hour, and the answer was on the card.** My hand sum
-> scaled the whole `experts` class by 8/256, but that class holds the per-layer
-> router and the shared expert as well, and those are read on every token
-> whichever experts the router picks. 217.9 MB of them: (1 − 8/256) × 217.9 MB
-> = 211,097,600 bytes, which is the constant gap to the byte in both tapes, and
-> reconstructing the figure that way reproduces `active_bytes_per_token`
-> exactly — 2,969,684,480 and 2,752,563,712, delta zero. `toktape card
-> --explain` prints the split (`experts sparse 19.671 GB + dense 0.218 GB
-> (router + shared expert, read in full)`); I derived a discrepancy instead of
-> reading the line that resolves it. The derived GB/s is not 8 % high, and the
-> per-token table above now carries the decomposition rather than my sum.
+> ~~배치 클래스를 손으로 합하면 2.76과 2.54 GB. toktape 두 숫자 밑에 상수 0.21 GB라서, 도출 GB/s가 ~8% 높을 수 있다.~~ **한 시간에 철회. 답은 카드에 있었다.** 손합이 `experts` 클래스 전부를 8/256에 스케일했는데, 그 클래스에 층별 라우터와 shared expert도 들어 있고 그건 라우터 선택 무관 매 토큰 읽는다. 217.9 MB. (1 − 8/256) × 217.9 MB = 211,097,600 바이트. 두 테이프의 상수 간격을 바이트에 맞춘다. 그렇게 재구성하면 `active_bytes_per_token`이 정확히 재현된다 — 2,969,684,480과 2,752,563,712, delta 0. `toktape card --explain`이 분할을 찍는다(`experts sparse 19.671 GB + dense 0.218 GB (router + shared expert, read in full)`). 해소 줄을 읽지 않고 불일치를 도출했다. 도출 GB/s가 8% 높지 않다. 위 토큰당 표가 이제 내 합 대신 그 분해를 싣는다.
 
-### It is not the power cap
+### 전력 캡이 아니다
 
-`throttled: yes` sat in every card of the day, so the cap was the live suspect.
-The A6000's board limit is settable from 100 to 300 W, so: one model, one prompt,
-three caps, nothing else moved.
+`throttled: yes`가 그날 모든 카드에 앉아서 캡이 살아 있었다. A6000 보드 제한이 100–300 W에 박히니. 모델 하나·프롬프트 하나·캡 셋, 다른 것 고정.
 
-| A6000 board cap | drawn | core clock | decode | derived |
+| A6000 보드 캡 | 소모 | 코어 클럭 | 디코드 | 도출 |
 |---:|---:|---:|---:|---:|
 | 300 W | 281 W | 1950 MHz | 141 tok/s | 387 GB/s |
 | 200 W | 199 W | 1710 MHz | 133 tok/s | 367 GB/s |
 | 150 W | 150 W | 1335 MHz | 120 tok/s | 331 GB/s |
 
-Taking away 47 % of the power budget costs 15 % of the rate; taking away 32 % of
-the core clock costs the same 15 %. Decode scales with neither, so the missing
-half of the card is not the cap — at the top, the last 131 W of the 300 W budget
-is worth 21 tok/s. Power is a minor contributor there (300 → 200 W is a real
-6 %) and not the explanation. The cap was restored to 300 W, which is all the
-sweep touched.
+전력 예산 47%를 빼앗으면 속도 15%. 코어 클럭 32%를 빼앗으면 같은 15%. 디코드가 어느 쪽도 안 탄다. 카드 절반 실종이 캡이 아니다 — 꼭대기에서 300 W 예산 뒤 131 W가 21 tok/s어치다. 전력은 거기 minor 기여자다(300→200 W가 진짜 6%). 설명이 아니다. 캡을 300 W에 복원했다. 스위프가 손댄 전부다.
 
-It also says something about the flag. `throttled: yes` appears in all three
-rows — in the 150 W run where the cap is demonstrably binding and in the 300 W
-run where this sweep proves it is not. A warning that fires in both cases
-carries no information; sent to the recorder with these rows as the evidence,
-suggesting draw-against-cap headroom instead of a boolean. Confirmed there and
-closed the same way: `sw power cap` is set on any card boosting into its own
-limit, so the card now prints the draw against the sampled limit (`281 of
-300 W`) and reserves the `throttled:` verdict for the bits that mean the device
-was held below what its own settings allow — hardware slowdown, thermal, power
-brake, sync boost — with the full mask kept in the tape so a surprising verdict
-can be explained from the recording rather than from the box. These three tapes
-were recorded before the limit and the mask were sampled, so they cannot show
-the new row; it arrives free with the next take.
+플래그에 대해서도 말한다. `throttled: yes`가 세 행 전부 나온다 — 캡이 demonstrably 묶는 150 W 실행에도, 이 스위프가 안 묶음을 증명하는 300 W 실행에도. 두 경우 다 울리는 경고는 정보가 없다. 이 행들을 증거에 녹음기에 보냈다. boolean 대신 cap 대비 소모 headroom을 권했다. 거기 확인하고 같은 대로 닫았다. `sw power cap`은 자기 제한에 부스트로 들어가는 카드에 박힌다. 카드가 이제 샘플 제한 대비 소모를 찍는다(`281 of 300 W`). `throttled:` 판정은 장치가 자기 설정 밑에 묶인 비트에 남긴다 — 하드웨어 slowdown·열·전력 브레이크·sync boost. 전 마스크는 테이프에 둬서 놀라운 판정을 상자가 아니라 녹음에서 설명한다. 세 테이프는 제한·마스크 샘플 전에 녹음돼서 새 행을 못 보여준다. 다음 테이크에 공짜로 온다.
 
-That narrowing has a reading worth stating, because this sweep is the case that
-exposes it: a re-record of the 150 W arm renders `150 of 150 W · throttled: no`.
-Which is the correct implementation of the definition — a board held at exactly
-the limit its operator set is running inside its own settings — and is also the
-one run of the three that a warning would have been *right* about, since it lost
-15 % of its rate to that setting. The word does the wrong work; the row beside
-it does the right work, and `150 of 150 W` against `281 of 300 W` is the whole
-story in eight characters. So the boolean is not where this belongs: what
-separates them is whether the draw stayed pinned to the limit or merely touched
-it, which is a reduction over the decode window rather than a flag. Filed at
-the recorder as TTP-102 with these two rows as its evidence — the samples are
-already in the tape.
+좁히기의 읽을 만한 해석이 있다. 이 스위프가 드러내는 경우라서다. 150 W arm 재렌더가 `150 of 150 W · throttled: no`를 찍는다. 정의의 정확한 구현이다 — 운영자가 박은 제한 정확히에 묶인 보드는 자기 설정 안에서 돈다. 세 실행 중 경고가 *맞을* 유일한 실행이기도 하다. 그 설정에 속도 15%를 잃어서다. 단어가 틀린 일을 한다. 옆 행이 맞는 일을 하고, `281 of 300 W` 대 `150 of 150 W`가 여덟 글자에 이야기의 전부다. boolean은 있을 자리가 아니다. 나누는 것은 소모가 제한에 박혔는지 스쳤는지다. 플래그가 아니라 디코드 창의 reduction이다. 녹음기에 TTP-102로 filed, 증거에 이 두 행 — 샘플은 이미 테이프에 있다.
 
-### It is not the expert gather either
+### expert gather도 아니다
 
-The second suspect was the gather: a token's 8-of-256 routing reads 320 small
-slabs across 40 layers, and scattered reads do not saturate a bus. The control is
-a dense model on the same card, same engine, same prompt, batch 1 — where a
-token reads its whole weight set contiguously.
+두 번째 용의자는 gather였다. 토큰의 8-of-256 라우팅이 40층에 320개 작은 slab을 읽고, 흩어진 읽기가 버스를 못 채운다. 대조는 같은 카드·엔진·프롬프트·배치 1의 dense 모델이다 — 토큰이 가중치셋 전체를 연속으로 읽는 곳.
 
-| one stream, one card | Qwen3.6-35B-A3B UD-Q4_K_XL | Qwen2.5-7B dense Q3_K_M |
+| 1스트림 1카드 | Qwen3.6-35B-A3B UD-Q4_K_XL | Qwen2.5-7B dense Q3_K_M |
 |---|---:|---:|
-| active bytes/token | 2.753 GB | 3.568 GB |
-| decode | 140 tok/s | 118 tok/s |
-| derived bandwidth | 387 GB/s | 421 GB/s |
-| board power at the sample | 281 W | 298 W |
+| 토큰당 active 바이트 | 2.753 GB | 3.568 GB |
+| 디코드 | 140 tok/s | 118 tok/s |
+| 도출 대역폭 | 387 GB/s | 421 GB/s |
+| 샘플 시 보드 전력 | 281 W | 298 W |
 
-Dense reaches 421 GB/s against the MoE's 387 — 9 % better, not 60 %. Whatever
-holds this machine at half of 768 GB/s holds a contiguous dense read almost as
-hard as a scattered expert read, so the gather is not the missing half either.
+dense가 MoE 387 대 421 GB/s에 닿는다 — 9%지 60%가 아니다. 768 GB/s 절반에 이 기계를 묶는 무엇이든 연속 dense 읽기를 흩어진 expert 읽기와 대개 같이 묶는다. gather가 잃은 절반이 아니다.
 
-That leaves the question open rather than answered, and the entry should say so.
-The control is also a different quantisation family (Q3_K against Q4_K/Q6_K), so
-"the k-quant dequantisation path" and "this engine's batch-1 ceiling on this
-card" are both still standing and this arm cannot separate them. The experiment
-that would: the same weights at Q8_0 or fp16, where dequantisation is cheap or
-absent, at a size that still fits one card. Named, not guessed — it is
-[WKS-30](../docs/v41-experiment-plan.md), with these three rows as its measured
-state and the bus probe as its second arm.
+그래서 묻지 답하지 않고 둔다. 대조가 양자화 집안도 다르다(Q4_K/Q6_K 대 Q3_K). "k-quant 풀기 경로"와 "이 카드 이 엔진 배치-1 상한"이 둘 다 서 있다. 이 arm이 못 나눈다. 나눌 실험: 같은 가중치를 Q8_0·fp16에. 풀기가 싸거나 없고, 크기가 1카드에 드는. 지목이지 추측 아니다. [WKS-30](../docs/v41-experiment-plan.md)이다. 측정한 상태에 이 세 행, 두 번째 arm에 버스 프로브.
 
-What is settled is the shape of the lever. The only way to decode faster here is
-to read fewer bytes per token, and on this model 72–78 % of that read is the
-dense core the quant deliberately keeps wide — so a smaller expert quant buys
-6 %, and
-the things that actually move it are a draft that gets more tokens per read
-(MTP: +12 % today) or more clients per read (four streams: +13 %).
+판정한 것은 레버 모양이다. 여기서 더 빨리 디코드하는 유일한 길은 토큰당 바이트를 덜 읽는 것이다. 이 모델 그 읽기의 72–78%가 퀀트가 일부러 넓게 두는 dense 코어다 — 작은 expert 퀀트가 6%를 사고, 실제 움직이는 것은 읽기당 토큰을 더 내는 draft(MTP: 오늘 +12%)나 읽기당 클라이언트를 더 얹는 것(4스트림: +13%)이다.
 
-One row from the control is worth keeping for its own sake: **the 35 B
-mixture-of-experts decodes faster than the dense 7 B.** 140 against 118, because
-it reads 2.75 GB per token against 3.57. Five times the parameters, three
-quarters of the read, twenty percent more tokens per second — the whole case for
-sparse weights on one card, in one line.
+대조에서 한 행은 그 자체로 둘 가치 있다. **35 B mixture-of-experts가 dense 7 B보다 빨리 디코드한다.** 118 대 140. 토큰당 3.57 대 2.75 GB를 읽어서다. 파라미터 5배, 읽기 4분의 3, 초당 토큰 20% 더 — 1카드 sparse 가중치의 전부 논거가 한 줄에 있다.
 
-Tapes for the three arms: `assets/qwen36-35b-a3b-q4kxl-1stream.tape`,
-`-q4kxl-pl200.tape`, `-q4kxl-pl150.tape`, `assets/qwen25-7b-dense-1stream.tape`.
+세 arm 테이프: `assets/qwen36-35b-a3b-q4kxl-1stream.tape`, `-q4kxl-pl200.tape`, `-q4kxl-pl150.tape`, `assets/qwen25-7b-dense-1stream.tape`.
 
-## What it costs
+## 값
 
-At 2026 street prices the A6000 is the expensive half of this machine, and this
-model does not need it: 27.3 GiB of weights plus 32k of context fits inside 32
-GB, so a single 5090 or a used 3090 pair would serve the same file. The
-measurement that matters for that claim is not this one — it is the same file
-on the 24 GB card with a smaller quant, which is the next window's work and is
-[WKS-25](../docs/upstream-contributions.md)'s actual question.
+2026년 실거래가에 A6000이 이 기계의 비싼 절반인데, 이 모델은 그 카드가 필요 없다. 가중치 27.3 GiB에 컨텍스트 32k가 32 GB 안에 든다. 5090 하나나 중고 3090 둘이 같은 파일을 서빙한다. 그 주장에 의미 있는 측정은 이것이 아니다 — 24 GB 카드에 작은 퀀트로 같은 파일이다. 다음 창의 일이고, WKS-25의 실제 질문이다.

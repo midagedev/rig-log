@@ -1,45 +1,43 @@
-# A quiet machine is a protocol, not a state
+<!-- 이 문서는 2026-09-18에 이 기계의 DeepSeek-V4.1-Flash가 영어 원문에서 번역했고,
+     리드가 읽고 여섯 군데를 고쳤다. 측정에 쓰인 영어 원문은
+     assets/translation-ladder-2026-09-18-source.md 에 그대로 있다.
+     번역이 어떻게 측정됐는지는 log/2026-09-18-c-a-local-model-translates-the-log.md -->
 
-*Written 2026-09-13 after one day in which three measurement jobs ran into
-each other five times on one workstation. The incidents are in
-[`log/2026-09-13-deepseek-v41-on-ik-llama.md`](../log/2026-09-13-deepseek-v41-on-ik-llama.md);
-this is the method that comes out of them.*
+# 조용한 머신은 상태가 아니라 프로토콜이다
 
-Every number in this repo is supposed to come from a quiet box. Today showed
-that "quiet" was being decided by three different signals owned by three
-different scripts, and that none of them could see the thing that actually
-made the box busy. The fix has three layers, in the order this repo's method
-asks for: close the class of failure structurally, turn it into a check that
-fails, and make the next occurrence diagnosable from the data rather than
-from a hand-built timeline.
+*한 워크스테이션에서 세 개의 측정 작업이 다섯 번 서로 부딪힌 하루를 보낸 뒤 2026-09-13에 썼다. 그 사건들은
+[`log/2026-09-13-deepseek-v41-on-ik-llama.md`](../log/2026-09-13-deepseek-v41-on-ik-llama.md)에 있다;
+이 글은 그 사건들에서 나온 방법이다.*
 
-## What went wrong, concretely
+이 레포의 모든 숫자는 조용한 박스에서 나온 것이어야 한다. 오늘 드러난 것은 "조용함"이 서로 다른 세 스크립트가
+소유한 세 가지 신호에 의해 결정되고 있었고, 그중 어느 것도 실제로 박스를 바쁘게 만든 것을 보지 못한다는
+점이었다. 수정은 이 레포의 방법이 요구하는 순서대로 세 계층이다. 실패의 부류를 구조적으로 닫고, 실패하는
+검사로 바꾸고, 다음번 발생을 손으로 만든 타임라인이 아니라 데이터로 진단할 수 있게 만든다.
 
-Five collisions, one root:
+## 구체적으로 무엇이 잘못됐나
 
-1. A CPU kernel benchmark ran two baselines while a 200 GB model was loading
-   alongside. Its gate was the load average, which stayed under 4 for the
-   first minutes of a load that is bound on NVMe reads, not CPU.
-2. A stopped orchestration chain had already launched a sweep with `setsid`.
-   Stopping the local waiter did not stop the remote script. A second sweep
-   was launched to the same log path in the same minute; two 200 GB loads
-   overlapped, one server died allocating 27 GB of VRAM that the other held.
-3. The first sweep's exit handler removed the shared busy flag from under the
-   second, and the kernel benchmark, seeing no flag, ran a five-minute thread
-   sweep into the second load.
-4. The kernel benchmark's follow-up runs used a load-average gate of their own
-   and ran into two more loads (15:13, 15:25) for the same reason as in 1.
-5. Every one of these was found afterwards by reading timestamps in three log
-   files and lining them up by hand. Twice.
+다섯 번의 충돌, 하나의 뿌리:
 
-The three signals in play were `/tmp/rig-quiet` (the repack scripts pause on
-it), `/tmp/cpu-busy.flag` (the sweep sets it, the benchmark was asked to honour
-it), and `loadavg < 4` (what the benchmark actually checked). Each was right
-for the script that wrote it and invisible to the others.
+1. CPU 커널 벤치마크가 200 GB 모델이 함께 로딩되는 동안 두 개의 베이스라인을 돌렸다. 그 게이트는
+   load average였고, 이는 NVMe 읽기에 묶인 로드의 첫 몇 분 동안 4 아래로 유지됐다. CPU에 묶인 것이
+   아니었다.
+2. 멈춘 오케스트레이션 체인이 이미 `setsid`로 스윕을 하나 띄워 둔 상태였다. 로컬 대기자를 멈춰도
+   원격 스크립트는 멈추지 않았다. 같은 분에 같은 로그 경로로 두 번째 스윕이 시작됐고, 두 개의 200 GB
+   로드가 겹쳤으며, 한 서버가 다른 쪽이 쥐고 있던 27 GB의 VRAM을 할당하다 죽었다.
+3. 첫 번째 스윕의 종료 핸들러가 두 번째 스윕 밑에서 공유 busy 플래그를 제거했고, 플래그가 없는 것을
+   본 커널 벤치마크가 두 번째 로드 속으로 5분짜리 스레드 스윕을 돌렸다.
+4. 커널 벤치마크의 후속 런들은 자체적인 load-average 게이트를 사용했고, 1번과 같은 이유로 두 번의
+   로드(15:13, 15:25)와 더 부딪혔다.
+5. 이 모든 것은 사후에 세 개의 로그 파일에서 타임스탬프를 읽고 손으로 맞춰서 찾아냈다. 두 번.
 
-## Layer 1 — one owner for "busy"
+작동한 세 신호는 `/tmp/rig-quiet`(repack 스크립트가 이걸 보고 멈춘다),
+`/tmp/cpu-busy.flag`(스윕이 설정하고, 벤치마크는 이를 존중하라는 요청을 받았다), 그리고
+`loadavg < 4`(벤치마크가 실제로 확인한 것)였다. 각각은 자기를 쓴 스크립트에게는 옳았고 다른
+쪽에게는 보이지 않았다.
 
-There is one lease, one file, one tool. `tools/quiet/lease.sh`:
+## 계층 1 — "busy"의 소유자는 하나
+
+임대는 하나, 파일은 하나, 도구는 하나다. `tools/quiet/lease.sh`:
 
 ```
 lease.sh acquire <reason>   # flock the lease file, write "<pid> <reason> <start>"; refuse if held
@@ -48,136 +46,115 @@ lease.sh release            # remove the lease only if the pid in it is ours
 lease.sh status             # print holder, age, and the quietness signals
 ```
 
-"Quiet" is not the load average. It is all of:
+"조용함"은 load average가 아니다. 다음 전부다:
 
-- no lease held by a live pid;
-- `/proc/pressure/io` `some avg10` under a threshold (a model load pins this
-  high from the first second, long before `loadavg` moves);
-- no `llama-server` or `llama-bench` process other than the one on the
-  serving port, if any;
-- one-minute load average under a threshold, last, as the coarse check it is.
+- 살아 있는 pid가 쥔 임대가 없음;
+- `/proc/pressure/io`의 `some avg10`이 임계값 아래 (모델 로드는 첫 초부터 이걸 높게
+  고정하며, `loadavg`가 움직이기 훨씬 전이다);
+- 서빙 포트에 있는 것이 있다면 그것만 빼고 `llama-server`나 `llama-bench` 프로세스가 없음;
+- 1분 load average가 임계값 아래일 것. 이건 마지막이고, 원래 그런 거친 검사다.
 
-Every script that measures — sweep, perplexity, repack, kernel bench, tok/s —
-starts with `lease.sh wait && lease.sh acquire "<what>"` and ends, in its
-exit trap, with `lease.sh release`. A second copy of the same script cannot
-start while the first holds the lease, which also closes incident 2. A script
-that launches remote work with `setsid` writes the child's pid to a file
-next to its log so the chain can be stopped from either end.
+측정하는 모든 스크립트 — 스윕, perplexity, repack, 커널 벤치, tok/s — 는
+`lease.sh wait && lease.sh acquire "<what>"`로 시작하고, exit 트랩에서
+`lease.sh release`로 끝난다. 같은 스크립트의 두 번째 사본은 첫 번째가 임대를 쥐고 있는 동안
+시작할 수 없고, 이는 사건 2도 닫는다. `setsid`로 원격 작업을 띄우는 스크립트는 자식의 pid를
+로그 옆 파일에 적어서 어느 쪽에서든 체인을 멈출 수 있게 한다.
 
-The serving process on the published port is not "busy": measurements that
-need the GPUs stop it and restart it, as they always did, and the lease is
-what says whose turn that is.
+공개된 포트의 서빙 프로세스는 "busy"가 아니다. GPU가 필요한 측정은 늘 그랬듯이 그것을 멈추고
+다시 시작하며, 누구 차례인지는 임대가 말한다.
 
-## Layer 2 — give delegates the tool, not the instruction
+## 계층 2 — 위임 에이전트에게 지시가 아니라 도구를 준다
 
-The benchmark agent was told, in its spec, to honour the flag. It wrote its
-own gate instead, and the gate it wrote was the load average. This is not a
-compliance failure to be fixed by a sterner sentence; a protocol expressed
-as prose is one the delegate re-implements from memory. The lead hands over
-the runner script, and the delegate changes arguments. The runner calls the
-lease. There is nothing to re-implement.
+벤치마크 에이전트는 자기 스펙에서 플래그를 존중하라는 말을 들었다. 대신 자체 게이트를 작성했고,
+그 게이트는 load average였다. 이는 더 엄한 문장으로 고칠 준수 실패가 아니다. 산문으로 표현된
+프로토콜은 위임 에이전트가 기억에서 다시 구현하는 프로토콜이다. 리드가 러너 스크립트를 넘기고,
+위임 에이전트는 인자를 바꾼다. 러너가 임대를 호출한다. 다시 구현할 것이 없다.
 
-The same rule applies to the lead's own chains: the orchestration that
-launches a sweep goes through the same script the delegate would get.
+같은 규칙이 리드 자신의 체인에도 적용된다. 스윕을 띄우는 오케스트레이션은 위임 에이전트가 받았을
+바로 그 스크립트를 거친다.
 
-## Layer 3 — record the witness with the measurement
+## 계층 3 — 측정과 함께 증인을 기록한다
 
-Every measurement row carries its own evidence of quietness, taken at start
-and at end: one-minute load average, `/proc/pressure/io` `some avg10`, the
-list of live `llama-*` processes with their ages, and the page-cache size
-from `/proc/meminfo`. The sweep's JSONL gets these fields; the perplexity
-and benchmark wrappers print them on the first and last line of every raw
-file. When a row is suspect, the row says so; nobody reconstructs a
-timeline.
+모든 측정 행은 시작과 끝에서 잡은 조용함의 증거를 스스로 지닌다. 1분 load average,
+`/proc/pressure/io`의 `some avg10`, 살아 있는 `llama-*` 프로세스 목록과 그 나이,
+그리고 `/proc/meminfo`의 페이지 캐시 크기다. 스윕의 JSONL은 이 필드들을 받는다. perplexity와
+벤치마크 래퍼는 모든 raw 파일의 첫 줄과 마지막 줄에 이것들을 출력한다. 행이 의심스러우면 행이
+그렇게 말한다. 아무도 타임라인을 재구성하지 않는다.
 
-`toktape` records a `contended: yes/no` label on its cards from the same
-kind of signals. A measurement that will end up on a card should carry the
-same witness, so the card and the raw row agree about what the box was
-doing.
+`toktape`는 같은 종류의 신호로부터 카드에 `contended: yes/no` 라벨을 기록한다. 카드에
+올라갈 측정은 같은 증인을 지녀야 하므로, 카드와 raw 행이 박스가 무엇을 하고 있었는지에 대해
+일치한다.
 
-## Two smaller rules from the same day
+## 같은 날 나온 두 가지 작은 규칙
 
-- **A single failed request never ends a measurement arm.** One `500` on
-  one prompt stopped a twenty-prompt arm at eleven. The harness logs the
-  failure as a row and continues.
-- **Before flipping a flag, grep every use of it.** The first attempt at a
-  mask fix flipped a model-wide `causal_attn`; that flag also gates the
-  KV-cache update, batch sizing, and defragmentation. The correct patch
-  touched exactly the two lines that differed from the reference, through a
-  flag that nothing else reads. The number of lines changed should match
-  the number of lines that were wrong.
+- **단일 실패 요청은 측정 arm을 끝내지 않는다.** 한 프롬프트에서의 `500` 하나가
+  스무 프롬프트짜리 arm을 열한 번째에서 멈췄다. 하네스는 실패를 한 행으로 기록하고 계속한다.
+- **플래그를 뒤집기 전에 그 플래그의 모든 사용처를 grep한다.** 마스크 수정의 첫 시도는
+  모델 전역 `causal_attn`을 뒤집었다. 그 플래그는 KV-cache 업데이트, 배치 크기 조정,
+  그리고 단편화 해제도 게이트한다. 올바른 패치는 참조와 달랐던 정확히 두 줄만을, 다른 어떤 것도
+  읽지 않는 플래그를 통해 건드렸다. 바뀐 줄 수는 틀렸던 줄 수와 맞아야 한다.
 
-## Starting and stopping a remote server (2026-09-15)
+## 원격 서버 시작과 정지 (2026-09-15)
 
-Three facts about bash, measured on the workstation after a TabbyAPI check
-runner stopped the wrong process, kept both cards held, and released the
-lease anyway:
+TabbyAPI 검사 러너가 잘못된 프로세스를 멈추고, 두 카드를 모두 쥔 채로, 임대는 어쨌든
+해제한 뒤 워크스테이션에서 실측한 bash에 관한 세 가지 사실:
 
-- **`$!` is the server only when the background job is a simple command.**
-  `cd dir && setsid nohup server … &` backgrounds a compound command, so
-  bash forks a subshell and `$!` is that subshell. The runner's SIGINT and
-  SIGKILL went to it; the server ran on with 46.1 GB and 18.7 GB held.
-  Launch with `cd dir` on its own line, then `ENV=… setsid nohup server … &`,
-  and assert straight after launch that `ps -o sid= -p $!` equals `$!`.
-- **A background job starts with SIGINT ignored.** A non-interactive bash
-  gives asynchronous commands SIGINT and SIGQUIT as ignored
-  (`/proc/<pid>/status` `SigIgn` ended in `7`), and Python keeps an ignored
-  SIGINT ignored. A server that installs its own handler still stops on
-  SIGINT; a plain script does not. Stop with SIGTERM.
-- **The session outlives its leader.** exllamav3's CPU expert worker is a
-  spawned child; when the leader exits, members of its session can remain
-  and hold VRAM. Teardown waits for the leader, then signals the remaining
-  members of the session it created, and never escalates to SIGKILL on its
-  own. If the cards are not back, the lease stays held and the run reports
-  failure, so the next load cannot start on top of it.
+- **`$!`가 서버인 것은 백그라운드 작업이 단순 명령일 때뿐이다.**
+  `cd dir && setsid nohup server … &`는 복합 명령을 백그라운드로 돌리므로, bash가
+  서브셸을 포크하고 `$!`는 그 서브셸이다. 러너의 SIGINT와 SIGKILL이 그쪽으로 갔다.
+  서버는 46.1 GB와 18.7 GB를 쥔 채 계속 돌았다. `cd dir`을 별도 줄에 두고 실행한 뒤,
+  `ENV=… setsid nohup server … &`로 띄우고, 실행 직후 `ps -o sid= -p $!`가
+  `$!`와 같은지 확인한다.
+- **백그라운드 작업은 SIGINT가 무시된 채로 시작한다.** 비대화형 bash는 비동기 명령에
+  SIGINT와 SIGQUIT을 무시로 준다(`/proc/<pid>/status`의 `SigIgn`이 `7`로 끝났다).
+  그리고 Python은 무시된 SIGINT를 무시된 채로 둔다. 자체 핸들러를 설치하는 서버는
+  여전히 SIGINT에 멈추고, 평범한 스크립트는 멈추지 않는다. SIGTERM으로 멈춘다.
+- **세션은 그 리더보다 오래 산다.** exllamav3의 CPU expert 워커는 스폰된 자식이다.
+  리더가 종료해도 그 세션의 구성원이 남아 VRAM을 쥘 수 있다. 정리는 리더를 기다린 뒤,
+  리더가 만든 세션의 남은 구성원에게 신호를 보내고, 스스로 SIGKILL로 격상하지 않는다.
+  카드가 돌아오지 않으면 임대는 쥔 채로 남고 런은 실패를 보고하므로, 다음 로드가 그 위에서
+  시작할 수 없다.
 
-The runners that follow this are `tools/tabby/tabby-check.sh` and
-`tools/exl3/exl3serve-check.sh`. The cleanup that day identified the holder
-from `nvidia-smi --query-compute-apps`, verified its working directory, user
-and start time, unloaded through the server's own API, and then signalled
-that one pid.
+이를 따르는 러너는 `tools/tabby/tabby-check.sh`와
+`tools/exl3/exl3serve-check.sh`다. 그날의 정리는
+`nvidia-smi --query-compute-apps`로 점유자를 식별하고, 그 작업 디렉터리, 사용자,
+시작 시각을 확인하고, 서버 자체 API로 언로드한 뒤, 그 한 pid에 신호를 보냈다.
 
-## A stale lease cost a peer a night (2026-09-17)
+## 낡은 임대가 동료의 밤을 앗아갔다 (2026-09-17)
 
-The lease file is only as good as the exit trap that removes it, and on
-2026-09-16 the trap did not run. A sale-check smoke run took
-`/home/user/gpu-lease` at 22:44:56; at 22:47:29 a new copy of the runner was
-`scp`'d over the script while bash was still reading it, bash stopped on a
-syntax error at a line it had not reached before, and the EXIT trap never
-fired. The lease and the 1 Hz witness stayed. A peer session's overnight
-training job checked the lease at 00:00:01, saw both cards at 1 MiB under a
-held lease, honoured it as designed, and gave up at its two-hour deadline
-with zero steps trained. The file was found and removed at about 06:27.
+임대 파일은 그것을 제거하는 exit 트랩만큼만 좋다. 그리고 2026-09-16에 그 트랩은 실행되지
+않았다. sale-check 스모크 런이 22:44:56에 `/home/user/gpu-lease`를 가져갔다. 22:47:29에
+러너의 새 사본이 bash가 아직 그것을 읽고 있는 동안 스크립트 위로 `scp`되었고, bash는 아직
+도달하지 않은 줄에서 문법 오류로 멈췄으며, EXIT 트랩은 결코 발화하지 않았다. 임대와 1 Hz
+증인은 남았다. 동료 세션의 야간 학습 작업이 00:00:01에 임대를 확인했고, 두 카드가 임대가
+잡힌 상태에서 1 MiB임을 보고, 설계대로 이를 존중했으며, 두 시간 마감에서 학습한 스텝 0으로
+포기했다. 그 파일은 약 06:27에 발견되어 제거됐다.
 
-Two things follow. The runner now execs from a private copy of itself, so a
-deploy over the script cannot kill a running run (the same incident had been
-logged once before). But that does not cure a trap that never ran, so the
-reader is the layer that has to tell "held" from "abandoned": **the lease
-carries the holder's pid, and a lease whose pid does not answer `kill -0` is
-no lease.** A reader that removes one logs what it removed. Until `lease.sh`
-exists, the format on disk is what the thirteen runners in `tools/` actually
-write, `<tag> <pid> <start>` — pid is **field 2** (one runner,
-`ik-v41-verify.sh`, puts it third; fix it when next touched). The
-`<pid> <reason> <start>` order above is the `lease.sh` design, not yet what
-is on the machine.
+두 가지가 따라온다. 이제 러너는 자기 자신의 사적 사본에서 exec하므로, 스크립트 위로의 배포가
+실행 중인 런을 죽일 수 없다(같은 사건이 전에도 한 번 기록된 적이 있다). 그러나 그것은 결코
+실행되지 않은 트랩을 고치지 못하므로, "잡힘"과 "버려짐"을 구별해야 하는 층은 읽는 쪽이다.
+**임대는 소유자의 pid를 지니며, 그 pid가 `kill -0`에 응답하지 않는 임대는 임대가 아니다.**
+하나를 제거하는 쪽은 무엇을 제거했는지 기록한다. `lease.sh`가 존재하기 전까지, 디스크 위의
+형식은 `tools/`의 열세 러너가 실제로 쓰는 것, `<tag> <pid> <start>`이다 — pid는
+**2번째 필드**다(러너 하나, `ik-v41-verify.sh`는 이것을 세 번째에 둔다; 다음에 건드릴 때
+고친다). 위의 `<pid> <reason> <start>` 순서는 `lease.sh` 설계이며, 아직 머신에 있는 것이
+아니다.
 
-## What reading bought
+## 읽기가 벌어준 것
 
-The largest saving of the day was not a tool. Three hypotheses (YaRN on the
-draft rope, the draft re-quantization, and the size of the mask effect's
-upper bound) were closed or bounded by reading the reference implementation
-against the port, before or instead of a nine-minute load and a fifteen-minute
-sweep each. The order for a hypothesis is now: read the reference and the
-port side by side, decide what only an experiment can answer, and run only
-that. Then the experiment measures a magnitude rather than an existence.
+그날 가장 큰 절약은 도구가 아니었다. 세 가지 가설(드래프트 RoPE에 걸린 YaRN, 드래프트
+재양자화, 그리고 마스크 효과 상한의 크기)은 각각 9분짜리 로드와 15분짜리 스윕을 하기 전에,
+혹은 그 대신에, 참조 구현을 포트와 대조해 읽음으로써 닫히거나 한정됐다. 이제 가설의 순서는
+이렇다. 참조와 포트를 나란히 읽고, 실험만이 답할 수 있는 것이 무엇인지 정하고, 그것만
+실행한다. 그러면 실험은 존재가 아니라 크기를 측정한다.
 
-## Status
+## 상태
 
-| layer | state on 2026-09-13 |
+| 계층 | 2026-09-13의 상태 |
 |---|---|
-| lease tool | to be written (`tools/quiet/lease.sh`); until then the sweep writes its pid to `/tmp/cpu-busy.flag` and removes it only if it is its own |
-| runner handed to delegates | the next benchmark round gets `tools/quiet/`-aware runner scripts from the lead |
-| witness fields in rows | sweep rows carry `load1`; IO pressure, process list and page cache are to be added |
-| request failure tolerated | done in `tools/dspark/dspark-sweep.sh` |
-| grep-before-flip | rule only |
-| remote server launch and teardown | done in `tools/tabby/tabby-check.sh` and `tools/exl3/exl3serve-check.sh` (2026-09-15); the lease file there is a plain `~/gpu-lease`, not yet `lease.sh` |
+| 임대 도구 | 작성 예정(`tools/quiet/lease.sh`); 그때까지 스윕은 자기 pid를 `/tmp/cpu-busy.flag`에 쓰고 자기 것일 때만 제거한다 |
+| 위임 에이전트에게 넘긴 러너 | 다음 벤치마크 라운드는 리드로부터 `tools/quiet/`를 아는 러너 스크립트를 받는다 |
+| 행의 증인 필드 | 스윕 행은 `load1`을 지닌다; IO pressure, 프로세스 목록, 페이지 캐시는 추가 예정 |
+| 요청 실패 허용 | `tools/dspark/dspark-sweep.sh`에서 완료 |
+| 뒤집기 전 grep | 규칙만 |
+| 원격 서버 시작과 정리 | `tools/tabby/tabby-check.sh`와 `tools/exl3/exl3serve-check.sh`에서 완료(2026-09-15); 그곳의 임대 파일은 평범한 `~/gpu-lease`이며, 아직 `lease.sh`가 아니다 |

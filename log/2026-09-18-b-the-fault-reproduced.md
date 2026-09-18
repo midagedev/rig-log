@@ -1,54 +1,29 @@
-# The fault reproduced in 133 seconds, and a second instrument the driver does not touch lost the card too
+# 고장 133초 재현, 드라이버 안 닿는 두 번째 계기도 카드를 잃었다
 
-> ~~The instrument that lost the card *first* was not the driver.~~ That was this
-> entry's original title, written before the driver source was read. The driver
-> polls for the card's presence, so *first* was never a comparison the witness
-> could make; what it did measure is that a path with no PCIe and no NVIDIA
-> driver in it lost the card as well.
+> ~~드라이버보다 *먼저* 카드를 잃은 계기가 있었다.~~ 이 기록 원래 제목이다. 드라이버 소스 읽기 전 쓴 것이다. 드라이버가 카드 존재를 폴링해서, *먼저*는 증인이 잴 수 있는 비교가 아니었다. 잰 것은 PCIe도 NVIDIA 드라이버도 없는 경로가 카드를 같이 잃었다는 것이다.
 
-**2026-09-18, 06:31–07:20.** The one hardware question on this machine with no
-answer — why the 3090 fell off the bus on 2026-09-16 — now has a reproducer.
-Two ranks of NCCL DDP, one per card, killed it in 133 seconds. The 2026-09-16
-occurrence was at 110 seconds. This entry is what the instruments said, what
-that changes about the leading hypothesis, and why nothing has been filed
-upstream.
+**2026-09-18, 06:31–07:20.** 이 기계 유일 무답 하드웨어 질문 — 3090이 2026-09-16 왜 버스에서 떨어졌는가 — 에 재현자가 생겼다. NCCL DDP 랭크 둘, 카드당 하나, 133초에 죽였다. 2026-09-16 발생이 110초였다. 이 기록이 계기들 말, 주도 가설에 바뀌는 것, 업스트림에 file 안 한 이유다.
 
-The machine's owner authorised the run, having accepted a reboot as its cost.
-The interpretation below was agreed in writing **before** the run, with the peer
-session that ran the load: a clean fifteen minutes would mean only that this
-configuration did not reproduce in fifteen minutes, on one attempt, at this
-driver version, while a fault would largely answer the question. That asymmetry
-is why the test was worth running, and writing it down beforehand is the only
-way it survives a result either of us liked.
+기계 주인이 실행을 승인했다. 비용 리부트를 받아들였다. 아래 해석은 실행 **전**에 부하 돌린 peer 세션과 서면 합의했다. 깨끗한 15분은 이 구성에 15분·1시도·이 드라이버 버전 재현 안 됐다는 뜻뿐이고, 고장은 질문에 대개 답한다. 그 비대칭이 시험 값어치 이유고,어느 결과에도 살게 미리 적는 유일한 길이다.
 
-## The fault
+## 고장
 
 ```
-06:32:12  two-rank NCCL DDP launched, one rank per card
-06:34:24  NVRM: Xid (PCI:0000:41:00): 79, GPU has fallen off the bus.      <- the 3090
+06:32:12  2랭크 NCCL DDP 시작, 카드당 1랭크
+06:34:24  NVRM: Xid (PCI:0000:41:00): 79, GPU has fallen off the bus.      <- 3090
 06:34:24  NVRM: Xid (PCI:0000:41:00): 154, recovery action 0x0 -> 0x2 (OS Reboot)
-06:34:24  NVRM: Xid (PCI:0000:61:00): 154, recovery action 0x0 -> 0x2 (OS Reboot)   <- the A6000
+06:34:24  NVRM: Xid (PCI:0000:61:00): 154, recovery action 0x0 -> 0x2 (OS Reboot)   <- A6000
 06:34:24  NVRM: _issueRpcAndWait: rpcSendMessage failed with status 0x0000000f
           NVRM: nvCheckOkFailedNoLog: GPU lost from the bus [NV_ERR_GPU_IS_LOST]
 ```
 
-`0x0000000f` is `NV_ERR_GPU_IS_LOST`, the same status the 2026-09-16 evening
-hang printed. The second Xid 154 is the part that was not predicted: **the
-A6000 was marked reboot-required too.** It kept answering `nvidia-smi` at 46 °C
-throughout, and `torch.cuda.is_available()` returned False with
-`device_count()` 0. This is not "the 3090 was lost", it is "the machine's GPUs
-were lost until it reboots".
+`0x0000000f`가 `NV_ERR_GPU_IS_LOST`다. 2026-09-16 저녁 행이 찍던 같은 상태다. 예측 못한 것이 두 번째 Xid 154다. **A6000도 재부팅 요구에 찍혔다.** 내내 46 °C에 `nvidia-smi`에 답하고, `torch.cuda.is_available()`이 False에 `device_count()` 0을 돌려줬다. "3090을 잃었다"가 아니다. "리부트까지 이 기계 GPU를 잃었다"다.
 
-Two reproductions now, 110 s on 2026-09-16 and 133 s today, **one before the
-A6000's slot move and one after**. Whatever this is, the slot is not it.
+재현이 이제 둘이다. 2026-09-16 110초, 오늘 133초. **A6000 슬롯 이동 전 하나, 뒤 하나.** 무엇이든 슬롯이 아니다.
 
-## The ordering, which is the finding
+## 순서, 발견이 그것이다
 
-A witness sampled `nvidia-smi` and the BMC's per-slot PCIe temperature sensors
-into the same row, each column tagged with whether it answered. The two probes
-run in parallel and share a timestamp — that was a fix made fifteen minutes
-before launch, and without it the rows below would have been an artefact of the
-witness's own scheduling rather than a measurement.
+증인이 `nvidia-smi`·BMC 슬롯별 PCIe 온도 센서를 같은 행에 샘플했다. 각 열이 답했는지 태그. 두 프로브가 병렬에 같은 타임스탬프 공유 — 출발 15분 전 고침이다. 없으면 아래 행들이 측정이 아니라 증인 자체 스케줄 산물이었다.
 
 ```
 time     ,smi_ok,gf3090_c,gf3090_w,a6000_c,a6000_w,ipmi_ok,pcie01_c,pcie05_c
@@ -58,559 +33,234 @@ time     ,smi_ok,gf3090_c,gf3090_w,a6000_c,a6000_w,ipmi_ok,pcie01_c,pcie05_c
 06:34:30 ,1     ,70      ,129.77  ,       ,       ,1      ,        ,70
 ```
 
-**The BMC lost the card one sample before the driver did**, while `nvidia-smi`
-was still returning a full-power 382.5 W reading for it. On 2026-09-16 the
-relation ran the other way: `nvidia-smi` could not open either card while the
-BMC still read both. So "the BMC answers when the driver cannot" is not a rule
-about this hardware; it was one observation, and here the side-band went first.
+**BMC가 드라이버보다 1샘플 먼저 카드를 잃었다.** 그때 `nvidia-smi`가 풀파워 382.5 W 읽기를 돌려주던 중이었다. 2026-09-16 관계가 반대였다. `nvidia-smi`가 어느 카드도 못 여는데 BMC가 둘을 읽었다. "드라이버 안 될 때 BMC가 답한다"가 이 하드웨어 규칙이 아니다. 한 번 관측이었고, 여기 사이드밴드가 먼저 갔다.
 
-PCIE01 did not blank for a sample. It read `ns / No Reading` for the whole
-thirty-five minutes to the reboot, and came back at 30 °C afterwards.
+PCIE01이 1샘플 비지 않았다. 리부트까지 35분 내내 `ns / No Reading`에 읽히고, 뒤에 30 °C에 돌아왔다.
 
-## Why that sensor matters, and how far the inference goes
+## 그 센서가 중요한 이유, 추론 닿는 곳
 
-The slot sensor is not a thermistor sitting in slot air. Across this run, die
-against slot sensor:
+슬롯 센서가 슬롯 공기 앉은 서미스터가 아니다. 이 실행 내내 다이 대 슬롯 센서:
 
-| | samples | die range | mean \|die − slot\| | max |
-|---|---:|---|---:|---:|
+| | 샘플 | 다이 범위 | 평균 \|die − slot\| | 최대 |
+|---|---|---:|---:|---:|
 | 3090 / PCIE01 | 35 | 31 → 68 °C | **0.69 °C** | 5 °C |
 | A6000 / PCIE05 | 36 | 40 → 76 °C | **0.44 °C** | 3 °C |
 
-Sub-degree agreement across a 37-degree swing would be suggestive on its own.
-The ramp is what settles it:
+37도 스윙 너머 sub-degree 일치가 자체로 암시적이다. 램프가 확정한다.
 
 ```
 06:32:15  die 31   PCIE01 31    29 W
-06:32:21  die 32   PCIE01 37    32 W    <- the slot sensor LEADS the die by 5
-06:32:44  die 46   PCIE01 41   313 W    <- and trails by 5 on the steepest segment
+06:32:21  die 32   PCIE01 37    32 W    <- 슬롯 센서가 다이를 5도 앞선다
+06:32:44  die 46   PCIE01 41   313 W    <- 가장 가파른 구간 5도 뒤진다
 06:33:05  die 60   PCIE01 60   381 W
 ```
 
-A board thermistor cannot lead a die into a thermal ramp; heat travels one way.
-Excursions in both directions that settle within seconds are two sensors read at
-slightly different instants during a fast transient. So the BMC is reading the
-GPU's own sensor over an I2C/SMBus side-band — a path that shares no silicon
-with PCIe config space and involves the NVIDIA driver not at all.
+보드 서미스터가 열 램프에 다이를 앞설 수 없다. 열이 한 방향에 가서다. 양쪽 치우침이 수초에 수렴하는 것은 빠른 과도 중 약간 다른 순간 읽은 센서 둘이다. 그래서 BMC가 I2C/SMBus 사이드밴드 너머 GPU 자체 센서를 읽는다 — PCIe config 공간과 실리콘 공유 없고 NVIDIA 드라이버 전혀 안 거친다.
 
-**The limits of that, stated rather than buried.** This is inference from
-behaviour, not from a schematic. It rules out a slot-air thermistor strongly. It
-does not distinguish side-band-to-the-GPU from some other on-card sensor path,
-and it does not say which bus. An `i2cdetect` on the BMC's bus, or the ASMB9's
-documentation, would settle it properly and would outrank everything in this
-section.
+**한계, 묻지 말고 말한다.** 회로도가 아니라 거동 추론이다. 슬롯 공기 서미스터를 세게 배제한다. GPU행 사이드밴드와 다른 카드 위 센서 경로를 못 나누고, 어느 버스인지 말 안 한다. BMC 버스 `i2cdetect`나 ASMB9 문서가 제대로 가릴 것이고, 이 절 모든 것보다 상위에 선다.
 
-If it holds, the card stopped answering a path the driver does not touch, and
-stopped answering it *first*. That is hard to tell as a story about driver
-software. ~~The ordering carries that argument.~~ **Amended the same day**, in
-the next section: the driver's side of the comparison is a poll, so *first* is
-not a measurement the witness could have made. What survives is that a second,
-independent interrogator lost the card at all.
+서면, 드라이버 안 닿는 경로 답 안 한 카드를 먼저 잃었다. 드라이버 소프트웨어 이야기로 하기 어렵다. ~~순서가 그 논거를 싣는다.~~ **같은 날 amended**, 다음 절에. 드라이버쪽 비교가 폴링이라서, *먼저*는 증인이 잴 수 있던 측정이 아니다. 살아남는 것은 순서에 빚진 적 없는 절반이다 — 두 번째 독립 심문자가 카드를 잃었다는 것 자체다.
 
-## What Xid 79 actually measures, read from the driver's own source
+## Xid 79 실제 재는 것, 드라이버 자체 소스에서 읽기
 
-Every rung of the test ladder below costs a hard reset and somebody standing at
-the machine. Reading the code costs nothing, and it turns out the exact source is
-available: DKMS keeps `/usr/src/nvidia-615.71.09` on the box, and the matching
-tag is published upstream. The installed tree is only the `kernel-open`
-interface layer — the resource manager, where all of this lives, ships as a
-19.9 MB `nv-kernel.o_binary` — but the two trees agree where they overlap
-(`nv-pci.c` and `nv-linux.h` are md5-identical across them), and the single
-distro patch only turns off `-fstack-clash-protection` and `-fcf-protection`.
-So the code quoted here is the code that ran.
+아래 시험 사다리 모든 단이 하드 리셋·기계 앞 사람 값을 한다. 코드 읽기가 공짜다. 정확한 소스가 있다. DKMS가 상자에 `/usr/src/nvidia-615.71.09`를 두고, 맞는 태그가 업스트림 공개다. 설치 트리가 `kernel-open` 인터페이스 층뿐이다 — 리소스 매니저가 전부 19.9 MB `nv-kernel.o_binary`에 든다 — 겹치는 곳 두 트리가 맞는다(`nv-pci.c`·`nv-linux.h`가 md5 동일). 단일 배포 패치가 `-fstack-clash-protection`·`-fcf-protection` 끄는 것뿐이다. 여기서 인용 코드가 돈 코드다.
 
-**First, the evidence was nearly not there.** `dmesg-full-at-fault.txt`, taken
-during the forensics, begins at 06:56:26 — twenty-two minutes *after* the fault.
-4 327 lines of `_issueRpcAndWait: rpcSendMessage failed with status 0x0000000f`
-had flooded the kernel ring buffer and pushed the fault window out of it; only
-`xid.txt`, grepped in the first minutes, still held the Xid lines. The journal on
-this box is persistent, so the window was recovered from `journalctl -k -b -1`
-and saved as `dmesg-journal-faultwindow.txt`, and it carries lines the preserved
-`dmesg` does not. The rule that follows: **take the fault window from the
-journal, never from `dmesg`** — the post-fault RPC flood destroys the ring buffer
-faster than anyone gets to it. The recovered window also measures how quiet it
-was beforehand: between 06:30:00 and 06:34:23.827 there is **no kernel line at
-all**, and then everything arrives inside 700 microseconds.
+**먼저, 증거가 거의 없었다.** 법의학 중 잡은 `dmesg-full-at-fault.txt`가 06:56:26에 시작한다 — 고장 뒤 22분. `_issueRpcAndWait: rpcSendMessage failed with status 0x0000000f` 4,327줄이 커널 링버퍼를 밀어내고 고장 창을 밀어냈다. 첫 몇 분 grep한 `xid.txt`만 Xid 줄을 쥐고 있었다. 이 상자 저널이 영속이라서 창을 `journalctl -k -b -1`에서 회수했다. `dmesg-journal-faultwindow.txt`에 저장. 보존 `dmesg`에 없는 줄을 싣는다. 뒤따르는 규칙. **고장 창을 저널에서 잡는다. `dmesg`에서 절대 안 잡는다** — 고장 뒤 RPC 홍수가 링버퍼를 누구 손보다 빨리 없앤다. 회수 창이 앞이 얼마나 조용했는지도 잰다. 06:30:00–06:34:23.827 사이 **커널 줄 전혀 없음**. 이어서 전부 700마이크로초 안에 도착한다.
 
-Now the register. `osHandleGpuLost()`, in
-`src/nvidia/arch/nvalloc/unix/src/osinit.c:359`, is the whole of it:
+이제 레지스터. `osHandleGpuLost()`, `src/nvidia/arch/nvalloc/unix/src/osinit.c:359`가 전부다.
 
 ```c
 pmc_boot_0 = NV_PRIV_REG_RD32(nv->regs->map_u, NV_PMC_BOOT_0);
 if (pmc_boot_0 != nvp->pmc_boot_0)
 ```
 
-One 32-bit read of BAR0 offset zero, compared against the chip identity cached at
-probe. Xid 79 is not an error the GPU raised and not a link event the fabric
-reported: **it is the host failing to read the chip's own identity register and
-concluding the card is gone.** That matters for how this entry has been reading
-its own evidence. The 3090's config space reading all `ff` and the Xid 79 have
-been standing next to each other as two facts; they are one phenomenon — a read
-to that device returning all-ones — observed in two address spaces. And zero AER
-is not evidence against a link event, because this board's firmware denies the OS
-AER and the driver's only instrument is the same all-ones read. Nothing in the
-stack was positioned to say more than "it stopped answering".
+BAR0 오프셋 0의 32비트 읽기 하나, probe 캐시 칩 정체성 대조. Xid 79가 GPU가 올린 에러도 패브릭이 보고한 링크 사건도 아니다. **호스트가 칩 자체 정체성 레지스터 읽기에 실패하고 카드가 갔다고 결론낸 것이다.** 이 기록이 자기 증거 읽는 법에 중요하다. 3090 config 공간 전부 `ff` 읽기와 Xid 79가 두 사실에 나란히 서 있었다. 한 현상이다 — 그 장치 읽기 전부 1 돌려주는 것 — 두 주소 공간에 관측됐다. AER 0이 링크 사건 반대 증거가 아니다. 이 보드 펌웨어가 OS에 AER를 안 주고, 드라이버 유일 계기가 같은 전부 1 읽기라서다. 스택 어디도 "답 안 한다" 너머 말할 자리에 없었다.
 
-Whether that observation is prompt is the question the ordering finding turns on.
-Two paths call it, both reading the same register:
+그 관측이 빠른지 묻는 것이 순서 발견이 도는 질문이다. 부르는 길 둘, 같은 레지스터 읽는다.
 
-| path | source | when it looks |
+| 길 | 소스 | 보는 때 |
 |---|---|---|
-| opportunistic | `gpu_access.c:1300-1355`, `gpuSanityCheckRegRead` | any register read whose value comes back all-ones re-reads `NV_PMC_BOOT_0`, and if that is invalid too calls `osHandleGpuLost` |
-| periodic | `kernel_bif.c:187`, `_kbifCheckIfGpuExists` on `osSchedule1HzCallback` | once a second, `gpuVerifyExistence` compares `NV_PMC_BOOT_0` against `pGpu->chipId0` |
+| 기회 | `gpu_access.c:1300-1355`, `gpuSanityCheckRegRead` | 전부 1 돌아오는 레지스터 읽기마다 `NV_PMC_BOOT_0` 다시 읽고, 그것도 무효면 `osHandleGpuLost` 호출 |
+| 주기 | `kernel_bif.c:187`, `osSchedule1HzCallback` 위 `_kbifCheckIfGpuExists` | 초당 한 번, `gpuVerifyExistence`가 `NV_PMC_BOOT_0`를 `pGpu->chipId0` 대조 |
 
-The periodic one is conditional, and the condition is worth checking rather than
-assuming: `kernel_bif.c:184` registers it only when
-`PDB_PROP_KBIF_CHECK_IF_GPU_EXISTS_DEF` is set and the GPU is not virtual, and the
-generated hal table (`g_kernel_bif_nvoc.c:247`) sets that property for a chip list
-that contains **GA102** — which is both of these cards. So both were being polled
-once a second.
+주기 쪽이 조건부다. 조건이 가정 말고 확인할 값어치 있다. `kernel_bif.c:184`가 `PDB_PROP_KBIF_CHECK_IF_GPU_EXISTS_DEF` 박히고 GPU가 가상 아닐 때만 등록한다. 생성 hal 표(`g_kernel_bif_nvoc.c:247`)가 그 속성을 칩 목록에 박는데 **GA102**가 들어 있다 — 이 카드 둘이다. 그래서 둘 다 초당 폴링됐다.
 
-Detection is therefore bounded by one second — but it is a poll, not an interrupt,
-and how much faster than a second it actually was is not something this reading
-establishes. The opportunistic path only fires on a register read that comes back
-all-ones, and on a GSP client the kernel-side RM touches few BAR0 registers on the
-hot path: an RPC writes a doorbell and polls a queue in system memory. The 1 Hz
-callback may well have been the detector here. The driver learns the card is gone
-when it next happens to look. So the witness's
-`06:34:24` BMC blank against the `06:34:25` `nvidia-smi` alarm cannot establish
-which event came first: one column has up to a second of slack in it, and the
-witness's own spacing is coarser than the gap being claimed. The half of that
-finding that survives is the half that never depended on ordering — the BMC
-reaches the card over a path with no PCIe and no NVIDIA driver in it, and the
-card stopped answering that too.
+검출이 그래서 1초 bound다 — 다만 폴링이지 인터럽트가 아니다. 1초보다 실제 얼마나 빨랐는지는 이 읽기가 세우지 않는다. 기회 길은 전부 1 돌아오는 레지스터 읽기에만 탄다. GSP 클라이언트에 커널쪽 RM이 hot 경로 BAR0 레지스터를 적게 만진다. RPC가 도어벨 쓰고 시스템 메모리 큐를 폴링한다. 1 Hz 콜백이 여기 검출자였을 수 있다. 드라이버가 카드 gone을 아는 것은 다음 보는 때다. 그래서 증인의 06:34:24 BMC blank 대 06:34:25 `nvidia-smi` alarm이 어느 사건 먼저인지 세울 수 없다. 한 열에 1초 slack이 있고, 증인 자체 간격이 주장 간격보다 거칠다. 그 발견 살아남는 절반이 순서에 빚진 적 없는 절반이다 — BMC가 PCIe도 NVIDIA 드라이버도 없는 경로에 카드에 닿고, 카드가 그것도 답 안 했다.
 
-Nor is the RPC flood a second instrument. `_issueRpcAndWait` reports
-`rpcSendMessage failed with status 0x0000000f` downstream of a gate at the top of
-the send path (`kernel_gsp.c:387`) which returns `NV_ERR_GPU_IS_LOST` from the same
-cached property bits, touching no hardware. All 4 327 of those lines are the
-driver repeating a conclusion it had already reached.
+RPC 홍수도 두 번째 계기가 아니다. `_issueRpcAndWait`이 전송 경로 꼭대기 gate(`kernel_gsp.c:387`) 밑 `rpcSendMessage failed with status 0x0000000f`를 보고한다. 같은 캐시 속성 비트에 하드웨어 안 만지고 `NV_ERR_GPU_IS_LOST`를 돌려준다. 4,327줄 전부가 이미 내린 결론을 드라이버가 반복한 것이다.
 
-**Which raises a question this entry had not asked.** The 2026-09-16 *evening*
-hang logged `rpcSendMessage failed 0xf` with **no Xid 79 at all**, and
-`log/2026-09-17-the-3090-comes-out.md` says the two hangs "share two facts". On
-this reading they may not share the important one: today's fault is BAR0 having
-stopped answering, and that gate can return the same status with BAR0 still
-readable, if something else cleared the connected bit — `osHandleGpuLost` returns
-early and emits nothing when it has already run, and `osIsGpuShutdown` reaches the
-same `GPU_IS_LOST` return by a different route. So the evening hang and today's
-fault are **not established to be the same driver-level class**, and the #1134
-family that rung 3 of the ladder targets was matched to the evening one. That is an
-open question, not a conclusion; settling it needs the evening hang's own journal
-read the same way this one was.
+**여기 안 묻던 질문이 올라온다.** 2026-09-16 *저녁* 행이 Xid 79 전혀 없이 `rpcSendMessage failed 0xf`를 찍었다. `log/2026-09-17-the-3090-comes-out.md`가 두 행이 "두 사실 공유"라 말한다. 이 읽기에 중요한 하나를 공유 안 할 수 있다. 오늘 고장이 BAR0 답 멈춤이고, 그 gate가 BAR0 읽히는데도 같은 상태를 낼 수 있다 — 다른 쪽이 connected 비트를 지우면. `osHandleGpuLost`이 이미 돌았으면 일찍 돌아오고 아무것도 안 내고, `osIsGpuShutdown`이 다른 길에 같은 `GPU_IS_LOST` 돌려줌에 닿는다. 저녁 행과 오늘 고장이 **같은 드라이버급이라 세워지지 않았다.** #1134 집안이 사다리 3단에 겨냥하던 것이 저녁 쪽에 매칭됐다. 열린 질문이지 결론이 아니다. 가리려면 저녁 행 자체 저널을 같은 길에 읽어야 한다.
 
-`_threadNodeCheckTimeout: API_GPU_ATTACHED_SANITY_CHECK failed!`, repeated 22
-times in the log, is not a second instrument agreeing. The macro
-(`g_gpu_nvoc.h:6267`) reads three cached property bits and touches no hardware,
-and `osHandleGpuLost` had already cleared the first of them through
-`gpuSetDisconnectedProperties`. Those are threads noticing a flag, not
-observations.
+`_threadNodeCheckTimeout: API_GPU_ATTACHED_SANITY_CHECK failed!` 22반복이 동의 두 번째 계기가 아니다. 매크로(`g_gpu_nvoc.h:6267`)가 캐시 속성 비트 셋을 읽고 하드웨어 안 만진다. `osHandleGpuLost`이 첫째를 이미 `gpuSetDisconnectedProperties`에 지웠다. 플래그 알아차리는 스레드지 관측이 아니다.
 
-## Why the A6000 was told to reboot
+## A6000이 재부팅 통보를 받은 이유
 
-This is the part the source settles outright. The chain from the one card's fault
-to the other card's Xid 154 is four links, each in the tree at this tag:
+소스가 바로 가리는 부분이다. 한 카드 고장에서 다른 카드 Xid 154행 사슬이 넷, 각각 이 태그 트리에 있다.
 
-`krcRcAndNotifyAllChannels_IMPL` notifies every channel of critical error 79.
-For each one, `krcErrorSetNotifier_IMPL` (`kernel_rc_notification.c:260`) runs a
-workaround that is commented as such — *"WAR bug 4503046: mark reboot required
-when any UVM channels receive an error"* — and calls
-`sysSetRecoveryOsRebootRequired` when `pKernelChannel->bUvmOwned`. That setter
-puts the flag on **`pSys`, the system object, not on a GPU**, and queues
-`_sysRefreshAllGpuRecoveryAction`, which walks every GPU in the box through
-`gpumgrGetNextGpu`. Each one lands in `gpuRefreshRecoveryAction`
-(`gpu.c:7311`), where the system flag is tested *before* any per-GPU condition,
-and each logs its own Xid 154.
+`krcRcAndNotifyAllChannels_IMPL`이 critical error 79를 모든 채널에 통지한다. 각자 `krcErrorSetNotifier_IMPL`(`kernel_rc_notification.c:260`)이 workaround라 주석 박힌 것을 돈다 — *"WAR bug 4503046: mark reboot required when any UVM channels receive an error"* — `pKernelChannel->bUvmOwned`에 `sysSetRecoveryOsRebootRequired`를 부른다. 그 setter가 플래그를 **GPU가 아니라 `pSys` 시스템 객체**에 두고 `_sysRefreshAllGpuRecoveryAction`을 큐한다. 상자 모든 GPU를 `gpumgrGetNextGpu`에 걷는다. 각자 `gpuRefreshRecoveryAction`(`gpu.c:7311`)에 떨어진다. 시스템 플래그가 GPU별 조건 앞에 시험되고, 각자 자기 Xid 154를 찍는다.
 
-**So the A6000's Xid 154 is one system-wide flag printed once per card, and says
-nothing about the A6000's health.** This entry, the 2026-09-16 one, and
-`docs/machine-changes.md` have all read "Xid 154 on both cards" as both cards
-being affected. ~~Both cards were marked for OS reboot.~~ One card fell off the
-bus; the other was told to reboot because the machine was.
+**그래서 A6000 Xid 154가 카드당 한 번 찍히는 시스템 전역 플래그 하나고, A6000 건강에 대해 말하는 것 없다.** 이 기록·2026-09-16 기록·`docs/machine-changes.md`가 전부 "양 카드 Xid 154"를 양 카드 맞음으로 읽었다. ~~양 카드가 OS 재부팅 표시됐다.~~ 하나가 버스에서 떨어졌고, 기계라서 다른 하나가 재부팅 통보를 받았다.
 
-One thing the source does not settle is who the RPC flood belonged to. 864 of the
-4 327 lines carry a `GPU1` prefix and the rest none, and the driver's instance
-numbering is not `nvidia-smi`'s: on the current boot `/proc/driver/nvidia/gpus/`
-gives the 3090 `Device Minor: 1` and the A6000 `0`, the reverse of bus order. The
-behavioural evidence points at the 3090 — `nvidia-smi` read the A6000 successfully
-at 44 °C and 20 W six seconds after the fault, which a card whose RPCs were all
-failing could not have answered — but probe order on the faulted boot was not
-recorded, so this is an argument and not a mapping. **Left open.**
+소스가 가리지 않는 것이 RPC 홍수 주인이다. 4,327줄 중 864줄이 `GPU1` 접두사를 싣고 나머지가 없다. 드라이버 인스턴스 번호가 `nvidia-smi` 것이 아니다. 현재 부팅 `/proc/driver/nvidia/gpus/`가 3090에 `Device Minor: 1`·A6000에 `0`을 준다. 버스 순서 반대다. 거동 증거가 3090을 가리킨다 — `nvidia-smi`가 고장 6초 뒤 A6000을 44 °C·20 W에 잘 읽었는데, RPC 전부 깨지는 카드가 답할 수 없다 — 다만 고장 부팅 probe 순서가 기록 안 돼서 논거지 매핑이 아니다. **열어둔다.**
 
-The `nvGpuOpsReportFatalError: uvm encountered global fatal error 0x60,
-requiring os reboot to recover` line, 4.3 seconds later, is the same setter
-reached a second time from UVM's own path (`nv_gpu_ops.c:11835`); `0x60` is
-`NV_ERR_RC_ERROR`. It logged no third Xid because
-`sysSetRecoveryOsRebootRequired` acts only on a change of state, and the flag
-was already up.
+`nvGpuOpsReportFatalError: uvm encountered global fatal error 0x60, requiring os reboot to recover` 줄이 4.3초 뒤 같은 setter 두 번째 도달이다. UVM 자체 길(`nv_gpu_ops.c:11835`). `0x60`이 `NV_ERR_RC_ERROR`다. 세 번째 Xid를 안 찍었다. `sysSetRecoveryOsRebootRequired`가 상태 변화에만 동작하고 플래그가 이미 올라가서다.
 
-## What the code reading changes, and what it does not
+## 코드 읽기가 바꾸는 것, 안 바꾸는 것
 
-It does not explain why a card stops answering. No driver code runs during a DMA
-transfer; the engine doing the work is on the card. Every rung of the ladder
-below still has to be climbed, and this section does not shorten it.
+카드가 왜 답을 멈추는지 설명 안 한다. DMA 전송 중 도는 드라이버 코드가 없다. 일하는 엔진이 카드에 있다. 아래 사다리 모든 단이 그대로 올라야 하고, 이 절이 짧아지게 안 한다.
 
-What it does is fix the instruments and retire one question. A reproduction no
-longer has to account for two cards failing, because only one did. Xid 79's
-timestamp is a detection time with up to a second of slack, so it must not be
-lined up against witness samples as though it were the event — the BMC column,
-whose path is independent of all of this, is the better clock and should be
-sampled faster than the 5.2 s the last run managed. And the fault window gets
-captured from the journal.
+하는 것은 계기 고치기·질문 하나 은퇴다. 재현이 카드 둘 고장 설명할 필요 없다. 하나만 했어서다. Xid 79 타임스탬프가 최대 1초 slack 든 검출 시간이라 증인 샘플에 사건인 양 나란히 세우면 안 된다 — 이 모든 것과 무관한 경로 BMC 열이 더 좋은 시계고, 지난 실행 5.2초보다 빨리 샘플해야 한다. 고장 창을 저널에서 잡는다.
 
-Everything in these three sections is a code reading, not a measurement, which in
-this repo is a hypothesis with a good pedigree and not a result. The claims are
-"the source at tag 615.71.09, at `file:line`, says"; the one live check available
-— that the preserved config-space dump reads all `ff`, the same not-answering
-condition the quoted code tests for in BAR0 — is consistent with it and is not
-the same register.
+이 세 절 전부가 코드 리딩이지 측정이 아니다. 이 리포에 가설 중 족보 좋은 것이지 결과가 아니다. 주장이 "615.71.09 태그 소스가 `file:line`에 말한다"다. 가능한 live 확인 하나 — 보존 config 공간 덤프가 전부 `ff`에 읽히는데, 인용 코드가 BAR0에 시험하는 같은 답없음 조건에 맞고 같은 레지스터가 아니다 — 맞고 같은 것이 아니다.
 
-## What else the faulted machine said before it was rebooted
+## 리부트 전 고장 기계가 말한 다른 것
 
-- **The 3090's config space read all `ff`.** The A6000's read `de 10 30 22`.
-  All-ones is what a host bridge returns when nothing answers — not a driver
-  giving up on a device. `current_link_speed` read `Unknown` and
-  `current_link_width` read `63`, which is `0x3f` out of the same all-ones.
-- **The device node stayed in sysfs** and `lspci` still listed it, from the
-  earlier scan. Presence in `lspci` is not evidence the device is there.
-- **Zero AER**, corrected and uncorrectable, on the card and on all three other
-  ports, read from the registers. For contrast, the Gen4 margin problem this
-  machine *did* diagnose announced itself as 27 corrected errors in 483 s of
-  load. This fault takes a card off the bus in silence. Note the kernel cannot
-  help here either way: this firmware logs
-  `_OSC: platform does not support [AER LTR DPC]` for all four domains, so a
-  quiet `dmesg` means the kernel was never told. The registers are the
-  instrument; `dmesg` is not.
-- **There is no software recovery path.**
-  `echo 1 > /sys/bus/pci/devices/0000:41:00.0/remove` never returned in over
-  eight minutes with the box otherwise fully responsive — the driver's teardown
-  waits on a device that will not answer. For the same reason `systemctl reboot`
-  did not complete: the host went offline and had not returned six minutes
-  later, and the owner pressed the physical reset. **Operationally, this fault
-  requires someone at the machine or at the BMC.** The BMC's web interface
-  answered throughout, on standby power, and is the remote version of that.
-- The driver wrote a crash dump and asked for `nvidia-bug-report.sh` before the
-  module unloads. It was captured: 774 KB, with the other artefacts under
-  `/home/user/gpu-check/fault-20260918/`.
+- **3090 config 공간이 전부 `ff`에 읽혔다.** A6000이 `de 10 30 22`에 읽혔다. 전부 1이 답 없는 데 호스트 브리지가 돌려주는 것이다 — 장치 포기 드라이버가 아니다. `current_link_speed`가 `Unknown`에 읽히고 `current_link_width`가 `63`에 읽혔다. 같은 전부 1의 `0x3f`다.
+- **장치 노드가 sysfs에 남았다.** `lspci`가 여전히 올렸다. 이른 스캔에서다. `lspci` 존재가 장치 존재 증거가 아니다.
+- **AER 0**이다. 카드·다른 세 포트 전부, corrected·uncorrectable. 레지스터에서 읽기. 대조로 이 기계 *진단한* Gen4 마진 문제가 부하 483초 corrected 에러 27개에 알렸다. 이 고장이 카드를 버스에서 조용히 내린다. 커널이 어느 쪽 길에도 못 돕는다. 이 펌웨어가 4도메인 전부 `_OSC: platform does not support [AER LTR DPC]`를 찍으니, 조용한 `dmesg`는 커널이 통보 못 받았다는 뜻이다. 레지스터가 계기다. `dmesg`가 아니다.
+- **소프트웨어 복구 경로가 없다.** `echo 1 > /sys/bus/pci/devices/0000:41:00.0/remove`가 상자 다른 전부 응답하는데 8분 넘게 안 돌아왔다 — 드라이버 teardown이 답 안 하는 장치를 기다린다. 같은 이유 `systemctl reboot`이 안 끝났다. 호스트가 오프라인 나가고 6분 뒤에도 안 돌아와서 주인이 물리 리셋을 눌렀다. **운영상 이 고장이 기계 앞 사람이나 BMC를 요구한다.** BMC 웹 인터페이스가 내내 답했다. 대기 전력에. 그 원격 버전이다.
+- 드라이버가 크래시 덤프 쓰고 모듈 unload 전 `nvidia-bug-report.sh`를 요구했다. 잡았다. 774 KB. 다른 산물과 함께 `/home/user/gpu-check/fault-20260918/` 밑.
 
-After the reset both cards came back completely — config space `de 10 04 22`
-and `de 10 30 22`, CUDA seeing 2, every CESta clear, zero Xid, and PCIE01
-reading 30 °C again.
+리셋 뒤 양 카드 완전 복귀했다 — config 공간 `de 10 04 22`·`de 10 30 22`, CUDA 2 인식, CESta 전부 클리어, Xid 0, PCIE01이 다시 30 °C에 읽힌다.
 
-## Two defects in the witness, found by the load's session and not by us
+## 증인 결함 둘, 부하 세션이 찾았지 우리가 아니다
 
-**The per-card column labels go wrong at the fault.** `nvidia-smi` enumerates by
-index; when the dead card drops out the survivor shifts into position 0, so from
-06:34:30 the column labelled `gf3090` is the A6000. PCIE05 is what proves it —
-it tracks that column exactly, 70/70, 68/68, 64/64, 62/62, down to 57/56. Every
-post-fault row reads as "the 3090 is cooling" when it is the A6000 idling.
-Querying by UUID rather than index is the fix. Until then the BMC column is what
-disambiguated it, which is an argument for having built it that did not exist
-before the fault.
+**고장에 카드별 열 라벨이 틀어진다.** `nvidia-smi`가 인덱스 열거한다. 죽은 카드가 빠지면 생존자가 0번에 올라간다. 06:34:30부터 `gf3090` 라벨 열이 A6000이다. PCIE05가 증명한다 — 그 열을 정확히 따라간다. 70/70, 68/68, 64/64, 62/62, 57/56에 내려간다. 고장 뒤 모든 행이 "3090이 식는다"에 읽히는데 A6000 idle이다. 인덱스가 아니라 UUID 조회가 고침이다. 그때까지 BMC 열이 모호함을 풀었다. 고장 전에 없던 지은 논거다.
 
-**`smi_ok` stayed 1 through the whole event**, because the command kept
-succeeding for the surviving card. The alarm, which used `nvidia-smi -L`, fired
-correctly at 06:34:25. Two definitions of "answering" in one harness, and the
-flag had the worse one.
+**`smi_ok`가 사건 내내 1에 있었다.** 명령이 생존 카드에 계속 성공해서다. alarm이 `nvidia-smi -L`을 써서 06:34:25 정확히 울렸다. 한 하네스 "답한다" 정의 둘이다. 플래그가 나쁜 쪽을 들었다.
 
-## The control that was already on disk, and what it narrows to
+## 디스크에 있던 control, 좁혀지는 곳
 
-The fingerprint carried since 2026-09-17 was "sustained load plus a second CUDA
-context arriving on the card". Today's run does not fit it: DDP put **one**
-context on each card, not two on one. So the fingerprint needs re-reading, and
-the nights of 09-17 and 09-18 happen to contain the controls.
+2026-09-17 지문이 "sustained 부하 + 카드에 두 번째 CUDA 컨텍스트 도착"을 실었다. 오늘 실행이 안 맞는다. DDP가 카드당 **하나**씩 컨텍스트를 뒀다. 하나에 둘 아니다. 지문을 다시 읽어야 하고, 09-17·09-18 밤이 우연히 control을 싣는다.
 
-| load on this machine | duration | contexts | fault |
+| 이 기계 부하 | 시간 | 컨텍스트 | 고장 |
 |---|---|---|---|
-| gpu_burn, 3090 alone, 421 W | 30 min | 1, on the 3090 | none |
-| gpu_burn, **both cards**, independent processes, 421 + 301 W | 10 min | 1 per card, no IPC | none |
-| NCCL DDP, both cards | **133 s** | 1 per card, **NCCL between them** | **Xid 79 + 154 ×2** |
-| NCCL DDP, both cards (2026-09-16) | **110 s** | 1 per card, NCCL between them | Xid 79 + 154 |
-| llama-server on the 3090 + a torch process on the same card (2026-09-16 pm) | — | **2 on the 3090** | GSP RPC 0xf, no Xid |
-| **pinned host↔device DMA, both cards, no NCCL** (rung 1, 08:00) | **15 min** | 1 per card, no IPC | **none** |
-| **the same, plus a matmul loop at 419 W** (rung 1b, 08:20) | **15 min** | 1 per card, no IPC | **none** |
-| NCCL DDP, both cards, stock limits (08:44) | **89 s** | 1 per card, NCCL | **the whole machine died** |
-| **NCCL DDP, both cards capped to 250 W** (08:57) | **15 min** | 1 per card, NCCL | **none** |
+| gpu_burn, 3090 단독, 421 W | 30분 | 3090에 1 | 없음 |
+| gpu_burn, **양 카드**, 독립 프로세스, 421 + 301 W | 10분 | 카드당 1, IPC 없음 | 없음 |
+| NCCL DDP, 양 카드 | **133초** | 카드당 1, **사이에 NCCL** | **Xid 79 + 154 ×2** |
+| NCCL DDP, 양 카드(2026-09-16) | **110초** | 카드당 1, 사이에 NCCL | Xid 79 + 154 |
+| 3090에 llama-server + 같은 카드 torch 프로세스(2026-09-16 저녁) | — | **3090에 2** | GSP RPC 0xf, Xid 없음 |
+| **핀 host↔device DMA, 양 카드, NCCL 없음**(1단, 08:00) | **15분** | 카드당 1, IPC 없음 | **없음** |
+| **같은 것 + 419 W matmul 루프**(1b단, 08:20) | **15분** | 카드당 1, IPC 없음 | **없음** |
+| NCCL DDP, 양 카드, stock 제한(08:44) | **89초** | 카드당 1, NCCL | **기계 전체가 죽었다** |
+| **NCCL DDP, 양 카드 250 W 캡**(08:57) | **15분** | 카드당 1, NCCL | **없음** |
 
-The two-card burn is the control that matters and it passed: two processes, both
-cards at full power, no inter-process communication, running **4.5 times longer
-than today's time-to-fault** without incident. The thing DDP adds over it is
-NCCL — and with `nvidia-smi topo -p2p rw` reading GNS between these cards, NCCL
-is staging through **pinned host memory**, not P2P.
+2카드 burn이 의미 있는 control이고 통과했다. 프로세스 둘, 양 카드 풀파워, 프로세스간 통신 없음, 오늘 고장 시간의 **4.5배** 길게 무사건. DDP가 거기 더하는 것은 NCCL이다 — `nvidia-smi topo -p2p rw`가 이 카드 사이 GNS에 읽히니 NCCL이 **핀 호스트 메모리** 경유 스테이징한다. P2P가 아니다.
 
-So the sharper statement is: sustained load alone does not do it on either card
-or on both; two independent contexts on two cards do not do it; the two events
-that killed the machine in about two minutes both had NCCL between the ranks.
-The 2026-09-16 evening hang sits outside that — one card, two contexts, no NCCL
-— and printed a different signature (`rpcSendMessage failed 0xf`, no Xid), so it
-may well not be the same fault at all and this entry stops treating it as one.
+날카로운 서술이 그래서다. sustained 부하만으로 어느 카드도 양 카드도 안 된다. 2카드 컨텍스트 둘도 안 된다. 기계를 2분쯤에 죽인 두 사건 둘 다 랭크 사이 NCCL이 있었다. 2026-09-16 저녁 행이 밖에 있다 — 카드 하나, 컨텍스트 둘, NCCL 없음 — 서명이 달랐다(`rpcSendMessage failed 0xf`, Xid 없음). 같은 고장이 아닐 수 있고, 이 기록이 하나로 다루기를 멈춘다.
 
-**Peak power is not the variable, which kills the simplest hardware story.**
-The run that took the machine down peaked at **384.1 W** on the 3090; the
-30-minute gpu_burn the same card survived peaked at **420.5 W** and averaged
-370.9. The fault happened 36 W *below* a load this card holds comfortably for
-half an hour. So whatever NCCL does, it is not drawing more current than the
-card tolerates — found by the session that ran the load, verified here against
-both witness files.
+**피크 전력이 변수가 아니다. 가장 단순 하드웨어 이야기를 죽인다.** 기계를 내린 실행이 3090에 피크 **384.1 W**를 찍었다. 같은 카드 버티는 30분 gpu_burn이 피크 **420.5 W**·평균 370.9에 찍었다. 고장이 이 카드 30분 편안 부하 *밑* 36 W에 났다. NCCL이 무엇을 하든 카드 감내 전류를 더 그은 게 아니다 — 부하 돌린 세션이 찾았고, 여기 양 증인 파일에 대조 검증했다.
 
-What that leaves is the **shape** of the bus traffic rather than its magnitude,
-and that is measurable rather than a story. gpu_burn is compute-bound with
-almost no PCIe traffic; NCCL with GNS stages every gradient through pinned host
-memory, which is large bidirectional DMA against the root port, continuously.
+남는 것은 크기 아니라 버스 트래픽 **모양**이다. 잴 수 있지 이야기가 아니다. gpu_burn이 PCIe 트래픽 거의 없는 연산-bound다. GNS NCCL이 그래디언트마다 핀 호스트 메모리 경유 스테이징하는데, 루트 포트 상대 크고 양방향 DMA가 연속이다.
 
-## Rung 1: bus traffic alone does not do it
+## 1단: 버스 트래픽만으로 안 된다
 
-That hypothesis was tested the same morning, because it is the cheap rung and the
-machine was free. [`tools/gpu-dma-control.py`](../tools/gpu-dma-control.py) is the
-whole load: one process per card selected by UUID, pinned host buffers, 25 MiB per
-transfer — PyTorch DDP's default gradient bucket cap, so the transfers are the size
-the faulting run actually moved — eight deep, both directions on separate streams.
-No NCCL, no `torch.distributed`, no model, no second context.
+그 가설이 같은 아침 시험됐다. 싼 단이라서, 기계가 비어서다. [`tools/gpu-dma-control.py`](../tools/gpu-dma-control.py)가 부하 전부다. 카드당 프로세스 하나 UUID 선택, 핀 호스트 버퍼, 전송당 25 MiB — PyTorch DDP 기본 그래디언트 버킷 cap이라 전송이 고장 실행 실제 움직인 크기다. 8 deep, 별도 스트림 양쪽. NCCL 없음, `torch.distributed` 없음, 모델 없음, 두 번째 컨텍스트 없음.
 
-It ran for fifteen minutes, **6.8 times the time the fault took**, and moved
-30 499 GB across the 3090's link.
+15분에 돌았다. **고장 걸린 시간의 6.8배.** 3090 링크에 30,499 GB를 옮겼다.
 
 | | 3090 | A6000 |
 |---|---:|---:|
-| rxpci, mean / max | 17 813 / 19 098 MB/s | 18 550 / 21 711 MB/s |
-| txpci, mean / max | 19 331 / 22 226 MB/s | 20 119 / 22 640 MB/s |
-| power, mean / max | 160 / 164 W | 114 / 117 W |
-| die temperature, max | 54 °C | 63 °C |
+| rxpci, 평균 / 최대 | 17,813 / 19,098 MB/s | 18,550 / 21,711 MB/s |
+| txpci, 평균 / 최대 | 19,331 / 22,226 MB/s | 20,119 / 22,640 MB/s |
+| 전력, 평균 / 최대 | 160 / 164 W | 114 / 117 W |
+| 다이 온도, 최대 | 54 °C | 63 °C |
 
-That is roughly **37 GB/s aggregate on the 3090's link, held for 900 seconds** —
-near what Gen4 ×16 will practically carry in both directions at once, and far more
-than NCCL's bursty gradient exchange sustains. Nothing happened. Zero Xid, one
-kernel line in the whole window (the journal mark this runner writes itself), and
-the `UESta`/`CESta` registers of both cards and both root ports **byte-identical**
-before and after.
+3090 링크 합계 약 **37 GB/s, 900초 유지**다 — Gen4 ×16 실제 양쪽 동시 근처, NCCL의 끊기는 그래디언트 교환이 유지하는 훨씬 위다. 아무 일도 없었다. Xid 0, 창 전체 커널 줄 하나(러너 자체 쓰는 저널 마크). 양 카드·양 루트 포트 `UESta`/`CESta` 레지스터 전후 **바이트 동일**.
 
-So the sharpened hypothesis of the section above is, in its simple form, wrong:
-**sustained bidirectional DMA at the link's practical limit is not sufficient to
-take this card off the bus.** What still separates this run from the faulting one
-is that this load leaves the SMs idle — 160 W against the fault's 384 W — and that
-it never enters the driver's NCCL path. Rung 1b varies the first of those by adding
-compute beside the same DMA loop; only after that does the remaining difference
-become the software path itself.
+그래서 위 날카로운 가설이 단순형에 틀렸다. **링크 실제 한계 sustained 양방향 DMA가 이 카드를 버스에서 내리기에 불충분하다.** 아직 나누는 것은 이 부하가 SM을 idle에 둔다 — 고장 384 W 상대 160 W — NCCL 경로에 안 들어간다는 것이다. 1b단이 첫째를 바꾼다. 뒤에 남는 차이가 소프트웨어 경로 그 자체가 된다.
 
-## Rung 1b: nor does bus traffic with the card at full power
+## 1b단: 풀파워 카드 든 버스 트래픽도 아니다
 
-Rung 1's load left the SMs idle at 160 W, so it did not test whether the fault needs
-the card loaded and transferring at the same time. Rung 1b adds a 4096² fp32 matmul
-loop on its own stream beside the same DMA. A short calibration picked the setting:
-four matmuls per DMA iteration reaches **417.8 W** while still moving 19.1 GB/s, and
-raising it further buys no power and only costs transfer rate.
+1단 부하가 SM을 160 W idle에 두니, 부하·전송 동시 카드 시험을 안 했다. 1b단이 같은 DMA 옆 별도 스트림 4096² fp32 matmul 루프를 더한다. 짧은 캘리브레이션이 값을 골랐다. DMA 반복당 matmul 넷이 전송 19.1 GB/s 유지에 **417.8 W**에 닿는다. 더 올리면 전력이 안 사고 전송율만 깎는다.
 
-That combination beats the faulting run on **both** axes at once — 419 W against its
-384 W peak, and a sustained 18.5 GB/s against gradient exchange that is bursty by
-construction. It ran the full fifteen minutes. The 3090 moved 16 675 GB, the A6000
-15 234 GB, and the `UESta`/`CESta` registers of both cards and both root ports were
-again byte-identical before and after.
+그 조합이 고장 실행을 **양 축 동시**에 이긴다 — 피크 384 W 상대 419 W, bursty 구조 그래디언트 교환 상대 sustained 18.5 GB/s. 15분 다 돌았다. 3090이 16,675 GB를 옮기고, A6000이 15,234 GB를 옮겼다. 양 카드·양 루트 포트 `UESta`/`CESta` 레지스터가 또 전후 바이트 동일이었다.
 
-**The telemetry for this run was lost, and the reason is worth more than the run.**
-The witness never started: the scripts had just been renamed on their way into
-`tools/`, the box still had the old names, the runner's call failed, and the next line
-of the runner printed `witness up` because it announced the witness rather than
-checking it. Fifteen minutes ran with every instrument silent and a run log that said
-everything was fine. What survives is the load's own counters, the AER comparison, and
-three spot readings of power taken by hand during the run (419.17, 418.93, 418.81 W at
-73–74 °C) — enough to carry the negative, not enough to be a record. The runner now
-asserts that four loggers are live and four files are growing before it will start the
-load, and refuses the run otherwise; a round whose instruments are silent is not a
-cheaper round, it is a wasted one.
+**이 실행 텔레메트리가 소실됐고, 이유가 실행보다 값어치 있다.** 증인이 안 떴다. `tools/`행 이름 바꾸기 직후 스크립트라서 상자에 이전 이름이 있었다. 러너 호출이 깨졌다. 다음 줄 러너가 증인 확인이 아니라 증인 *선언*을 찍어서 `witness up`을 냈다. 15분이 계기 전부 무음에 돌았고, 실행 로그가 전부 fine이라 말했다. 살아남는 것은 부하 자체 카운터·AER 대조, 실행 중 손에 잡은 전력 스팟 3개(73–74 °C에 419.17·418.93·418.81 W) — negative를 싣기에 충분하고 기록에 불충분하다. 러너가 이제 로거 넷 live·파일 넷 증가를 assert해야 부하를 시작한다. 아니면 실행을 거부한다. 계기 무음 라운드가 싼 라운드가 아니라 버린 라운드다.
 
-So the two rungs together say: **neither bus traffic at the link's limit, nor bus
-traffic with the card at the power the fault happened at, is sufficient.** The
-variable that remains is the one neither rung touches — the NCCL path itself.
+그래서 두 단이 같이 말한다. **링크 한계 버스 트래픽도, 고장 전력 카드 든 버스 트래픽도 불충분하다.** 남는 변수가 어느 단도 안 건드리는 것이다 — NCCL 경로 그 자체다.
 
-**A flag stopped meaning anything on the way past.** Both cards reported
-`clocks_event_reasons.active = 0x400` — the bit this entry decoded as
-`Reliability` — for the entire run, at 160 W and 54 °C on a card whose limits are
-nowhere near. A bit that is set on a nearly idle card cannot distinguish a stressed
-one, so it joins `throttled` in this repo's list of flags that are questions rather
-than findings, and the earlier reading of `0x400` during the fault carries no weight
-on its own.
+**지나며 플래그 하나가 뜻을 잃었다.** 양 카드가 `clocks_event_reasons.active = 0x400`을 실행 내내 보고했다 — 이 기록 `Reliability` 해독한 비트. 160 W·54 °C 카드에 한도가 어디에도 안 닿는데. 거의 idle 카드에 박히는 비트가 스트레스 카드 가릴 수 없다. 이 리포 "질문이지 발견 아니다" 목록에 `throttled` 옆에 든다. 고장 중 `0x400` 이른 읽기도 단독 무게 0이다.
 
-**The instruments were rebuilt for this run**, against the three defects the
-previous one exposed: everything is queried by UUID rather than index, presence is
-`nvidia-smi -L` counting cards rather than "did a query return something", and the
-BMC channel reads a dumped SDR with `-S` and the exact sensor name, which took its
-sample cost from 5.2 s to 0.11 s. Measured across the run: 25 260 presence rows at
-a 0.188 s worst-case gap, and 8 074 BMC rows at 0.449 s, against the 5.2 s mean the
-ordering claim had to rest on last time. `nvidia-smi dmon -s put` supplied rxpci and
-txpci, which no previous run recorded.
-**Every clean row in the table above is compute-bound**, so the control table
-has no row combining heavy sustained PCIe traffic with no fault — the variable
-now suspected is the one the controls never varied. `nvidia-smi dmon -s t`
-reports `rxpci`/`txpci` in MB/s and works on this driver; it was not in the
-witness and should have been.
+**이 실행 계기를 다시 지었다.** 앞 실행 드러낸 결함 셋 상대. 전부 UUID 조회·존재가 `nvidia-smi -L` 카드 세기("쿼리 답했는가"가 아니다)·BMC 채널이 덤프 SDR `-S`·정확 센서명 읽기다. 샘플값이 5.2초에서 0.11초에 떨어졌다. 실행 너머 측정했다. presence 행 25,260개 최악 간격 0.188초, BMC 행 8,074개 0.449초. 지난번 순서 주장이 기대야 하던 평균 5.2초 상대다. `nvidia-smi dmon -s put`이 rxpci·txpci를 줬다. 앞 실행 기록 없던 것이다.
+**위 표 모든 clean 행이 연산-bound**라서, control 표에 무고장 무거운 sustained PCIe 트래픽 결합 행이 없다 — 이제 의심하는 변수가 control이 안 바꾼 변수다. `nvidia-smi dmon -s t`가 `rxpci`/`txpci`를 MB/s에 보고한다. 이 드라이버에 돈다. 증인에 없었다. 있어야 했다.
 
-A limit on every power number in this entry, from the session that produced
-them: witness spacing is **mean 5.2 s, max 10 s**, so `max 384 W` is the highest
-of sparse samples and is blind to microsecond excursions by three or four orders
-of magnitude. If the mechanism is a current transient at a DMA burst boundary,
-nothing here would see it. These numbers rule out a *sustained*-power story and
-nothing more, and an IPMI rail reading carries the same limit unless sampled far
-faster than either session has sampled anything.
+이 기록 모든 전력 숫자에 한계 하나, 숫자를 낸 세션에서 왔다. 증인 간격이 **평균 5.2초·최대 10초**라서 `최대 384 W`가 듬성 샘플 최고다. 3–4자릿수 마이크로초 치우침에 눈멀었다. DMA burst 경계 전류 transient이 메커니즘이면 여기 아무것도 못 본다. 이 숫자들이 sustained-전력 이야기를 배제하지 그 이상 아니다. IPMI 레일 읽기도 다른 세션이 아무것도 샘플 안 한 한계에 같은 한계를 싣는다.
 
-**This is in tension with the side-band finding above, and the entry is not going
-to resolve it by choosing.** The SMBus ordering says the card stopped answering a
-path the driver does not touch, which reads as hardware. The NCCL-versus-burn
-control says a specific software access pattern is what triggers it, which reads
-as software. Both can be true — a host-staging pattern has a different current
-profile than a matmul loop, and software can drive hardware into a state it
-cannot drive itself out of — but that is a story, not a measurement, and it is
-written here as the open shape rather than as an explanation.
+**위 사이드밴드 발견과 tension에 있고, 고르기로 안 푼다.** SMBus 순서가 드라이버 안 닿는 경로 답 멈춘 카드를 말하는데 하드웨어에 읽힌다. NCCL 대 burn control이 그것을 깨우는 특정 소프트웨어 접근 패턴을 말하는데 소프트웨어에 읽힌다. 둘 다 맞을 수 있다 — 호스트 스테이징 패턴이 matmul 루프와 전류 모양이 다르고, 소프트웨어가 하드웨어를 스스로 못 나오는 상태에 몰 수 있다 — 다만 이야기지 측정이라서, 설명이 아니라 열린 모양에 여기 쓴다.
 
-## The third fault was not the same fault
+## 세 번째 고장이 같은 고장이 아니었다
 
-The round that finally carried good instruments produced a different failure. At 08:44:40
-the DDP arm started; at 08:46:17.4 every channel stopped mid-line — the journal, both dmon
-logs, the BMC loop, the presence loop and the step sampler, all within the same tenth of a
-second. The machine came back on its own 55 seconds later.
+좋은 계기 든 라운드가 마침내 다른 고장을 냈다. 08:44:40 DDP arm 시작. 08:46:17.4 모든 채널이 줄 중간에 멈췄다 — 저널·dmon 로그 둘·BMC 루프·presence 루프·스텝 샘플러, 같은 10분의 1초 안 전부. 기계가 55초 뒤 저절로 돌아왔다.
 
-What did **not** happen is the point. There was no Xid of any kind in that boot: the only
-NVRM lines are the module banner and a firmware-log complaint. The presence channel counted
-two cards in its last sample at 08:46:17.1, and the BMC read both slots at 67 °C and 74 °C
-at 08:46:17.3. **Both GPUs were healthy right up to the instant the machine stopped
-existing.** The first two events were a card falling off the bus with the host surviving;
-this was the host dying with the cards fine.
+**안 일어난 것이 요점이다.** 그 부팅 어떤 Xid도 없었다. 유일 NVRM 줄이 모듈 배너·펌웨어 로그 불평이다. presence 채널이 08:46:17.1 마지막 샘플 카드 둘을 셌다. BMC가 08:46:17.3 양 슬롯 67 °C·74 °C에 읽었다. **양 GPU가 기계 존재 멈추는 순간까지 멀쩡했다.** 앞 두 사건이 호스트 살고 카드 떨어진 것이라면, 여기가 호스트 죽고 카드 fine이다.
 
-It was not a kernel panic either. ERST pstore works on this board — it holds a panic from
-2026-09-11 — and this event wrote nothing to it. The BMC's event log has no entry. The
-return was too quick for the 120 s systemd watchdog. Nothing in software recorded anything,
-which is what an instantaneous loss of the machine looks like.
+커널 패닉도 아니었다. ERST pstore가 이 보드에 돈다 — 2026-09-11 패닉을 쥐고 있다 — 이 사건에 쓴 것 없다. BMC 이벤트 로그 항목 없다. 복귀가 120초 systemd 워치독에 너무 빨랐다. 소프트웨어에 아무것도 기록 안 남긴 것이 기계 순간 상실 생김새다.
 
-**And the round finally measured the workload.** NCCL's actual PCIe traffic at the moment of
-death was 40–80 MB/s on each card with bursts to 2–5 GB/s. Rungs 1 and 1b sustained
-18–37 GB/s. The hypothesis those rungs were built to test had them pushing **two to three
-orders of magnitude more traffic than the faulting workload ever does**, which is why their
-silence was never the strong evidence it looked like: they were not a heavier version of the
-fault, they were a different thing. Power at death was 372–390 W and 285–289 W — again below
-rung 1b's 419 W and 299 W, which ran fifteen minutes.
+**그 라운드가 마침내 workload를 쟀다.** 죽는 순간 NCCL 실제 PCIe 트래픽이 카드당 40–80 MB/s에 burst 2–5 GB/s였다. 1·1b단이 18–37 GB/s를 유지했다. 그 단들을 지으던 가설이 고장 workload의 **2–3자릿수 더** 트래픽을 밀고 있었다. 조용함이 보이던 강한 증거인 적이 없다. 고장의 무거운 버전이 아니었다. 다른 것이었다. 죽는 전력 372–390 W·285–289 W — 또 1b단 419 W·299 W 밑이다. 15분에 돌았다.
 
-What is left, once volume is out and steady power is out and temperature is out at 67 °C, is
-the one thing only a collective produces: the two cards are made to **wait for each other and
-then draw together**. Independent loads average their transients out; a barrier aligns them.
+볼륨 나가고 steady 전력 나가고 67 °C 온도 나가면 남는 것은 집합체만 내는 하나다. 두 카드가 **서로 기다렸다가 같이 끌어당기게** 된다. 독립 부하는 transient을 평균에 낸다. 배리어가 맞춘다.
 
-## Taking the budget away, which is the only way this machine can ask about power
+## 예산을 뺏기, 이 기계가 전력 묻는 유일한 길
 
-Nothing here can see a transient. Measured 2026-09-18: NVML answers 840 000 power queries a
-second but the reading only *changes* every 231 ms on the 3090 and 250 ms on the A6000, and
-the BMC's `+12V` sensor did not move off 12.06 V once in twelve seconds of polling at 12.5
-reads/s. Microsecond current behaviour is not observable on this box, and saying so is more
-useful than another run pretending otherwise.
+여기 transient을 볼 수 있는 것이 없다. 2026-09-18 측정이다. NVML이 초당 전력 쿼리 840,000개를 답하는데 읽기는 3090에 231 ms·A6000에 250 ms마다 *바뀐다*. BMC `+12V` 센서가 초당 12.5읽기 12초 폴링에 12.06 V에서 한 번도 안 움직였다. 이 상자 마이크로초 전류 거동이 관측 불가다. 또 실행 체하는 것보다 말하는 것이 쓸모 있다.
 
-So the question was asked the way this repo asks power questions — by removing the headroom.
-Both cards were capped to 250 W (from 420 and 300) and the same DDP arm was run again with
-the full witness.
+그래서 질문을 이 리포 전력 묻는 길에 물었다 — headroom을 없애서다. 양 카드를 250 W에 묶었다(420·300에서). 같은 DDP arm을 증인 풀에 다시 돌렸다.
 
-| | stock limits | capped to 250 W |
+| | stock 제한 | 250 W 캡 |
 |---|---|---|
-| time to fault | **89 s** | **none in 900 s** |
-| 3090 power, mean / max | 384 / 390 W | 240 / **250 W** (pinned at the cap) |
-| A6000 power, mean / max | 286 / 289 W | 231 / 245 W |
-| 3090 die temperature, max | 67 °C | 62 °C |
-| presence rows below two cards | — | **0 of 23 414** |
-| BMC read failures | — | **0 of 8 037** |
-| Xid | none, then the machine died | none |
-| `UESta`/`CESta` before vs after | — | byte-identical |
+| 고장 시간 | **89초** | **900초 없음** |
+| 3090 전력, 평균 / 최대 | 384 / 390 W | 240 / **250 W**(캡에 고정) |
+| A6000 전력, 평균 / 최대 | 286 / 289 W | 231 / 245 W |
+| 3090 다이 온도, 최대 | 67 °C | 62 °C |
+| 2카드 미만 presence 행 | — | **23,414 중 0** |
+| BMC 읽기 실패 | — | **8,037 중 0** |
+| Xid | 없음, 이어서 기계가 죽었다 | 없음 |
+| `UESta`/`CESta` 전후 | — | 바이트 동일 |
 
-**It ran the full fifteen minutes, ten times the shortest time-to-fault.**
+**15분 다 돌았다. 최단 고장 시간의 10배다.**
 
-And because the step sampler kept running, the mitigation has a price tag:
+스텝 샘플러가 돌아서 완화에 값표가 붙는다.
 
-| configuration | steps/s | against one card |
+| 구성 | steps/s | 카드 하나 상대 |
 |---|---:|---:|
-| A6000 alone at 300 W (peer's measurement, 06:16) | 1.089 | 1.00× |
-| DDP, stock limits — died at 89 s | 2.019 | 1.85× |
-| **DDP, both cards at 250 W — clean for 900 s** | **1.648** | **1.51×** |
+| A6000 단독 300 W(peer 측정, 06:16) | 1.089 | 1.00배 |
+| DDP, stock 제한 — 89초에 죽었다 | 2.019 | 1.85배 |
+| **DDP, 양 카드 250 W — 900초 깨끗** | **1.648** | **1.51배** |
 
-Cutting the 3090's budget by 40 % and the A6000's by 17 % costs 18 % of the DDP speedup and
-keeps **half again the single-card rate**. That is the first thing this investigation has
-handed back: a configuration that runs.
+3090 예산 40%·A6000 17% 잘라 DDP speedup 18%를 값을 치르고 **단일 카드율 1.5배**를 지킨다. 이 조사가 처음 돌려준 것이다. 도는 구성이다.
 
-**What this is not.** One clean fifteen-minute run is not a stability claim; the faults came
-at 89, 110 and 133 seconds, so 900 s is six to ten times that and one sample. The cap moves
-the clock and voltage operating point as well as any transient, so it is not a single-variable
-change. And no transient or voltage sag has ever been observed here — the mechanism above is
-an explanation that fits every row in the control table, not a measurement. Settling it needs
-a current clamp on the 8-pin cables or a different power supply.
+**아닌 것.** 깨끗한 15분 1실행이 안정 주장 아니다. 고장이 89·110·133초에 왔어서 900초가 그 6–10배고 샘플 하나다. 캡이 transient뿐 아니라 클럭·전압 동작점을 움직여서 단일 변수 변경이 아니다. transient·전압 새그 관측된 적 없다 — 위 메커니즘이 control 표 모든 행에 맞는 설명이지 측정이 아니다. 가리려면 8핀 케이블 전류 클램프나 다른 전원이다.
 
-**The supply is a Super Flower Leadex Platinum SF-2000F14HP, 2000 W**, which `README.md` has
-recorded all along. That matters because it removes the obvious version of the story: the two
-cards drew about 676 W between them when the machine died, and the system as a whole stays
-well under half this unit's rating, so **capacity is not the issue and no amount of headroom
-is missing.** What the README also records is the unit's published spec — **ATX12V 2.2 /
-EPS12V**. That standard predates the transient requirements ATX 3.0 added precisely because
-Ampere-generation cards excurse far above their average for tens of microseconds; a supply
-built to the older spec is under no obligation to ride those out, and its protection may act
-on a spike a newer unit must tolerate. That is a hypothesis about a named part rather than a
-measurement, and the same clamp would settle it.
+**서플라이가 Super Flower Leadex Platinum SF-2000F14HP, 2000 W**다. `README.md`가 내내 기록했다. 중요한 것은 뻔한 버전 이야기를 없애서다. 기계 죽을 때 두 카드 사이 약 676 W를 그었다. 시스템 전체가 이 유닛 정격 절반 잘 밑에 있다. **용량이 문제가 아니고, 모자란 headroom이 없다.** README가 같이 기록하는 것은 유닛 공개 스펙이다 — **ATX12V 2.2 / EPS12V**. 그 표준이 Ampere급 카드가 수십 마이크로초 평균 훨씬 위 치우치는 transient 요구를 ATX 3.0이 더하기 전이다.이전 스펙에 지은 서플라이가 그것을 탈 의무가 없고, 보호가 새 유닛이 견뎌야 할 스파이크에 동작할 수 있다. 지명 부품 가설이지 측정이다. 같은 클램프가 가릴 것이다.
 
-## Nothing has been filed upstream, and why
+## 업스트림에 낸 것 없고, 이유
 
-The obvious move is an issue on `open-gpu-kernel-modules`, where
-[#1134](https://github.com/NVIDIA/open-gpu-kernel-modules/issues/1134), #942 and
-#1111 describe this symptom class on the open module — #1134 on an RTX 3090,
-hanging when a new GPU client process is created while an RPC is in flight,
-power-cycle only, with the proprietary module at the same version not
-reproducing.
+뻔한 수는 `open-gpu-kernel-modules` 이슈다. [#1134](https://github.com/NVIDIA/open-gpu-kernel-modules/issues/1134)·#942·#1111이 open 모듈 이 증상 부류를 서술한다 — #1134가 RTX 3090에 RPC 진행 중 새 GPU 클라이언트 프로세스 생성 행, 파워사이클만, 같은 버전 proprietary 모듈 미재현.
 
-That move is wrong today, because **the strongest evidence this run produced
-points away from the driver.** Filing it would be submitting a hypothesis as a
-defect, and the version string is most of what we would be adding to a pile that
-already describes the symptom.
+오늘 그 수가 틀렸다. **이 실행 낸 가장 강한 증거가 드라이버 반대**를 가리켜서다. file이 가설을 결함으로 제출하는 것이고, 버전 문자열이 이미 증상 서술 쌓인 더미에 더할 대개다.
 
-What changed is that the discriminator is finally runnable. It has been in the
-ranked table since 2026-09-17 as the one test, blocked on not having a
-reproducer:
+바뀐 것은 판별자가 마침내 돈다는 것이다. 2026-09-17 순위표에 그 하나의 시험으로 있다. 재현자 없어 막혀 있었다.
 
-| run the same reproducer on the 580 legacy branch | then |
+| 같은 재현자를 580 레거시 브랜치에 돌린다 | 이어서 |
 |---|---|
-| it reproduces | the cause is the card or its power. No issue; we have the answer instead |
-| it does not | a clean bisect between module families, a 133 s reproducer, a crash dump taken before unload, and a side-band ordering none of those three issues has. That is a report worth filing |
+| 재현된다 | 원인이 카드나 그 전력이다. 이슈 없음. 답을 얻는다 |
+| 안 된다 | 모듈 집안 깨끗한 bisect, 133초 재현자, unload 전 잡은 크래시 덤프, 그 이슈 셋 없는 사이드밴드 순서. file 값어치 보고다 |
 
-580 is the last module family that is not GSP-mandatory, so it is the only
-driver-side control available — `NVreg_EnableGpuFirmware=0` does not apply,
-because the open module requires GSP and after 580 there is no proprietary
-module.
+580이 GSP 필수 아닌 마지막 모듈 집안이라 쓸 수 있는 유일 드라이버쪽 control이다 — `NVreg_EnableGpuFirmware=0`이 안 먹는다. open 모듈이 GSP를 요구하고 580 뒤 proprietary 모듈이 없어서다.
 
-The tests now form a ladder, cheapest first, each discriminating something the
-one before it cannot:
+시험이 사다리를 이룬다. 싼 먼저. 앞이 못 가리는 것을 각각 가린다.
 
-1. **A pinned host-to-device memcpy loop on both cards, no NCCL at all.** The
-   same PCIe pressure with none of NCCL's software. If it reproduces, the
-   variable is bus traffic, NCCL is a red herring, and the reproducer is a page
-   of code. If it does not while step 2 does, the bus and the software are
-   separated — which is exactly the tension this entry leaves open. Proposed by
-   the session that ran the load; needs no training job and no driver swap.
-2. **Two trivial NCCL ranks doing nothing but an all-reduce loop.** No model, no
-   data loader, no 20 GB of weights to confound it. If it reproduces in about
-   two minutes, the reproducer is small enough to hand to a stranger, which is
-   what an upstream issue actually needs and what a HiFiGAN training job can
-   never be.
-3. **The 580 legacy bisect**, last because it is the most invasive.
+1. **핀 host-to-device memcpy 루프 양 카드, NCCL 전혀 없음.** NCCL 소프트웨어 없는 같은 PCIe 압력. 재현되면 변수가 버스 트래픽이다. NCCL이 red herring이고, 재현자가 코드 한 페이지다. 안 되는데 2단이 되면 버스와 소프트웨어가 나뉜다 — 이 기록 열어두는 tension 정확히 그것이다. 부하 돌린 세션 제안. 학습 작업·드라이버 스왑 필요 없다.
+2. **아무것도 안 하고 all-reduce 루프만 도는 trivial NCCL 랭크 둘.** 모델 없음, 데이터 로더 없음, 뒤섞을 20 GB 가중치 없음. 2분쯤 재현되면 재현자가 낯선 자에 건넬 만큼 작다. 업스트림 이슈가 실제 필요로 하는 것이고 HiFiGAN 학습 작업이 절대 될 수 없는 것이다.
+3. **580 레거시 bisect**, 가장 침습이라 마지막이다.
 
-Whatever runs next carries `dmon -s t` in the witness, and queries by UUID
-rather than index.
+다음에 도는 것이 무엇이든 증인에 `dmon -s t`를 싣고, 인덱스가 아니라 UUID에 조회한다.
 
-A caution on the 580 bisect, from the session that ran the load and worth
-recording because it is the same asymmetry agreed before today's run: a
-non-reproduction on one attempt is weak evidence where today's reproduction was
-strong. Three clean runs well past 133 s before calling 580 clean, and the swap
-changes more than the GSP path, so "nothing else moved" has to be argued rather
-than assumed.
+580 bisect 주의 하나, 부하 돌린 세션에서 왔고 비대칭이 오늘 실행 전 합의와 같아서 기록 값어치 있다. 1시도 미재현이 오늘 재현 강하던 자리 약한 증거다. 580 깨끗 부르려면 133초 훨씬 지난 깨끗 실행 셋이다. 스왑이 GSP 경로 말고 바꾼다. "다른 움직인 것 없음"이 가정 말고 논거돼야 한다.
 
-## The load, as its session specified it
+## 부하, 돌린 세션 명세 그대로
 
-PyTorch Lightning DDP, 2 ranks one per GPU, NCCL backend, no P2P;
-HiFiGAN-family vocoder training with generator and discriminator alternating,
-batch 20 per rank, 44.1 kHz audio, about 20.2 GB resident per rank; driver
-615.71.09 open kernel module; the 3090 at 368–382 W sustained through the 90
-seconds before the fault and the A6000 at 275–290 W; the fault at 133 s, inside
-warm-up, never reaching steady state.
+PyTorch Lightning DDP, GPU당 랭크 2개 1개씩, NCCL 백엔드, P2P 없음. HiFiGAN 집안 vocoder 학습에 생성자·판별자 교대, 랭크당 배치 20, 44.1 kHz 오디오, 랭크당 상주 약 20.2 GB. 드라이버 615.71.09 open 커널 모듈. 고장 전 90초 3090 368–382 W sustained·A6000 275–290 W. 고장 133초, 웜업 안. steady state에 안 닿았다.
 
-The DDP throughput number the run was launched to get was never obtained, and
-that is not a cost. The question behind it was whether two-card training is
-available on this hardware, and it is answered: not at present, with evidence
-rather than a recollection of 2026-09-16.
+실행 내러 간 DDP 처리량 숫자를 못 얻었고, 값이 아니다. 뒤 질문이 이 하드웨어 2카드 학습 가능한가였고, 답났다. 지금은 아니다. 2026-09-16 회상이 아니라 증거에.

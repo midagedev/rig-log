@@ -1,44 +1,29 @@
-# A 347 GB model with 84 GB of it left on the drive
+# 347 GB 모델, 84 GB는 드라이브에 두고
 
-**2026-09-12.** DeepSeek-V4.1-Flash runs on this machine at **20 tok/s**, with
-two 42 GB conditional-memory tables never loaded into RAM at all. The premise
-the whole configuration was built on — that those tables can stay on an NVMe
-and be read a few dozen rows at a time — holds, and costs 3.3 ms per token.
+**2026-09-12.** DeepSeek-V4.1-Flash가 이 기계에 **20 tok/s**로 돈다. 42 GB 조건부 메모리 테이블 둘이 RAM에 한 번도 안 올라간다. 구성 전체의 전제 — 그 테이블이 NVMe에 살면서 수십 행씩 읽히면 된다 — 가 서고, 토큰당 3.3 ms가 든다.
 
-The projection written before the run said 16–18 tok/s. It was low, for a
-reason worth keeping: it used a memory-bandwidth constant borrowed from a
-different model.
+실행 전 투영은 16–18 tok/s였다. 낮았다. 이유는 남긴다. 다른 모델에서 빌린 메모리대역폭 상수를 썼다.
 
-Everything below was measured on the machine in [the README](../README.md) on
-this date, on `vcruz305/llama.cpp` at 5210c7c — **mainline llama.cpp**, not
-ik_llama. The harness is [`configs/bench-serve.sh`](../configs/bench-serve.sh),
-the launch script [`configs/v41-serve.sh`](../configs/v41-serve.sh), and the
-reasoning behind both is in
-[where the time goes](../docs/raising-tokens-per-second.md).
+전부 이 기계·이 날짜. `vcruz305/llama.cpp` 5210c7c — **mainline llama.cpp**지 ik 아님. 하네스 [`configs/bench-serve.sh`](../configs/bench-serve.sh), 런치 [`configs/v41-serve.sh`](../configs/v41-serve.sh). 둘의 까닭은 [처리량 모형](../docs/throughput-model.md).
 
-## What the file is
+## 파일의 모양
 
-| role | tensors | size |
-|---|---:|---:|
-| routed experts | 120 | 258.8 GB |
-| **engram tables** | 8 | **84.6 GB** |
+| 역할 | 텐서 | 크기 |
+|---|---|---:|
+| routed expert | 120 | 258.8 GB |
+| **engram 테이블** | 8 | **84.6 GB** |
 | attention + hyper-connection | 623 | 2.2 GB |
-| embeddings, norms, output | 175 | 1.1 GB |
+| 임베딩·norm·출력 | 175 | 1.1 GB |
 | shared expert | 120 | 0.7 GB |
-| **total** | **1046** | **347.4 GB** |
+| **합계** | **1046** | **347.4 GB** |
 
-Read from the tensor headers of all nine shards, each tensor's own shape and
-quantization type. The engram tables are `blk.1.engram_embd` and
-`blk.14.engram_embd`, both `[256, 384006168]` at Q3_K, 42.2 GB apiece.
+아홉 샤드 텐서 헤더에서 읽었다. engram은 `blk.1`·`blk.14.engram_embd`, 둘 다 `[256, 384006168]` Q3_K에 42.2 GB씩.
 
-The dense part of this model is **4.0 GB** — about one percent of the file.
-That is the fact that makes the whole arrangement work: almost all of 72 GB of
-VRAM is available for routed experts rather than being eaten by attention.
+이 모델 dense 부분 **4.0 GB** — 파일의 1%다. 배치를 성립시키는 사실이다. 72 GB VRAM 거의 전부가 어텐션에 뜯기지 않고 routed expert 차지다.
 
-## It loads, and the tables stay on the drive
+## 로드되고 테이블은 드라이브에 남는다
 
-Two minutes and one second to load, from a page cache dropped immediately
-before. Then:
+로드 2분 1초, 직전 페이지 캐시 드롭. 이어서:
 
 ```
 VmRSS:     215056592 kB      215.1 GB
@@ -46,247 +31,153 @@ RssAnon:      347388 kB        0.3 GB
 RssFile:   214358332 kB      214.4 GB
 ```
 
-215 GB resident against a 347 GB file. `--lazy-mode auto` marks tensors above
-4 GiB, the engram tensors are 42.2 GB each, and they were left mapped rather
-than faulted in. The rest of the gap is expert weight that was copied to VRAM
-and then dropped from the page cache.
+파일 347 GB 대 상주 215 GB. `--lazy-mode auto`가 4 GiB 넘게 찍고, engram 42.2 GB씩은 매핑만 되고 fault는 안 됐다. 나머지 간격은 VRAM에 복사됐다 페이지 캐시에서 버려진 expert 가중치다.
 
-## What engram costs, by accident
+## engram의 값, 사고로
 
-The second benchmark run repeated the first one's prompt at `temperature 0`.
-That generates the same tokens, which hash to the same engram rows, which are
-by then in the page cache. The result was an unintentionally clean experiment:
+두 번째 벤치가 첫 프롬프트를 temperature 0에 반복했다. 같은 토큰이 나고, 같은 engram 행에 해시되고, 그때는 페이지 캐시에 있다. 의도 없이 깨끗한 실험이 됐다.
 
-| | decode | major faults/token |
+| | 디코드 | 토큰당 major fault |
 |---|---:|---:|
-| fresh rows | 18.88 tok/s | 46.3 |
-| same rows again | 20.14 tok/s | **0** |
+| fresh 행 | 18.88 tok/s | 46.3 |
+| 같은 행 다시 | 20.14 tok/s | **0** |
 
 ```
-3.31 ms/token difference ÷ 46.3 faults = 0.072 ms per fault
+토큰당 3.31 ms 차이 ÷ 46.3 fault = fault당 0.072 ms
 ```
 
-against the **0.056 ms** this drive measures for a queue-depth-1 random read
-([the NVMe entry](2026-09-12-nvme-sustained-write.md)). The 0.016 ms gap is
-page-fault overhead. And 46.3 faults per token is what the arithmetic
-predicted: two engram layers × 8 heads × 4 n-gram sizes is 48 row lookups.
+이 드라이브 QD1 랜덤 읽기 0.056 ms([NVMe 기록](2026-09-12-nvme-sustained-write.md)) 대 0.016 ms 간격이 페이지폴트 오버헤드다. 토큰당 46.3 fault는 산술 예측 그대로다. engram 2층 × 8헤드 × 4 n-gram = 행 조회 48회.
 
-So engram costs **3.3 ms per token, 6.3% of the budget** — the low end of the
-1–7% band estimated before any of this ran.
+그래서 engram은 **토큰당 3.3 ms, 예산의 6.3%** — 실행 전 1–7% 밴드의 하단이다.
 
-## The measurement that was wrong twice
+## 두 번 틀린 측정
 
-Neither of those two numbers is what this model does on real work.
+위 두 숫자는 둘 다 실제 일의 이 모델이 아니다.
 
-The first run let the model stop where it wanted and produced 19 tokens, in
-which one-time cache warming dominated everything — it reported 563 major
-faults per token, twelve times the steady-state figure. The fix is
-`ignore_eos`: a benchmark decides how many tokens it measures.
+첫 실행이 모델이 멈고 싶은 데 멈추게 해서 19토큰을 냈다. 일회 캐시 워밍이 전부를 지배했다 — 토큰당 major fault 563개, steady 12배다. 처방은 `ignore_eos`다. 벤치가 몇 토큰을 재는지 정한다.
 
-The second is worse, because it looks correct. 20.14 tok/s at zero major
-faults is a real measurement of a thing that cannot happen — the model
-answering a question it has already answered, at temperature 0, token for
-token. Reporting it as throughput would have overstated the machine on every
-workload anyone actually runs.
+두 번째가 더 나쁘다. 맞아 보여서다. major fault 0에 20.14 tok/s는 일어날 수 없는 일의 진짜 측정이다 — 답한 질문에 답하는 모델, temperature 0에 토큰 단위. 처리량으로 보고하면 실제 도는 모든 workload에 기계를 부풀린다.
 
-The honest protocol is a different prompt per run, and it showed something
-neither of the others could:
+정직한 프로토콜은 실행마다 다른 프롬프트다. 둘 다 못 보인 것을 보였다.
 
-| run | prompt | decode | major faults/token |
+| 실행 | 프롬프트 | 디코드 | 토큰당 fault |
 |---|---|---:|---:|
 | 1 | A | 19.63 tok/s | 38.6 |
 | 2 | B | 20.01 tok/s | 19.5 |
 | 3 | C | 20.33 tok/s | 12.7 |
 | 4 | D | 20.11 tok/s | 9.4 |
 
-Four *different* prompts, and the fault count falls by a factor of four.
-**Engram has locality.** It is indexed by token n-grams, and common n-grams
-recur across unrelated English text, so the hot rows of a 384-million-row
-table converge into the page cache and stay. The working set is far smaller
-than the table, which is why 84.6 GB on a drive costs 3.3 ms instead of the
-dozens it could have.
+*다른* 프롬프트 넷인데 fault가 4분의 1에 떨어진다. **engram에 지역성이 있다.** 토큰 n-gram 인덱스인데 흔한 n-gram이 무관 영어 텍스트에 겹쳐서, 3.84억 행 테이블 hot 행이 페이지 캐시에 모여 산다. working set이 테이블보다 훨씬 작다. 84.6 GB 드라이브가 수십 ms가 아니라 3.3 ms인 이유다.
 
-## Expert placement, which barely matters
+## expert 배치, 거의 matter 없음
 
-The obvious lever was to move more expert layers onto the GPUs. Measured, with
-the four-prompt protocol:
+뻔한 레버는 expert 층을 GPU에 더 올리는 것이었다. 4프롬프트 프로토콜에 쟀다.
 
-| expert layers on GPU | mean decode |
+| GPU expert 층 | 평균 디코드 |
 |---:|---:|
 | 6 (4 + 2) | 19.36 tok/s |
 | 8 (6 + 2) | 20.02 tok/s |
 
-**+0.33 tok/s per layer**, against a predicted +0.5. Nine layers does not fit
-at all. So the entire remaining headroom on this axis is under 1 tok/s, and
-the effective memory bandwidth this implies is:
+**층당 +0.33 tok/s**, 예측 +0.5 대. 9층은 아예 안 든다. 이 축 남은 headroom은 통틀어 1 tok/s 미만이다. 함의하는 실효 메모리대역폭:
 
 ```
-49.65 ms/token − 6.6 ms GPU work = 43.1 ms on DDR4
+49.65 ms/token − GPU 작업 6.6 ms = DDR4에서 43.1 ms
 3.44 GB/token ÷ 43.1 ms = 79.8 GB/s
 ```
 
-69% of the 115.8 GB/s this machine measures in a STREAM-style read — better
-than the 56% the previous model implied, which is why the projection was low.
+이 기계 STREAM식 읽기 115.8 GB/s의 69% — 이전 모델의 56%보다 좋다. 투영이 낮았던 이유다.
 
-One placement result is worth recording because it is a trap. At 8 layers,
-GPU0 sits at 46.2 GB of 49.1, and the first run after loading collapsed to
-**9.28 tok/s** while the settled runs were normal. Major faults were
-unchanged, so it was not engram. Nothing in the log pointed at VRAM.
+함정이라 기록하는 배치 결과 하나. 8층에 GPU0이 49.1 중 46.2 GB에 앉고, 로드 직후 첫 실행이 **9.28 tok/s**에 무너졌다. 수렴 실행은 정상. major fault 무변화라 engram이 아니다. 로그에 VRAM을 가리킨 것 없다.
 
-## The thing that actually paid
+## 진짜 산 것
 
-Prefill, which was being measured wrong the entire time.
+프리필. 내내 잘못 재고 있었다.
 
-The benchmark prompt was 24 tokens, and dividing by 24 measures fixed
-overhead. It is worse in a MoE: a 24-token batch routes to up to 144 distinct
-experts per layer against a single token's 6. The reported 39–46 tok/s was
-not a prefill figure.
+벤치 프롬프트 24토큰에 24로 나누면 고정 오버헤드를 잰다. MoE에 더하다. 24토큰 배치가 레이어마다 최대 144개 expert를 건드려 단일 토큰 6개와 비교가 안 된다. 보고된 39–46 tok/s는 프리필 숫자가 아니었다.
 
-Measured across prompt lengths it settles near 160 tok/s — and two settings
-were holding it there. `-np 4` splits the context into four slots and disables
-the unified KV cache, costing 160 → 214. `-ub 512` cost far more:
+프롬프트 길이에 재면 160 tok/s 근처에 수렴한다 — 두 설정이 거기 눌렀다. `-np 4`가 컨텍스트를 4슬롯에 쪼개 통합 KV 캐시를 끈다. 160→214 값이다. `-ub 512`가 훨씬 컸다.
 
-| configuration | prefill @ 4288 tok | decode |
+| 구성 | 4288토큰 프리필 | 디코드 |
 |---|---:|---:|
-| 8 expert layers, `-ub 512` | 214.0 tok/s | 16.35 tok/s |
-| **6 expert layers, `-ub 2048`** | **343.4 tok/s** | 16.93 tok/s |
-| 4 expert layers (CUDA0 only), `-ub 3072` | 245.2 tok/s | 15.75 tok/s |
-| 4 expert layers (CUDA0 only), `-ub 4096` | 282.8 tok/s | 14.98 tok/s |
+| expert 8층, `-ub 512` | 214.0 tok/s | 16.35 tok/s |
+| **expert 6층, `-ub 2048`** | **343.4 tok/s** | 16.93 tok/s |
+| expert 4층(CUDA0만), `-ub 3072` | 245.2 tok/s | 15.75 tok/s |
+| expert 4층(CUDA0만), `-ub 4096` | 282.8 tok/s | 14.98 tok/s |
 
-**61% more prefill at no cost to decode** — a better return than anything on
-the lever list, from a flag that was already there and set wrong.
+**디코드 무손실 프리필 +61%** — 레버 목록 무엇보다 크고, 이미 있고 잘못 박혀 있던 플래그에서다.
 
-The ceiling is the smaller card:
+상한은 작은 카드다.
 
 ```
 ggml_backend_cuda_buffer_type_alloc_buffer: allocating 13864.60 MiB on device 1:
   cudaMalloc failed: out of memory
 ```
 
-The prefill compute buffer scales with micro-batch and is allocated on CUDA1,
-the 3090, where it competes with expert layers and KV cache. Emptying that
-card of experts allowed `-ub 4096` and made prefill *worse*, because its
-layers then reach across the bus for their experts.
+프리필 연산 버퍼가 마이크로배치에 비례해 3090(CUDA1)에 앉아서 expert 층·KV 캐시와 다툰다. 그 카드 expert를 비워 `-ub 4096`을 넣으면 프리필이 *나빠졌다*. 그 층이 expert를 버스 건너 읽기 때문이다.
 
-Context is the same trade, and a clean one:
+컨텍스트는 같은 트레이드의 깨끗한 쪽이다.
 
-| | decode | prefill @ 4288 |
+| | 디코드 | 4288 프리필 |
 |---|---:|---:|
 | `-c 32768 -ub 1024` | 19.89 tok/s | 187.8 tok/s |
 | `-c 16384 -ub 2048` | 19.97 tok/s | 343.4 tok/s |
 
-Doubling context costs 45% of prefill and buys nothing in decode. `-ctk q8_0
--ctv q8_0` does not recover it: what does not fit is the compute buffer, not
-the cache.
+컨텍스트 2배가 프리필 45%를 깎고 디코드는 안 산다. `-ctk q8_0 -ctv q8_0`으로 안 돌아온다. 안 맞는 것은 캐시가 아니라 연산 버퍼다.
 
-## What a busy machine costs, measured
+## 바쁜 기계의 값, 측정
 
-The benchmark protocol says to pause the 510 GB download before measuring.
-Resuming it while the server ran put a number on why:
+벤치 프로토콜이 측정 전 510 GB 다운로드를 멈추라 한다. 서버 도는데 이어서 받은 것이 이유에 숫자를 붙였다.
 
-| | decode | major faults/token |
-|---|---:|---:|
-| first run after resuming the download | 7.55 tok/s | 91.3 |
-| settled, download running | 17.5 – 18.4 tok/s | 60 – 162 |
-| download paused | **20.2 – 20.4 tok/s** | 0 |
+| | 디코드 | 토큰당 fault |
+|---|---|---:|
+| 다운로드 재개 직후 첫 실행 | 7.55 tok/s | 91.3 |
+| 수렴, 다운로드 동작 중 | 17.5–18.4 tok/s | 60–162 |
+| 다운로드 정지 | **20.2–20.4 tok/s** | 0 |
 
-A download writing to the same NVMe evicts expert pages from the page cache
-and competes for the IOPS engram needs, and it costs about **10% of steady
-throughput** — with a much worse transient while the cache re-warms. The
-7.55 tok/s reading is not a property of the model; it is what this machine
-reports when asked to serve and to pull 100 MB/s at the same time.
+같은 NVMe에 쓰는 다운로드가 페이지 캐시에서 expert 페이지를 쫓아내고 engram 필요 IOPS를 다툰다. steady 처리량 **10%** 값이다 — 캐시 재가온 과도기는 훨씬 나쁘다. 7.55 tok/s는 모델 속성이 아니다. 서빙과 100 MB/s 풀링을 동시에 시키면 이 기계가 보고하는 숫자다.
 
-Worth having as an operational number rather than only as a benchmarking rule.
+벤치 규칙을 넘어 운영 숫자로 둘 가치 있다.
 
-## Moving engram to the other drive, which did nothing
+## engram을 다른 드라이브에, 효과 0
 
-If a download on the model drive costs 10%, the obvious fix is to put engram
-somewhere else. The measured case for it looked good before the run: the
-engram shards are almost pure engram — shard 02 is 42.3 GB holding a 42.2 GB
-tensor, shard 05 is 44.9 GB holding another — so they move as a unit, and the
-Samsung is *better* at the access pattern engram uses, at 18,038 random 4K
-read IOPS at queue depth 1 against the Phison's 15,836.
+모델 드라이브 다운로드가 10%면 뻔한 처방은 engram을 다른 데 두는 것이다. 실행 전 근거가 좋아 보였다. engram 샤드가 거의 순수 engram이다 — 샤드 02가 42.3 GB에 42.2 GB 텐서 하나, 샤드 05가 44.9 GB에 또 하나. 통째로 움직이고, 삼성이 engram 패턴에 낫다. QD1 랜덤 4K 18,038 IOPS 대 Phison 15,836.
 
-Both shards were copied to the root filesystem, sha256-verified, and
-symlinked back into place. Then:
+두 샤드를 루트 파일시스템에 복사·sha256 확인·심링크 복귀. 이어서:
 
-| | engram on the Phison | engram on the Samsung |
-|---|---:|---:|
-| quiet, varied prompts | 19.36 tok/s | 19.17 tok/s |
-| with the download running | 18.07 tok/s | 18.12 tok/s |
+| | engram Phison | engram 삼성 |
+|---|---|---:|
+| 조용, 프롬프트 다양 | 19.36 tok/s | 19.17 tok/s |
+| 다운로드 동작 중 | 18.07 tok/s | 18.12 tok/s |
 
-**Nothing, either way.** Which means the hypothesis was wrong about what the
-contention *was*. It is not the drive: a 100 MB/s download fills the page
-cache, and what gets evicted is expert weight, which lives on the Phison no
-matter where engram sits. The cost is memory pressure wearing a disk costume.
+**어느 쪽도, 어느 방향도 무효다.** 가설이 경합 *대상*을 틀렸다. 드라이브가 아니다. 100 MB/s 다운로드가 페이지 캐시를 채우고, 쫓겨나는 것은 expert 가중치다. engram이 어디 살아도 Phison에 산다. 비용은 디스크 옷 입은 메모리 압박이다.
 
-Reverted. A model split across two filesystems is more fragile than one, the
-root disk is the latency-sensitive one, and there was no gain to pay for it.
+되돌렸다. 두 파일시스템에 갈린 모델이 하나보다 깨지기 쉽고, 루트가 지연 민감 디스크고, 살 돈이 없었다.
 
-Reverting it destroyed a 44.9 GB shard, and the way it happened is the same
-failure this machine lost 89 GB to earlier the same day. The first revert
-script was still working on shard 05 when a second one was started to "finish
-the job" — two processes, one file, no lock. One moved its temporary copy into
-place while the other deleted the source out from under it, and the symlink,
-the copy and the temporary file all went at once. The shard had to be pulled
-again.
+되돌리기가 44.9 GB 샤드를 날렸다. 같은 날 아침 89 GB를 잃은 같은 실패다. 첫 revert 스크립트가 샤드 05 작업 중에 "마무리"한다며 두 번째를 시작했다 — 프로세스 둘, 파일 하나, 잠금 없음. 하나가 임시 복사본을 제자리에 옮기는 동안 다른 하나가 밑의 소스를 지웠다. 심링크·복사본·임시 파일이 한 번에 갔다. 샤드를 다시 받았다.
 
-The downloader written that morning has `flock` on every file precisely to
-stop this. The revert script was a handful of `cp` and `mv` lines and did not,
-because it did not look like the kind of thing that needed one. That is the
-whole lesson: the guard belongs on the file, not on the programs a person
-judges to be risky.
+그날 아침 쓴 다운로더는 파일마다 `flock`이 정확히 이것을 막으려고 있다. revert 스크립트는 `cp`·`mv` 몇 줄이라 없었다. 필요해 보이는 종류가 아니어서다. 교훈 전부다. 가드는 사람이 위험하다고 판단한 프로그램이 아니라 파일에 둔다.
 
-## Where this leaves it
+## 남는 자리
 
-**20 tok/s decode, 343 tok/s prefill, 16k context, on mainline llama.cpp.**
-Splitting a model across two GPUs and system RAM is upstream `-ot`, not an
-ik_llama feature — the fork running here carries sixteen commits and all of
-them are V4.1 architecture.
+**디코드 20 tok/s, 프리필 343 tok/s, 컨텍스트 16k, mainline llama.cpp.** 두 GPU·시스템 RAM 분할 서빙은 업스트림 `-ot`지 ik 기능이 아니다 — 여기 도는 포크 열여섯 커밋이 전부 V4.1 아키텍처다.
 
-What is left on mainline is small. The placement axis is exhausted at
-+0.33 tok/s per layer with under a layer of headroom; prefill has been taken;
-concurrency is untested and is the one remaining item of any size.
+mainline에 남은 것은 작다. 배치 축은 층당 +0.33 tok/s에 headroom 1층 미만으로 고갈. 프리필은 손에 넣었다. 동시성은 미측정으로, 크기 있는 남은 항목 하나다.
 
-Everything larger needs ik_llama, which cannot load this architecture yet:
-`-ser` projects 24 tok/s, low-bit expert quants project 29. That turns the
-architecture port from an optimization into the only remaining lever, which
-is not where it sat this morning.
+더 큰 것은 전부 ik가 필요한데, 이 아키텍처를 아직 못 올린다. `-ser` 투영 24 tok/s, 저비트 expert 퀀트 투영 29. 아키텍처 이식을 최적화에서 유일한 남은 레버로 바꾼다. 아침 자리가 아니다.
 
-## The recording
+## 녹화
 
-![DeepSeek-V4.1-Flash answering in Korean, with the memory tiers live beside it](../assets/v41-korean.gif)
+![한국어로 답하는 DeepSeek-V4.1-Flash, 옆에 라이브 메모리 티어](../assets/v41-korean.gif)
 
-Left pane the model, right pane the machine, both live:
-[`tools/v41-demo.py`](../tools/v41-demo.py) and
-[`tools/v41-korean.tape`](../tools/v41-korean.tape). It reads `/proc` next to
-the server, so the panel is the same resident-set and fault counters used
-above rather than a caption asserting them.
+왼쪽 모델, 오른쪽 기계, 둘 다 live. [`tools/v41-demo.py`](../tools/v41-demo.py)와 [`tools/v41-korean.tape`](../tools/v41-korean.tape). 서버 옆에서 `/proc`을 읽으니 패널이 위의 상주집합·fault 카운터 그 자체지 주장하는 캡션이 아니다.
 
-Four bugs had to come out of it before the frame was honest, and they are
-worth naming because each one produced a plausible-looking picture. The panel
-first drew the tiers as a tree, which claims the three add up to 347.3 GB;
-they do not, because VRAM weight is counted in the file and shadowed in the
-resident set both. Display width was computed with ANSI escapes included, so
-every coloured line came up fifteen columns short and the right panel bled
-into the answer. Three border rules were off by one or two against the body.
-And the throughput readout said 4.5 tok/s for a model doing 18 — from
-counting empty stream chunks as tokens, dividing by wall time that kept
-running after generation stopped, and a render throttle whose `continue`
-skipped the `finish_reason` check so the loop never broke.
+프레임이 정직해지기 전에 버그 넷이 나왔다. 그럴듯한 그림을 내놓아서 이름 붙일 가치 있다. 패널이 처음 티어를 트리로 그렸는데, 셋 합이 347.3 GB라는 주장이다. 아니다. VRAM 가중치가 파일에 셈되고 상주집합에 그림자로 겹치기 때문이다. 표시 너비를 ANSI 이스케이프 포함에 쟀더니 색 입힌 줄마다 15칸 모자라 우측 패널이 답에 번졌다. 테두리 규칙 셋이 본문에 1–2씩 어긋났다. 처리량 되읽음이 18 하는 모델에 4.5 tok/s를 말했다 — 빈 스트림 청크를 토큰에 세고, 생성 멈춘 뒤에도 도는 wall time에 나누고, 렌더 throttle의 `continue`가 `finish_reason` 체크를 건너뛰어 루프가 안 깨져서다.
 
-Reasoning is off in the recording. Measured: this model thinks for
-3,500–4,700 characters before writing a word, and `reasoning_effort` barely
-moves it because the template only special-cases `max`. A recording short
-enough to post never reaches the answer.
+녹화에 reasoning은 끈다. 쟀다. 이 모델이 한 마디 쓰기 전에 3,500–4,700자를 생각한다. `reasoning_effort`가 거의 안 움직인다. 템플릿이 `max`만 특례라서다. 올려둘 만큼 짧은 녹화는 답에 안 닿는다.
 
-## Still open
+## 아직 열림
 
-- Concurrency. The previous model gained 1.6× aggregate at four streams and
-  nothing here has measured it.
-- The 9.28 tok/s collapse at 8 expert layers. Reproduced once, not explained,
-  and the kind of silent failure this log exists to catch.
-- Perplexity. Every lever worth more than a token per second trades accuracy,
-  and there is no baseline on this file to trade against.
-- The MTP module, which the original weights carry as `mtp.0.*` and the GGUF
-  conversion dropped. Speculation projects 1.18×.
+- 동시성. 이전 모델이 4스트림 합계 1.6배를 냈고 여기서 잰 것이 없다.
+- expert 8층의 9.28 tok/s 붕괴. 한 번 재현, 미설명. 이 로그가 잡으려고 있는 종류의 조용한 실패다.
+- Perplexity. 토큰당 1초 넘는 레버마다 정확도를 맞바꾸는데, 맞바꿀 베이스라인이 이 파일에 없다.
+- MTP 모듈. 원본 가중치가 `mtp.0.*`를 싣고 있는데 GGUF 변환이 떨어뜨렸다. 추측 투영 1.18배.

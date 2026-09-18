@@ -1,85 +1,59 @@
-# What mistral.rs can and cannot offload
+# mistral.rs의 오프로드: 되는 것과 안 되는 것
 
-*2026-09-17, 18:42–18:59. RTX A6000 48G, one lease per launch, io pressure 0 at every start.
-mistral.rs 0.9.3, prebuilt installer binary, CUDA build 13.2 against a 13.0 toolkit on the box.*
+*2026-09-17 18:42–18:59. RTX A6000 48G, 런치마다 임대 1개, 시작마다 io 압력 0. mistral.rs 0.9.3 설치 바이너리, 상자 툴킷 13.0 대 CUDA 빌드 13.2.*
 
-The question was plain: does mistral.rs have the CPU and NVMe offloading this box relies on? The
-answer is half yes, and the half that is yes is broken on exactly the model class this workstation
-cares about.
+질문은 단순했다. mistral.rs에 이 상자가 의존하는 CPU·NVMe 오프로드가 있는가. 답은 절반 yes다. yes 절반이 이 워크스테이션이 아끼는 모델 부류에 정확히 깨져 있다.
 
-## What the binary offers
+## 바이너리의 제공
 
-Read off `serve --help` and the binary's own strings, not from documentation:
+`serve --help`와 바이너리 자체 문자열에서 읽었다. 문서가 아니다.
 
 | | |
 |---|---|
-| `--cpu` | force CPU-only execution |
-| `-n, --device-layers ORD:NUM` | layer-granular placement, the `-ngl` of this engine |
-| `--topology <YAML>` | per-layer device *and* per-layer quantization |
-| `MISTRALRS_NO_MMAP` | mmap is the default for model loading; this turns it off |
-| `MISTRALRS_CPU_KV_F32` | the KV dtype when the model runs on CPU — f16 unless this is set. **Not** a KV-offload switch; an earlier note here called it one and that was a misreading of the string |
-| a string in the binary | "No suitable quantization level fits on the available devices. Try a smaller model or enable CPU offload." |
+| `--cpu` | CPU 전용 강제 |
+| `-n, --device-layers ORD:NUM` | 층 단위 배치, 이 엔진의 `-ngl` |
+| `--topology <YAML>` | 층별 장치 *겸* 층별 양자화 |
+| `MISTRALRS_NO_MMAP` | 모델 로드 mmap이 기본. 끄는 스위치 |
+| `MISTRALRS_CPU_KV_F32` | CPU 동작 모델의 KV dtype — 설정 없으면 f16. KV 오프로드 스위치 **아님**. 여기 이른 노트가 그랬다. 문자열 오독이었다 |
+| 바이너리 문자열 | "No suitable quantization level fits on the available devices. Try a smaller model or enable CPU offload." |
 
-What is absent matters more than what is present. There is **no tensor-level placement** — nothing
-resembling ik_llama.cpp's `-ot exps=CPU` or `-ncmoe N`, which is the recipe this box serves
-DeepSeek-V4.1-Flash with: attention and the dense trunk on the cards, expert weights in RAM. A
-layer either goes to a device whole or it does not go there. And there is **no NVMe or disk
-offload**: no `nvme`, no disk-offload string anywhere in the binary. mmap means a GGUF larger than
-RAM pages in through the page cache, which is not a placement tier — anything mapped to the GPU is
-copied there regardless.
+없는 것이 있는 것보다 중요하다. **텐서급 배치가 없다** — 이 상자가 V4.1-Flash 서빙하는 ik의 `-ot exps=CPU`·`-ncmoe N`에 해당하는 것이 없다. 어텐션·dense 몸통은 카드에, expert 가중치는 RAM에. 층은 장치에 통째로 가거나 안 간다. **NVMe·디스크 오프로드도 없다.** 바이너리에 `nvme`, 디스크 오프로드 문자열 없음. mmap은 RAM 넘는 GGUF가 페이지 캐시로 페이징된다는 뜻이지 배치 티어가 아니다 — GPU에 매핑된 것은 어차피 복사된다.
 
-`tune`, which recommends a quantization and a device map, refuses to help here at all:
-`Auto-tuning is not supported for pre-quantized GGUF/GGML models.`
+`tune`(양자화·장치맵 추천)은 여기서 전혀 안 돕는다. `Auto-tuning is not supported for pre-quantized GGUF/GGML models.`
 
-## The layer mapping works, and then the model does not
+## 층 매핑은 돌고, 모델이 안 돈다
 
-`-n 0:8` on the Qwen3.6-35B-A3B UD-Q6_K, which answers the question the help text could not — the
-unlisted layers do go to the host:
+Qwen3.6-35B-A3B UD-Q6_K에 `-n 0:8`. help가 답 못 한 질문에 답한다 — 안 나열된 층이 호스트에 간다.
 
 ```
 INFO mistralrs_quant::utils::log: Layers 0-7: cuda[0] (48 GB)
 INFO mistralrs_quant::utils::log: Layers 8-39: cpu (252 GB)
 ```
 
-The server then loads, serves `/health`, and fails every single request:
+서버가 로드되고 `/health`에 답하고, 매 요청을 깨뜨린다.
 
 ```
 ERROR mistralrs_core::engine: prompt step - Model failed with error: moe experts forward
 dtype mismatch in matmul, lhs: BF16, rhs: F32
 ```
 
-232 identical failures over the nine minutes the readiness loop kept asking. Not intermittent, not
-a first-request warmup: every completion, including the one-token readiness probe.
+readiness 루프가 9분 묻는 동안 동일 실패 232회. 간헐 아님, 첫 요청 워밍 아님. 매 completion, 1토큰 readiness 프로브 포함.
 
-Three launches scope it, each its own lease:
+런치 셋이 범위를 좁힌다. 각각 임대 하나.
 
-| launch | mapping | result |
+| 런치 | 매핑 | 결과 |
 |---|---|---|
-| `-n 0:40` | `Layers 0-39: cuda[0]` | **works**, 0 dtype errors — so the flag itself is fine |
-| `-n 0:39` | `Layers 0-38: cuda[0]` / `Layers 39-39: cpu` | **fails**, 58 dtype errors — **one layer on the host is enough** |
-| `-n 0:8`, dense Qwen2.5-7B Q3_K_M | `Layers 0-7: cuda[0]` / `Layers 8-27: cpu` | **works** — partial offload does what it should |
+| `-n 0:40` | `Layers 0-39: cuda[0]` | **동작**, dtype 에러 0 — 플래그 자체는 fine |
+| `-n 0:39` | `Layers 0-38: cuda[0]` / `Layers 39-39: cpu` | **깨짐**, dtype 에러 58 — **호스트 1층이면 충분** |
+| `-n 0:8`, dense Qwen2.5-7B Q3_K_M | `Layers 0-7: cuda[0]` / `Layers 8-27: cpu` | **동작** — 부분 오프로드가 할 일 한다 |
 
-Which layer that one is matters for anyone reproducing it, so it was read out of the GGUF header
-rather than assumed. All **forty** repeating blocks carry the expert tensors
-(`blk.N.ffn_{gate,up,down}_exps.weight`), so any layer sent to the host takes an expert block with
-it. Layer 39 in particular is one of the ten **full-attention** layers — `full_attention_interval`
-is 4, so `attn_q`/`attn_k` live at blocks 3, 7, 11 … 39 and the other thirty carry `ssm`/linear-attn
-tensors instead. The failing launch therefore put a full-attention + MoE layer on the host, which
-means the linear-attention path is not implicated and the expert FFN is. On a model whose layers are
-not uniformly MoE, `-n 0:39` would land on whatever block 39 happens to be there.
+어느 층인지는 재현자 위해 GGUF 헤더에서 읽었다. 가정 아님. 반복 블록 **마흔 전부** expert 텐서를 든다(`blk.N.ffn_{gate,up,down}_exps.weight`). 호스트행 층마다 expert 블록이 따라간다. 특히 39층은 full-attention 10층 중 하나다 — `full_attention_interval` 4라서 `attn_q`/`attn_k`가 블록 3·7·11 … 39에 살고 나머지 서른은 `ssm`/선형 어텐션 텐서 대신 든다. 깨지는 런치가 호스트에 full-attention + MoE 층을 올린 것이니, 선형 어텐션 경로는 관련 없고 expert FFN이다. 층이 균일 MoE 아닌 모델에 `-n 0:39`는 39 블록에 우연히 있는 것이 간다.
 
-The dense row's rate is worth one sentence of care, because two claims were struck today for
-exactly this shape. That launch measured **17.4 tok/s** on a sixteen-token `curl` burst with twenty
-of twenty-eight layers on the host. The nearest paired figure is the sweep's own one-stream take on
-the same engine and the same model fully resident, **122.8 tok/s** — but that is a toktape take over
-238-token prompts, not a sixteen-token burst, so the pair is an order of magnitude and not a ratio.
-What the row is evidence for is that it served at all.
+dense 행 속도는 조심 문장 하나 값어치 있다. 오늘 정확히 이 모양에 struck 둘이라서다. 그 런치가 호스트 20/28층에 16토큰 `curl` 버스트 **17.4 tok/s**를 쟀다. 가장 가까운 쌍은 같은 엔진·모델 완전 상주의 스위프 자체 1스트림 테이크 **122.8 tok/s** — 다만 238토큰 프롬프트 toktape 테이크라 16토큰 버스트와 쌍이 아니다. 쌍은 자릿수지 비율이 아니다. 그 행의 증거는 돌았다는 것이다.
 
-So: the trigger is a MoE expert block placed on the CPU, one is enough, and partial offload is
-otherwise functional. The error names the site — the CPU MoE expert forward receives BF16
-activations (`DType selected is BF16`, printed at load) against expert weights that arrive as F32.
+그래서 트리거는 CPU에 놓인 MoE expert 블록이다. 하나면 충분하다. 부분 오프로드는 다른 쪽은 멀쩡하다. 에러가 자리를 지목한다 — CPU MoE expert forward가 BF16 활성(로드에 `DType selected is BF16` 찍힘)에 F32로 도착한 expert 가중치를 받는다.
 
-That is the minimal reproducer, and it is two lines:
+최소 재현자, 두 줄이다.
 
 ```
 mistralrs serve -f Qwen3.6-35B-A3B-UD-Q6_K.gguf --host 127.0.0.1 --port 8013 \
@@ -88,158 +62,66 @@ curl -s localhost:8013/v1/chat/completions -H 'Content-Type: application/json' \
   -d '{"model":"default","messages":[{"role":"user","content":"hi"}],"max_tokens":1}'
 ```
 
-## Against the two engines this box already runs
+## 이 상자 이미 도는 두 엔진과 대조
 
-The question "does mistral.rs have offloading" only means something next to the engines it would
-replace, so the same question was put to their binaries' own `--help` rather than to memory
-(`/home/user/{ik_llama.cpp,llama.cpp}/build/bin/llama-server`, both built on this box):
+"mistral.rs에 오프로드가 있는가"는 갈아탈 엔진 옆에서만 뜻이 있다. 기억이 아니라 양쪽 바이너리 자체 `--help`에 물었다(이 상자 빌드 `/home/user/{ik_llama.cpp,llama.cpp}/build/bin/llama-server`).
 
 | | llama.cpp | ik_llama.cpp | mistral.rs 0.9.3 |
 |---|---|---|---|
-| layers to the host | `-ngl` | `-ngl` | `-n ORD:NUM` |
-| tensor placement by name | `-ot NAME=buft` | `-ot NAME=buft` | **absent** |
-| all expert weights to the host | `-cmoe` | `-cmoe` | **absent** |
-| experts of the first N layers to the host | `-ncmoe N` | `-ncmoe N` | **absent** |
-| KV cache off the card | `-nkvo` | `-nkvo` | **absent** (`MISTRALRS_CPU_KV_F32` is a dtype) |
-| the same, for a draft model | `-otd`, `-cmoed`, `-ncmoed` | no | no |
-| per-layer *quantization* | no | no | `--topology` YAML |
-| NVMe or disk tier | no | no | no |
+| 호스트행 층 | `-ngl` | `-ngl` | `-n ORD:NUM` |
+| 이름별 텐서 배치 | `-ot NAME=buft` | `-ot NAME=buft` | **없음** |
+| expert 가중치 전부 호스트 | `-cmoe` | `-cmoe` | **없음** |
+| 앞 N층 expert 호스트 | `-ncmoe N` | `-ncmoe N` | **없음** |
+| KV 캐시 카드 밖 | `-nkvo` | `-nkvo` | **없음**(`MISTRALRS_CPU_KV_F32`는 dtype) |
+| draft 모델 동일 | `-otd`, `-cmoed`, `-ncmoed` | 없음 | 없음 |
+| 층별 *양자화* | 없음 | 없음 | `--topology` YAML |
+| NVMe·디스크 티어 | 없음 | 없음 | 없음 |
 
-Two corrections to how the earlier sections read. **The missing NVMe offload is parity, not a
-deficit** — no engine in this comparison has one, and every one of them relies on the same mechanism,
-mmap plus the page cache, for a file bigger than RAM. Saying mistral.rs "has no NVMe offload" is true
-and says nothing about the choice between them. And llama.cpp has more of this surface than ik does,
-not less: the whole `-ot`/`-cmoe`/`-ncmoe` family again for the *draft* model, which matters on a box
-that runs speculative decoding.
+앞 절 읽기에 정정 둘. **NVMe 오프로드 부재는 parity지 결함이 아니다** — 비교 엔진 어디에도 없고, 셋 다 RAM 넘는 파일에 같은 메커니즘(mmap + 페이지 캐시)에 의존한다. mistral.rs에 "NVMe 오프로드 없음"은 맞고 선택에 대해 말하는 것 없다. llama.cpp가 ik보다 이 표면이 넓지 좁지 않다. draft 모델용 `-ot`/`-cmoe`/`-ncmoe` 집안 통째. 추측 디코딩 도는 상자에서 중요하다.
 
-What is left after removing the parity rows is one row that decides the question. `-ncmoe N` and
-`-ot exps=CPU` are how this workstation serves DeepSeek-V4.1-Flash at all, and mistral.rs cannot
-express either. What that costs is measured the same night in
-[entry -d](2026-09-17-d-what-offloading-costs-each-engine.md), and it is the larger half of the
-answer: an offloaded layer costs ik **0.20 ms** per token and mistral.rs **442 ms**. Both run the
-expert matmul on the host — ik across 26.7 cores reading only the 8 of 256 routed experts in
-quantized form, mistral.rs on 1.3 cores after dequantizing all 256 to F32. A first version of that
-entry said ik kept the matmul on the GPU; it is struck there. So this table compares what each engine
-*can say*, and entry -d compares what each one's kernel then does with it. Layer-granular offload is not a substitute: sending a whole layer to the host sends
-its attention and its KV with the experts, which is the opposite of the trade the recipe is making.
-So mistral.rs's offloading is **one tier of three** — it has the `-ngl` tier, it lacks the tensor
-tier entirely, and nobody has a disk tier. It gains one thing neither of the others has, per-layer
-quantization in `--topology`, which is interesting for fitting a model rather than for placing one.
+parity 행을 빼면 질문을 정하는 행 하나가 남는다. `-ncmoe N`·`-ot exps=CPU`가 이 워크스테이션 V4.1-Flash 서빙 그 자체고, mistral.rs는 어느 쪽도 표현 못 한다. 값은 같은 날 밤에 잰다. [기록 -d](2026-09-17-d-what-offloading-costs-each-engine.md)다. 답의 큰 절반이다. 오프로드 1층이 ik에 토큰당 **0.20 ms**, mistral.rs에 **442 ms**다. 양쪽이 expert matmul을 호스트에 돌린다 — ik가 26.7코어에 라우팅 256 중 8 expert만 양자화 채로 읽고, mistral.rs가 1.3코어에 256 전부 F32 풀고. 그 기록 첫 버전이 ik가 matmul을 GPU에 둔다고 했다. 거기 struck이다. 그래서 이 표는 각 엔진이 *말할 수 있는 것*을 비교하고, 기록 -d는 각 커널이 그걸로 *하는 것*을 비교한다. 층 단위 오프로드는 대체가 아니다. 층 통째를 호스트에 보내면 어텐션·KV가 expert와 같이 간다. 레시피의 트레이드 반대다. 그래서 mistral.rs 오프로드는 **3티어 중 1티어**다 — `-ngl` 티어 있고, 텐서 티어 통째 없고, 디스크 티어는 아무도 없다.어느 엔진에도 없는 것을 하나 얻는다. 배치용이 아니라 맞춤용 층별 양자화 `--topology`다. 배치보다 맞춤에 재미있다.
 
-## Scoping honestly, and the two models that could not be asked
+## 정직한 범위, 못 묻던 모델 둘
 
-One MoE model is one model. The generality is **untested**, and not for want of trying — the two
-other MoE GGUFs on this box are refused at load for reasons that have nothing to do with offload:
+MoE 모델 하나는 하나다. 일반성은 **미측정**이다. 안 만져봐서가 아니다 — 상자의 다른 MoE GGUF 둘이 오프로드 무관 이유로 로드에 거부된다.
 
-* `DeepSeek-V2-Lite-Chat.Q3_K_M.gguf`: `GGUF architecture deepseek2 is missing metadata
-  {arch}.attention.key_length_mla`. An older conversion, predating a key this loader requires.
-* `Qwen3-Coder-Next-IQ4_XS.gguf`: `GGUF tensor blk.0.ssm_ba.weight uses dtype IQ4_XS (23) for native
-  binding model.layers.0.linear_attn.in_proj_ba.weight`. The linear-attention projection is expected
-  unquantized and this GGUF quantized it.
+- `DeepSeek-V2-Lite-Chat.Q3_K_M.gguf`: `GGUF architecture deepseek2 is missing metadata {arch}.attention.key_length_mla`. 로더 요구 키보다 이전 변환이다.
+- `Qwen3-Coder-Next-IQ4_XS.gguf`: `GGUF tensor blk.0.ssm_ba.weight uses dtype IQ4_XS (23) for native binding model.layers.0.linear_attn.in_proj_ba.weight`. 선형 어텐션 투영이 비양자화 기대인데 이 GGUF가 양자화했다.
 
-Both refusals are separate limitations worth knowing about — a GGUF that llama.cpp-family engines load
-happily is not necessarily a GGUF mistral.rs will take — and neither can serve as the second data
-point for the offload bug. The report therefore says "reproduced on one MoE GGUF, with a dense
-control that works and a whole-GPU control that works", which is what was measured.
+두 거부 다 따로 알 가치 있는 제한이다 — llama.cpp 집안이 잘 올리는 GGUF가 mistral.rs가 받는 GGUF가 아니다. 오프로드 버그의 두 번째 데이터포인트도 못 된다. 보고는 그래서 "MoE GGUF 하나에 재현, 동작 dense 대조·전체 GPU 대조 동작"이라 말한다. 잰 그대로다.
 
-Duplicate search, three queries on `EricLBuehler/mistral.rs`: `"dtype mismatch in matmul"` (one hit,
-[#2072](https://github.com/EricLBuehler/mistral.rs/issues/2072), FP8 *loading*, a different path),
-`moe experts forward dtype mismatch` and `device-layers cpu offload gguf moe` — no match.
+중복 조사, `EricLBuehler/mistral.rs`에 쿼리 셋. `"dtype mismatch in matmul"`(1적중, [#2072](https://github.com/EricLBuehler/mistral.rs/issues/2072), FP8 *로딩* — 다른 경로), `moe experts forward dtype mismatch`·`device-layers cpu offload gguf moe` 무매치.
 
-## The fix, the claim a test killed, and the test that did not ship
+## 고침, 테스트가 죽인 주장, 안 싣고 간 테스트
 
-Submitted as [EricLBuehler/mistral.rs#2430](https://github.com/EricLBuehler/mistral.rs/pull/2430),
-five lines in one file. The cause is one line up from where the error is thrown.
-`GgufMatMul::quantized_act_type` (`mistralrs-quant/src/gguf/mod.rs:560`) returns `None` for CPU
-weights, with the comment *"cpu handles bf16 activations natively (widened once inside the packed
-matmul)"* — true of the packed 2D matmul, and the `None` also switches off the cast that
-`QuantMethod::gather_forward` would otherwise apply. The indexed path does not widen: it dequantizes
-the experts to F32 and matmuls them against the activations as they arrive. So the fix casts to F32
-for that matmul and restores the input dtype, which is what `forward_raw` does for the non-indexed
-case and what the CUDA path does inside `quantize_input_q8_1`. It sits after the `indexed_gemv` fast
-path, which keeps its original dtype.
+[EricLBuehler/mistral.rs#2430](https://github.com/EricLBuehler/mistral.rs/pull/2430)으로 제출. 한 파일 5줄. 원인은 에러 던지는 곳 한 줄 위다. `GgufMatMul::quantized_act_type`(`mistralrs-quant/src/gguf/mod.rs:560`)이 CPU 가중치에 `None`을 돌린다. 주석 *"cpu handles bf16 activations natively (widened once inside the packed matmul)"* — packed 2D matmul에는 맞고, 그 `None`이 `QuantMethod::gather_forward`의 cast도 끈다. indexed 경로는 widen 안 한다. expert를 F32에 풀고 도착 활성 그대로 곱한다. 그래서 고침은 그 matmul에 F32 cast + 입력 dtype 복원이다. non-indexed 경우 `forward_raw`가 하는 것, CUDA 경로 `quantize_input_q8_1` 안에서 하는 것이다. `indexed_gemv` fast 경로 뒤에 앉는다. 원래 dtype 유지한다.
 
-Two reviewer questions were answered before submitting rather than after. Fixing
-`quantized_act_type` instead would put a cast on the 2D path that widens BF16 for free. And the
-`QMatMul::Tensor` branch two lines below has the same shape but cannot be reached with a mismatched
-dtype: the CPU early return is guarded by `if let QMatMul::QTensor(qt)`, so a plain tensor falls
-through to `Some(DType::F32)` and the trait casts for it already.
+제출 전 답한 리뷰어 질문 둘. `quantized_act_type`을 고치면 공짜에 넓히는 2D 경로에 형변환이 박힌다. 아래 두 줄 `QMatMul::Tensor` 분기는 같은 모양인데 mismatched dtype에 닿을 수 없다. CPU early return이 `if let QMatMul::QTensor(qt)` 가드라 그냥 텐서는 `Some(DType::F32)`에 떨어지고 trait가 이미 형변환한다.
 
-> ~~`indexed_gemv` is aarch64 only, so an x86_64 host always reaches the dequantize fallback.~~
-> **Struck before submission, by a test that was never shipped.** The sentence was in the PR body
-> when it was written. The throwaway test — `QTensor::quantize(Q4K)`, a BF16 activation,
-> `gather_forward` — was expected to pass on this Apple Silicon Mac without the fix and to fail only
-> on the box. It failed on the Mac:
-> `Error: dtype mismatch in matmul, lhs: BF16, rhs: F32`. `indexed_gemv` also declines layouts its
-> repacked kernels cannot serve, so aarch64 reaches the same fallback. Third wrong scoping claim of
-> the day from reading code, and the first one a test caught before it left the machine.
+> ~~`indexed_gemv`는 aarch64 전용이라 x86_64 호스트는 항상 풀기 fallback에 닿는다.~~ **제출 전 Struck. 싣고 가지 않은 테스트에.** 문장이 PR 본문에 있었다. 쓸 때. 버리는 테스트 — `QTensor::quantize(Q4K)`에 BF16 활성, `gather_forward` — 고침 없이 이 Apple Silicon Mac에 통과하고 상자에서만 깨지기를 기대했다. Mac에서 깨졌다. `Error: dtype mismatch in matmul, lhs: BF16, rhs: F32`. `indexed_gemv`도 repacked 커널이 못 내는 레이아웃을 사양해서 aarch64가 같은 fallback에 닿는다. 코드 읽기의 세 번째 틀린 범위 주장. 기계 떠나기 전에 테스트가 잡은 첫 번째다.
 
-That test was written, used, and then **not shipped**. It is the FAIL-first — it errors on `d5ae0f1`
-without the change and returns BF16 with it, in a plain `cargo test -p mistralrs-quant` that needs no
-GPU — but shipping it would have gone against the repo rather than with it. Counted, not read: of
-mistral.rs's twenty-two most recently merged `fix` pull requests, **two** touch a test file, one a
-website JavaScript test and the other a twenty-five-file correctness sweep; the four adjacent
-single-purpose fixes, one of them a dtype bug in this same crate, are each one file with no test. The
-module the test had landed in is entirely ISQ and UQFF plumbing, so a forward-pass dtype test is an
-outlier there even where tests are wanted. `AGENTS.md` does say "add tests", for *new functionality*,
-which a fix is not. So the PR is one file, +5/−2, one commit — the shape those twenty had — and the
-before-and-after is a sentence in the body instead. FAIL-first is a discipline, not an artifact; the
-rule is now in [`docs/upstream-contributions.md`](upstream-contributions.md).
+그 테스트는 쓰고 쓰고 **안 싣고 갔다.** FAIL-first다 — 변경 없이 `d5ae0f1`에 에러내고 변경에 BF16 돌려준다. GPU 없는 plain `cargo test -p mistralrs-quant`에 돈다. 싣고 가면 리포를 거슬렀다. 세지 말고 읽었다. mistral.rs 최근 머지 `fix` PR 22개 중 테스트 파일 손대는 것 **둘**. 하나는 웹사이트 JS 테스트, 하나는 25파일 정확성 스위프. 인접 단일 목적 고침 넷 — 같은 crate dtype 버그 하나 포함 — 은 각 1파일 테스트 없음이다. 테스트가 착륙할 모듈은 전부 ISQ·UQFF 배관이라 forward-pass dtype 테스트는 원하는 곳에서도 이단아다. `AGENTS.md`가 "add tests"를 말하는데 *새 기능*에다. 고침이 아니다. 그래서 PR은 1파일 +5/−2, 커밋 하나 — 스물 모양 그대로. before-after는 본문 문장 대신이다. FAIL-first는 규율이지 산물이 아니다. 규칙은 이제 [`docs/upstream-contributions.md`](../docs/upstream-contributions.md)에 있다.
 
-Repo gates, run here: `cargo fmt --all -- --check` clean, `cargo clippy -p mistralrs-quant --tests --
--D warnings` exit 0, `cargo test -p mistralrs-quant` **361 passed, 0 failed**. The server-level repro
-in the PR body is attributed to v0.9.3, because a CUDA build of `d5ae0f1` was still compiling kernels
-when the PR went up and a figure is worth only the version it was measured on.
+리포 gate는 여기 돌렸다. `cargo fmt --all -- --check` 클린, `cargo clippy -p mistralrs-quant --tests -- -D warnings` exit 0, `cargo test -p mistralrs-quant` **361 통과 0 실패**. PR 본문의 서버급 재현은 v0.9.3의 것으로 적는다. `d5ae0f1` CUDA 빌드가 PR 올라갈 때 커널 컴파일 중이었어서다. 숫자는 잰 버전 값만 한다.
 
-That build finished at 20:58, in 36 min 25 s, and the box tree was still clean at `d5ae0f1` — so the
-same binary that the PR body could only describe was available to measure, unpatched, at exactly the
-commit named. Both halves, one lease each, twenty minutes apart, the mapping identical
-(`Layers 0-38: cuda[0]` / `Layers 39-39: cpu`, `DType selected is BF16`, 28 GB resident before the
-request):
+그 빌드가 20:58에 끝났다. 36분 25초. 상자 트리가 `d5ae0f1`에 아직 클린 — PR 본문이 서술만 할 수 있던 같은 바이너리가 지목 커밋에 미패치로 잴 수 있었다. 양쪽 절반, 임대 각 하나, 20분 간격. 매핑 동일(`Layers 0-38: cuda[0]` / `Layers 39-39: cpu`, `DType selected is BF16`, 요청 전 상주 28 GB).
 
-| build | one `max_tokens=1` completion | `dtype mismatch` lines |
+| 빌드 | `max_tokens=1` completion 하나 | `dtype mismatch` 줄 |
 |---|---|---:|
-| `d5ae0f1`, unpatched | **http 500** `model_error`, `Model failed with error: moe experts forward` | 2 |
-| `d5ae0f1` + the PR's commit `b0f26d5c` applied verbatim | **http 200**, one token back | **0** |
+| `d5ae0f1` 미패치 | **http 500** `model_error`, `Model failed with error: moe experts forward` | 2 |
+| `d5ae0f1` + PR 커밋 `b0f26d5c` verbatim 적용 | **http 200**, 토큰 하나 복귀 | **0** |
 
-So the before-and-after is now the same commit on both sides rather than a release tag on one, which
-is what the PR body's evidence sentence should say. The patch that produced the second row was the
-PR commit's own diff piped to the box and `git apply`-ed, not a hand re-edit — the day's attribution
-accident was patching a tree mid-compile and then reading the result as unpatched, and applying the
-committed diff is what makes that impossible to repeat. The rebuild took 1 min 31 s and recompiled no
-CUDA kernels, so the second row is the first row's binary plus five lines.
+before-after가 이제 한쪽 릴리스 태그가 아니라 양쪽 같은 커밋이다. PR 본문 증거 문장이 말할 것이다. 두 번째 행의 패치는 PR 커밋 자체 diff를 상자에 파이프해 `git apply`했다. 손 재편집 아님 — 그날의 귀속 사고는 트리 컴파일 중에 고치고 결과를 미패치로 읽은 것이었다. 커밋된 diff 적용이 반복 불가하게 만든다. 재빌드 1분 31초에 CUDA 커널 재컴파일 없음. 두 번째 행이 첫 행 바이너리 + 5줄이다.
 
-The runner is [`tools/mrs/mrs-offload-check.sh`](../tools/mrs/mrs-offload-check.sh), and it exists
-because `mrs-mech-probe.sh` answers this question only by accident: that probe's readiness loop
-demands a *successful completion*, so a server that loads and then fails every request keeps it
-asking for fifteen minutes — which is where the 232 errors above came from. The new runner's
-readiness is `/health`, which separates "the weights loaded" from "a forward pass works", and the
-distinction is the whole bug. It prints the VRAM figure at readiness as the witness that the verdict
-is about the forward pass and not about an unloaded model. The box tree is left patched on purpose;
-a session that wants upstream behaviour from `/home/user/mistral.rs` must `git -C … checkout --
-mistralrs-quant/src/gguf/cpu.rs` first.
+러너는 [`tools/mrs/mrs-offload-check.sh`](../tools/mrs/mrs-offload-check.sh)다. 있는 이유는 `mrs-mech-probe.sh`가 이 질문에 우연히 답해서다. 그 프로브 readiness 루프가 *성공 completion*을 요구해서, 로드되고 매 요청 깨지는 서버가 15분간 묻게 둔다 — 위 232 에러의 경위다. 새 러너 readiness는 `/health`다. "가중치가 로드됐다"와 "forward 패스가 돈다"를 나눈다. 구분이 버그 전부다. readiness에 VRAM 수치를 찍는다. 판정이 안 뜬 모델이 아니라 forward 패스에 대한 것임을 증인한다. 상자 트리는 일부러 패치 상태로 둔다. `/home/user/mistral.rs`에서 업스트림 거동을 원하는 세션은 먼저 `git -C … checkout -- mistralrs-quant/src/gguf/cpu.rs` 해야 한다.
 
-Their contribution rules are worth recording, since they are the opposite of ik_llama.cpp's. There is
-no `CONTRIBUTING.md`; the conventions live in `AGENTS.md` and a near-duplicate `CLAUDE.md`, both
-committed, and there is no disclosure rule for agent-written patches at all — the maintainer merges
-`Co-Authored-By: Claude` commits of his own. What the file does demand is a house style that a
-default agent violates on sight: comments default to **none**, one line each when they exist, ASCII
-only with no em-dashes or `--`, magic values hoisted to named `const`s, no defensive handling for
-cases that cannot occur, and no "Test plan" section in a PR description. This patch adds no comment
-at all.
+걔네 기여 규칙은 기록 값어치 있다. ik 정반대라서다. `CONTRIBUTING.md`가 없다. 관례는 커밋된 `AGENTS.md`와 거의 중복 `CLAUDE.md`에 산다. 에이전트 작성 패치 공개 규칙이 전혀 없다 — 메인테이너가 `Co-Authored-By: Claude` 커밋을 직접 머지한다. 파일이 요구하는 것은 기본 에이전트가 보면 어기는 하우스 스타일이다. 주석 기본 **없음**, 있으면 각 한 줄, ASCII only에 em-dash·`--` 없음, 매직값 named `const`에, 일어날 수 없는 경우 방어 처리 없음, PR 설명에 "Test plan" 절 없음. 이 패치는 주석을 하나도 안 얹는다.
 
-## What it means for this box
+## 이 상자의 의미
 
-The own-engine goal points at Rust, and this is the first thing the Rust engine cannot do that the
-current serving stack does daily. Two gaps, in order of how much they cost:
+자체 엔진 목표가 Rust를 가리킨다. Rust 엔진이 현재 서빙 스택의 일상을 못 하는 첫 번째다. 간격 둘, 값 비싼 순서대로.
 
-1. **No expert-only placement.** Even with the dtype bug fixed, layer-granular offload cannot
-   express "experts in RAM, attention on the card", and for a 100 GB-class MoE that recipe is the
-   difference between served and not served. This is a feature-sized hole, not a bug.
-2. **MoE layers cannot go to the host at all right now.** A bug, small-looking, and the first thing
-   this workstation has sent to the repo it may end up forking: PR #2430.
+1. **expert 전용 배치 없음.** dtype 버그를 고쳐도 층 단위 오프로드는 "expert는 RAM, 어텐션은 카드"를 표현 못 한다. 100 GB급 MoE에 그 레시피가 서빙과 미서빙의 차이 다. 기능 크기 구멍이지 버그 아니다.
+2. **MoE 층이 지금 호스트에 아예 못 간다.** 버그. 작아 보이고, 이 워크스테이션이 포크할지도 모를 리포에 처음 보낸 것이다. PR #2430.
 
-The measurement that started this is in
-[2026-09-17-b](2026-09-17-b-where-the-four-stream-gap-actually-is.md); the probe that produced every
-line above is [`tools/mrs/mrs-mech-probe.sh`](../tools/mrs/mrs-mech-probe.sh), which is also what
-read the CUDA-graph counters there.
+측정 발단은 [2026-09-17-b](2026-09-17-b-where-the-four-stream-gap-actually-is.md)에 있다. 위 매 줄의 프로브는 [`tools/mrs/mrs-mech-probe.sh`](../tools/mrs/mrs-mech-probe.sh)다. 거기 CUDA-그래프 카운터도 읽은 것이다.

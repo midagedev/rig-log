@@ -1,30 +1,14 @@
-# The night of ten boots, and a slot that was out of margin
+# 열 부팅의 밤, 마진 밖 슬롯 하나
 
-**2026-09-16, early morning.** Both GPUs came back. The machine had been
-unusable since 00:01:51, when the RTX 3090 fell off the bus with Xid 79
-during another session's DDP run and the driver logged Xid 154 — "recovery
-action changed from 0x0 (None) to 0x2 (OS Reboot)" — for **both** cards; a
-`torch.cuda` init failed on the A6000 as well.
-~~Both cards were affected.~~ **Corrected 2026-09-18** by reading the driver
-source at the installed tag: Xid 154 is driven by a flag on the *system* object,
-not on a GPU, and every card in the box logs its own copy, so the A6000's line is
-not a statement about the A6000. Its failing `torch.cuda` init fits the same
-shape — UVM's fatal state is one module-wide atomic (`uvm_global.h:299`,
-commented "the driver should refuse to do anything other than try and clean up"),
-checked on the channel paths for every GPU — but that is the likely mechanism
-rather than one traced to this failure.
-[The source trace](2026-09-18-b-the-fault-reproduced.md)
-The reboot was the user's
-call and it was taken into BIOS setup rather than straight back to the
-desktop, because by then the fabric had a suspect.
+**2026-09-16 새벽.** GPU 둘이 돌아왔다. 00:01:51부터 기계가 못 쓰게 됐다. 타 세션 DDP 실행 중 RTX 3090이 Xid 79에 버스에서 떨어지고, 드라이버가 **양 카드에** Xid 154 — "recovery action changed from 0x0 (None) to 0x2 (OS Reboot)" — 를 찍었다. A6000의 `torch.cuda` init도 깨졌다.
+~~양 카드가 맞았다.~~ **2026-09-18 정정.** 설치 태그 드라이버 소스를 읽으니 Xid 154는 GPU가 아니라 *시스템* 객체의 플래그에 돌고, 상자 모든 카드가 자기 복사본을 찍는다. A6000 줄이 A6000 서술이 아니다. 깨진 `torch.cuda` init도 같은 모양에 맞는다 — UVM fatal 상태가 모듈 전역 atomic 하나(`uvm_global.h:299`, "드라이버가 정리 시도 말고 아무것도 거부해야" 주석)라서 모든 GPU 채널 경로에 걸린다 — 다만 이 고장에 추적한 것이 아니라 유력 메커니즘이다. [소스 추적](2026-09-18-b-the-fault-reproduced.md)
+리부트가 사용자 결정이었고, 데스크탑 직행이 아니라 BIOS setup에 들어갔다. 그때 패브릭에 용의자가 있어서다.
 
-Everything below was measured on this machine on this date, either side of
-that reboot.
+아래 전부 이 기계·이 날짜 측정이다. 리부트 어느 쪽도.
 
-## What the boot list says the suspect is
+## 부팅 목록이 말하는 용의자
 
-The kernel journal keeps every boot, and the ones before the failing boot
-are the record of an evening:
+커널 저널이 모든 부팅을 쥐고 있다. 고장 부팅 앞이 저녁 기록이다.
 
 ```
  -10  Mon 2026-09-14 21:23:17 → 21:51:06
@@ -40,97 +24,45 @@ are the record of an evening:
    0  Mon 2026-09-14 23:41:03 → Wed 2026-09-16 05:05:21
 ```
 
-That is the memory-clock walk in
-[`2026-09-14-memory-clock-3600.md`](2026-09-14-memory-clock-3600.md) seen
-from the journal's side: DDR4-3200 through 3400, 3600, 3666, then 3733,
-3766 and 3800, which did not train — the three zero-second boots and the
-eight-second one. The board did not fall back on its own, the physical CLR
-CMOS button was used, and every BIOS item was re-entered by hand. Boot 0,
-at 23:41, is the first boot of the configuration that came out of that
-evening: **DDR4-3600 at 1.30 V**. It is also the boot carrying the PCIe
-errors, and it is the boot the machine was still running when the 3090 fell
-off the bus thirty hours later.
+[`2026-09-14-memory-clock-3600.md`](2026-09-14-memory-clock-3600.md)의 메모리 클럭 walk를 저널 쪽에서 본 것이다. DDR4-3200에서 3400·3600·3666, 이어서 3733·3766·3800이 트레이닝 실패 — 0초 부팅 셋과 8초짜리 하나다. 보드가 스스로 safe 클럭에 안 떨어져서 물리 CLR CMOS 버튼을 썼고, 모든 BIOS 항목을 손에 다시 넣었다. 부팅 0이 23:41, 그 저녁 나온 구성의 첫 부팅이다. **DDR4-3600에 1.30 V.** PCIe 에러 싣는 부팅이기도 하고, 30시간 뒤 3090이 버스에서 떨어질 때 기계가 돌던 부팅이다.
 
-That entry had already written the warning down without knowing it was one.
-Under "Two things seen in passing":
+그 기록이 경고인 줄 모르고 이미 적어뒀다. "지나며 둘" 밑에.
 
-> The PCIe AER counter recorded corrected Data Link Layer errors on the root
-> port of the RTX A6000 (`00:03.1`, two events) during the 3600 run […]
-> filed under WKS-21 as a pattern to watch, not attributed to the memory
-> clock.
+> PCIe AER 카운터가 3600 실행 중 A6000 루트 포트(`00:03.1`)에 corrected Data Link Layer 에러 2건을 기록했다 […] WKS-21에 볼 패턴으로 filed, 메모리 클럭 소행 아님.
 
-Two events during the 3600 stress became 630 corrected errors on that port
-over the following day. Whether that was the clock is the question this
-entry set out to answer, and the answer below is no — or at least not by
-itself.
+2건이 다음 날 그 포트 630 corrected 에러에 됐다. 클럭인가가 이 기록이 답하러 나온 질문이다. 아래 답이 아니다 — 적어도 단독은.
 
-The mechanism is available. This firmware has no Infinity Fabric item at all
-— established by trying, in the same entry — and the fabric follows the
-memory clock 1:1 up to 1800 MHz on its own. DDR4-3600 is MEMCLK 1800, which
-is that ceiling exactly, and on WRX80 the same IO die carries the memory
-controllers and the PCIe root complexes. The 3666 attempt failing a
-verifying memory stress (139 wrong readbacks in ten minutes, invisible to
-MCE on non-ECC DIMMs) says the same thing from the memory side: 3600 was the
-edge of this IMC with eight dual-rank DIMMs, which is why it was given
-1.30 V in the first place.
+메커니즘이 있다. 이 펌웨어에 Infinity Fabric 항목이 전혀 없다 — 같은 기록에 만져서 확정. 패브릭이 메모리 클럭을 1800 MHz까지 저절로 1:1 추종한다. DDR4-3600이 MEMCLK 1800, 정확히 그 상한이다. WRX80에 같은 IO 다이가 메모리 컨트롤러·PCIe 루트 컴플렉스를 싣는다. 3666 시도가 검증 메모리 스트레스에 깨진 것(10분에 오독 139회, non-ECC DIMM에 MCE 불가시)이 메모리 쪽 같은 말이다. 3600이 8 듀얼랭크 DIMM의 이 IMC 끝이라서 1.30 V를 준 이유다.
 
-None of that is proof, and there are two other candidates with physical
-access to the same slot: the machine was moved between buildings on
-2026-09-11 (115 BadTLP appear in the 09-12 boot and in none of the three
-before it, WKS-21) and the CPU cooler was swapped for a tower air cooler on
-the evening of 09-14, hours before the clock walk. What the overclock has
-that the other two do not is a one-boot experiment.
+증명이 어느 것도 아니고, 같은 슬롯에 물리 닿는 후보 둘이 있다. 2026-09-11 건물간 이사(09-12 부팅에 BadTLP 115개, 앞 셋 부팅에 없음, WKS-21)와 09-14 저녁 타워 공랭 교체, 클럭 walk 몇 시간 전이다. 오버클럭이 다른 둘에 없는 것은 1부팅 실험 하나다.
 
-## The correction I owe the counters
+## 카운터에 진 정정
 
-Reported yesterday, and by the other session on this machine to its own
-user: the errors were Data Link Layer timeouts. ~~1 891 corrected AER errors
-on the A6000's root port, all Data Link Layer timeouts.~~ That reading came
-from sampling individual `AER:` lines in the kernel log. The persistent
-per-device counters, read before the reboot, say something else:
+어제 보고했고, 이 기계의 다른 세션이 자기 사용자에게도 보고했다. 에러가 Data Link Layer timeout이라서다. ~~A6000 루트 포트 corrected AER 에러 1,891개 전부 Data Link Layer timeout.~~ 그 읽기가 커널 로그 `AER:` 줄 샘플에 나왔다. 리부트 전 읽은 장치별 영속 카운터가 다른 말을 한다.
 
-| device | corrected | breakdown |
+| 장치 | corrected | 내역 |
 |---|---:|---|
-| `0000:00:03.1` A6000 root port | 630 | **BadTLP 619**, BadDLLP 10, Timeout 1 |
+| `0000:00:03.1` A6000 루트 포트 | 630 | **BadTLP 619**, BadDLLP 10, Timeout 1 |
 | `0000:01:00.0` RTX A6000 | 65 | Timeout 65 |
-| `0000:01:00.1` its audio function | 65 | Timeout 65, NonFatalErr 1 |
+| `0000:01:00.1` 오디오 기능 | 65 | Timeout 65, NonFatalErr 1 |
 | `0000:2b:00.0` | 5 | RxErr 5 |
 
-The timeouts are on the card and its audio function; the port's errors are
-almost entirely BadTLP, which is a CRC failure on a received packet —
-signal integrity, not a device that answered late.
+timeout이 카드·오디오 기능에 있다. 포트 에러가 거의 전부 BadTLP다. 받은 패킷 CRC 실패 — 신호 무결성이지 늦게 답한 장치가 아니다.
 
-Half of that correction was itself wrong, and the half that was wrong was
-mine. The kernel prints **`aer_layer=Data Link Layer`** for a BadTLP as
-well, because BadTLP *is* a data link layer error in the AER taxonomy —
-`aer_status 0x40`, bit 6. So "Data Link Layer" was never the mistake. Only
-"timeouts" was: the layer is right, the type is not, and the log line is
-simply coarser than the counter. The lesson is narrower than the one I drew
-— not that log lines are a sample and counters are the population, but that
-a log line names the layer and only the counter names the type.
+그 정정 절반이 자체 틀렸고, 틀린 절반이 내 것이다. 커널이 BadTLP에도 **`aer_layer=Data Link Layer`**를 찍는다. BadTLP가 AER 분류상 data link layer 에러라서다 — `aer_status 0x40`, 비트 6. "Data Link Layer"가 틀린 적 없다. 틀린 것은 "timeout"뿐이다. 층이 맞고 종류가 틀렸다. 로그 줄이 카운터보다 거칠 뿐이다. 내가 그린 것보다 교훈이 좁다 — 로그 줄이 샘플이고 카운터가 모집단이라는 게 아니라, 로그 줄이 층을 지목하고 종류는 카운터만 지목한다는 것이다.
 
-## The two things changed in firmware
+## 펌웨어에 바꾼 것 둘
 
-One boot, one variable, and the variable is the memory configuration
-returning to stock:
+부팅 하나, 변수 하나. 메모리 구성이 stock에 돌아가는 것이다.
 
-1. `AMD CBS → UMC Common Options → DDR4 Common Options → DRAM Timing
-   Configuration → Accept → Overclock Enabled → Memory Clock Speed`:
-   1800 MHz → **1600 MHz** (DDR4-3600 → DDR4-3200)
+1. `AMD CBS → UMC Common Options → DDR4 Common Options → DRAM Timing Configuration → Accept → Overclock Enabled → Memory Clock Speed`: 1800 MHz → **1600 MHz**(DDR4-3600 → DDR4-3200)
 2. `Ai Tweaker → DRAM ABCD Voltage` / `DRAM EFGH Voltage`: 1.30 → **Auto**
 
-Nothing else was touched — not Above 4G Decoding, not Re-Size BAR, not
-NPS1, and deliberately not a forced PCIe Gen3, which is the obvious second
-knob and would have made the result unreadable. Both changes took: eight
-DIMMs read `Configured Memory Speed 3200 MT/s`, and the BMC reads
-`+VDDIO_ABCD 1.22 V` / `+VDDIO_EFGH 1.21 V`, which is the SPD default this
-board calls Auto.
+다른 손댄 것 없다 — Above 4G Decoding도, Re-Size BAR도, NPS1도 아니다. 강제 PCIe Gen3도 일부러 아니다. 뻔한 두 번째 노브라서 결과 읽을 수 없게 된다. 둘 다 먹었다. DIMM 여덟이 `Configured Memory Speed 3200 MT/s`에 읽히고, BMC가 `+VDDIO_ABCD 1.22 V` / `+VDDIO_EFGH 1.21 V`에 읽는다. 이 보드가 Auto라 부르는 SPD 기본값이다.
 
-The cost is known in advance and it is the whole reason the clock was raised:
-131.2 GB/s of 32-thread host read instead of 147.7, −12.6 %. That is a
-CPU-offload number. Nothing that fits in VRAM pays it.
+값이 미리 안다. 클럭 올린 이유 전부다. 147.7 대신 32스레드 호스트 읽기 131.2 GB/s, −12.6%. CPU 오프로드 숫자다. VRAM에 드는 것은 안 낸다.
 
-## Both cards initialize
+## 양 카드 초기화
 
 ```
 index, name, memory.used, pstate, pcie.link.gen.current, pcie.link.width.current
@@ -139,44 +71,26 @@ index, name, memory.used, pstate, pcie.link.gen.current, pcie.link.width.current
 torch 2.5.1+cu124, device_count 2
 ```
 
-## The 2.5 GT/s was idle downclocking
+## 2.5 GT/s가 idle 다운클럭이었다
 
-This was left open yesterday, and it mattered more than the error count did:
-the A6000's link read `2.5GT/s (downgraded)` against a 16 GT/s LnkCap, and
-if that were a fallback after errors rather than idle behaviour, then every
-measurement in the last week that streamed weights over PCIe — prefill, the
-`-ot` moves, the exl3 expert tail — had been running on a quarter-speed
-link, and the numbers would have to be thrown away.
+어제 열어뒀고, 에러 수보다 중요했다. A6000 링크가 LnkCap 16 GT/s 상대 `2.5GT/s (downgraded)`에 읽혔다. 에러 뒤 fallback이면, 지난주 PCIe에 가중치 흘린 모든 측정 — 프리필, `-ot` 이동, exl3 expert tail — 이 4분의 1 속도 링크에 돈 것이고 숫자를 버려야 한다.
 
-It is idle behaviour. On a fresh boot with zero errors on any device, all
-six GPU functions and both root ports still read 2.5 GT/s at idle, with
-`ASPM Disabled` in LnkCtl — so it is not ASPM either, it is the GPUs' own
-link power management following P8. Put traffic on the link and it comes up
-and stays up:
+idle 거동이다. 에러 0 신선 부팅에 GPU 기능 여섯·루트 포트 둘 전부 idle 2.5 GT/s에 읽힌다. LnkCtl에 `ASPM Disabled`라서 ASPM도 아니다. P8 따라가는 GPU 자체 링크 전원 관리다. 링크에 트래픽을 올리면 올라오고 유지된다.
 
-| `LnkSta` | idle (P8) | during 12 s of host↔device copies |
+| `LnkSta` | idle(P8) | 12초 host↔device 복사 중 |
 |---|---|---|
-| `00:03.1` A6000 root port | 2.5 GT/s ×16 | **16 GT/s ×16** |
-| `01:00.0` RTX A6000 | 2.5 GT/s ×16 (downgraded) | **16 GT/s ×16** |
-| `40:01.1` 3090 root port | 2.5 GT/s ×16 | **16 GT/s ×16** |
-| `41:00.0` RTX 3090 | 2.5 GT/s ×16 (downgraded) | **16 GT/s ×16** |
+| `00:03.1` A6000 루트 포트 | 2.5 GT/s ×16 | **16 GT/s ×16** |
+| `01:00.0` RTX A6000 | 2.5 GT/s ×16(downgraded) | **16 GT/s ×16** |
+| `40:01.1` 3090 루트 포트 | 2.5 GT/s ×16 | **16 GT/s ×16** |
+| `41:00.0` RTX 3090 | 2.5 GT/s ×16(downgraded) | **16 GT/s ×16** |
 
-Sampled every two seconds for the length of the load; all four read 16 GT/s
-at every sample. The PCIe-bound rows in
-[`2026-09-15-glm-5.3-flash-first-run.md`](2026-09-15-glm-5.3-flash-first-run.md)
-lose their asterisk.
+부하 길이 2초 샘플. 넷 전부 매 샘플 16 GT/s다. [`2026-09-15-glm-5.3-flash-first-run.md`](2026-09-15-glm-5.3-flash-first-run.md)의 PCIe-bound 행들이 별표를 뗀다.
 
-The load is `tools/pcie-aer-snapshot.sh --load`, which holds pinned
-host↔device copies on every visible GPU while the link state is read. Its
-51.6 GB/s aggregate is not a bandwidth figure and is not offered as one —
-both directions share the link and the loop synchronizes every iteration.
-It exists to make the link busy.
+부하는 `tools/pcie-aer-snapshot.sh --load`다. 보이는 모든 GPU에 핀 host↔device 복사를 걸고 링크 상태를 읽는다. 합계 51.6 GB/s가 대역폭 수치가 아니고 그렇게 내놓지 않는다 — 양쪽이 링크를 나누고 루프가 매 반복 동기화한다. 링크를 바쁘게 만들려고 있다.
 
-## Errors since the reboot: they came back
+## 리부트 뒤 에러: 돌아왔다
 
-Zero at 72 seconds, zero across the first 12-second load, zero at five
-minutes idle. Then, eight and a half minutes into the boot and with the
-fabric under a real load, the same port logged the same thing:
+72초에 0, 첫 12초 로드 0, 5분 idle 0. 이어서 부팅 8분 반, 패브릭에 진짜 부하 걸리고, 같은 포트가 같은 것을 찍었다.
 
 ```
 Sep 16 05:21:47 kernel: pcieport 0000:00:03.1: AER: aer_status: 0x00000040
@@ -184,295 +98,131 @@ Sep 16 05:21:47 kernel: pcieport 0000:00:03.1: AER: aer_layer=Data Link Layer,
                                                     aer_agent=Receiver ID
 ```
 
-`aer_status 0x40` is BadTLP: the same device and the same error type as the
-boot that was replaced, on stock DDR4-3200 with the DRAM voltage back on
-Auto. Sampled every twenty seconds through ten minutes of two-rank NCCL
-all-reduces, the count went 3 → 30, about **200 corrected errors an hour
-under load**, with all four links holding 16 GT/s ×16 at every sample and no
-Xid at all.
+`aer_status 0x40`이 BadTLP다. 바꾼 부팅의 같은 장치·같은 에러 종류다. stock DDR4-3200에 DRAM 전압 Auto다. 2랭크 NCCL all-reduce 10분에 20초 샘플하니 3 → 30개, 부하에 시간당 corrected 에러 약 **200개**다. 네 링크 전부 매 샘플 16 GT/s ×16 유지, Xid 전혀 없음.
 
-**So the memory clock is not the cause on its own.** It may still be a
-contributor — the idle rate at 3200 is being measured now and is the number
-that would say, because a fabric coupled to an over-clocked memory controller
-would be expected to produce errors with nothing running, which is what the
-old boot did, while a physical margin problem produces them under traffic,
-which is what this one does. Until that soak reports, the honest statement
-is that DDR4-3600 is not sufficient to explain the errors, not that it is
-innocent.
+**그래서 메모리 클럭이 단독 원인이 아니다.** 기여자는 될 수 있다 — 3200 idle율을 지금 재고 있고 그 숫자가 말할 것이다. 오버클럭 메모리 컨트롤러에 묶인 패브릭이면 아무것도 안 돌 때 에러를 낼 것이고, 그게 이전 부팅이 한 일이다. 물리 마진 문제면 트래픽에 낸다. 이 부팅이 하는 일이다. soak 보고까지 정직한 서술이 DDR4-3600이 에러를 설명하기에 불충분하다는 것이지 무죄가 아니다.
 
-The load was a reproduction rather than a training job: two ranks, one per
-card, back-to-back 256 MB NCCL all-reduces. It is worth saying what that
-actually exercises, because the assumption everyone on this machine started
-from was wrong. `nvidia-smi topo -p2p rw` reads **GNS**, "GPU not
-supported", in both directions — GeForce has had peer-to-peer removed since
-Ampere, and this is a GeForce paired with a workstation card. The DDP run
-that preceded the crash was therefore never doing card-to-card DMA. NCCL
-staged every transfer through pinned host memory: both links saturated in
-both directions at once, through the host bridge. Still the heaviest fabric
-pattern this box had seen; not the one it was described as.
+부하가 훈련 일이 아니라 재현이었다. 랭크 둘, 카드당 하나, 256 MB NCCL all-reduce 맞대기. 실제 도는 것을 말할 가치 있다. 이 기계 모두가 출발한 가정이 틀렸어서다. `nvidia-smi topo -p2p rw`가 양쪽 **GNS**, "GPU not supported"에 읽는다 — Ampere부터 GeForce에 peer-to-peer가 빠졌고, 여기가 GeForce·워크스테이션 카드 쌍이다. 앞선 DDP 실행이 카드간 DMA를 한 적이 없다. NCCL이 모든 전송을 핀 호스트 메모리에 스테이징했다. 양 링크 양쪽 동시 포화, 호스트 브리지 경유. 여전히 이 상자 본 가장 무거운 패브릭 패턴이다. 서술하던 것이 아니다.
 
-## Two problems, and only one of them is measured
+## 문제 둘, 잰 것은 하나
 
-The card that fell off the bus is not the card with the errors. Every
-corrected error in this machine's history is on the A6000's link; the
-3090's root port has three, total, ever. So the chronic AER story and the
-Xid 79 may be two unrelated things, and the entry above measures only the
-first.
+버스에서 떨어진 카드가 에러 있는 카드가 아니다. 이 기계 역사 corrected 에러 전부가 A6000 링크에 있다. 3090 루트 포트가 통틀어 셋이다. 만성 AER 이야기와 Xid 79가 무관 둘일 수 있고, 위 기록이 재는 것은 첫째뿐이다.
 
-For the second, the capacity explanation is out: the power supply is a
-2000 W unit, against a peak draw of roughly 1000 W with both cards and the
-CPU at full tilt, and the DDP run was plausibly the first time both cards
-drew full *compute* power at once — LLM decode on this box is bandwidth
-bound, not power bound. A 2000 W supply at half load does not sag. That
-leaves the 3090's own link, its seating, or the load itself, and none of
-those has been tested.
+둘째에 용량 설명이 나갔다. 전원이 2000 W 유닛이다. 양 카드·CPU 풀틸트 피크 대개 1000 W 상대. DDP 실행이 양 카드 풀 *연산* 전력을 처음 같이 끈 모양이다 — 이 상자 LLM 디코드가 대역폭-bound지 전력-bound가 아니다. 반 부하 2000 W 서플라이가 처지지 않는다. 남는 것은 3090 자체 링크·장착·부하 자체다. 셋 다 안 시험했다.
 
-## What discriminates the remaining candidates
+## 남은 후보를 가르는 것
 
-The A6000 sits directly in its slot — no riser, which the exl3 handoff had
-assumed — so the classic test is available and it is decisive: **swap the
-two cards between slots.** If the errors follow the A6000, it is the card.
-If they stay on `00:03.1`, it is the slot, its traces, or that root
-complex. That needs hands on the case.
+A6000이 슬롯에 직결이다 — exl3 인계가 가정한 라이저 없다. 고전 시험이 가능하고 결정적이다. **두 카드를 슬롯에 맞바꾼다.** 에러가 A6000을 따라가면 카드다. `00:03.1`에 남으면 슬롯·트레이스·그 루트 컴플렉스다. 케이스에 손이 필요하다.
 
-## Gen3 stops it dead
+손 없이 되는 arm이 `00:03.1`을 8 GT/s에 묶고 부하 반복이었다. 조건 셋, 한 오후, 같은 기계·같은 2랭크 NCCL all-reduce.
 
-The arm that needed no hands was to cap `00:03.1` at 8 GT/s and repeat the
-load. Three conditions, one afternoon, the same machine and the same
-two-rank NCCL all-reduces:
-
-| link | condition | window | corrected errors |
+| 링크 | 조건 | 창 | corrected 에러 |
 |---|---|---:|---:|
-| Gen4 (16 GT/s) | idle | 450 s | **0** |
-| Gen4 (16 GT/s) | under load | 483 s | **27** — one every 17.9 s |
-| Gen3 (8 GT/s) | the same load | 301 s | **0** — the Gen4 rate predicts ~17 |
+| Gen4(16 GT/s) | idle | 450초 | **0** |
+| Gen4(16 GT/s) | 부하 | 483초 | **27** — 17.9초당 하나 |
+| Gen3(8 GT/s) | 같은 부하 | 301초 | **0** — Gen4율 예측 ~17 |
 
-Nothing changed but the signalling rate, and the errors stopped. Both halves
-of that matter: the link is quiet when idle *at Gen4*, so traffic is
-necessary, and it is quiet under traffic *at Gen3*, so 16 GT/s is necessary
-too. Errors that need both are an eye-margin problem — damage does not care
-what speed it runs at, and a dead lane would have shown as a width
-negotiation, not a retried packet.
+바뀐 것은 신호 속도뿐이고 에러가 멈췄다. 양쪽 절반이 중요하다. 링크가 *Gen4* idle에 조용해서 트래픽이 필요하고, *Gen3* 부하에 조용해서 16 GT/s가 필요하기도 하다. 둘 다 필요한 에러가 아이 마진 문제다 — 손상이 속도 가리지 않고, 죽은 레인이 패킷 재시도가 아니라 너비 협상에 나왔을 것이다.
 
-The RTX 3090 is the control that makes this a slot story rather than a board
-story. Same board, same Gen4, same load, driven through the same host bridge
-for the whole of every window: zero errors on its port, throughout.
+RTX 3090이 슬롯 이야기지 보드 이야기를 만드는 control이다. 같은 보드·같은 Gen4·같은 부하, 매 창 내내 같은 호스트 브리지 경유. 자기 포트 에러 0, 내내.
 
-The speed is set through the port's Link Control 2 register and takes effect
-on a retrain, which is
-[`tools/pcie-force-speed.sh`](../tools/pcie-force-speed.sh). Like the board
-power cap before it, the speed is machine state, so it is restored on every
-exit path including a signal.
+속도가 포트 Link Control 2 레지스터에 박히고 retrain에 먹는다. [`tools/pcie-force-speed.sh`](../tools/pcie-force-speed.sh)다. 앞의 보드 전력 캡처럼 속도가 기계 상태라서, 시그널 포함 모든 종료 경로에 복원한다.
 
-It is also a mitigation, if one is ever wanted: capping that port costs half
-the PCIe bandwidth on the A6000's link, which is nothing at all for work
-that fits in VRAM and real money only for host-offload streaming. It does
-not survive a reboot, so standing use would need a unit file.
+원하면 완화이기도 하다. 그 포트 묶으면 A6000 링크 PCIe 대역폭 절반이다. VRAM에 드는 일에 전혀 없고, 호스트 오프로드 스트리밍에만 진짜 돈이다. 리부트에 안 산다. 상시 사용에 유닛 파일이 필요하다.
 
-## The slot, and what the owner knew that the machine did not
+## 슬롯, 기계가 모르고 주인이 알던 것
 
-The last piece came from the person who built it. The A6000 is in nearly the
-bottom slot, put there deliberately to keep thermal distance from the 3090 —
-and the bottom slot is the longest trace run from the CPU on this board,
-which is exactly where Gen4 margin runs out first. That turns "move it up"
-from a guess into the indicated repair, and it is worth recording that the
-measurement could not have found it: the machine can read its own link speed
-and its own error counters, but not how far the packets have to travel to
-get there.
+마지막 조각이 지은 사람에게서 왔다. A6000이 거의 맨 아래 슬롯에 있다. 3090과 열 거리 두려고 일부러 — 맨 아래 슬롯이 이 보드 CPU에서 가장 긴 트레이스런이라 Gen4 마진이 먼저 다는 정확히 그 자리다. "위로 옮긴다"가 추측에서 지시 수리로 바뀐다. 측정이 찾을 수 없었다고 기록할 가치 있다. 기계가 자기 링크 속도·에러 카운터는 읽어도, 패킷이 가야 할 거리는 못 읽는다.
 
-The thermal reason for the bottom slot does not look expensive to give up.
-At the end of six minutes of sustained copies the A6000 read 72 °C against a
-93 °C throttle, and the 3090 53 °C.
+맨 아래 슬롯의 열 이유가 포기 비싸 보이지 않는다. 6분 sustained 복사 끝에 A6000 72 °C에 스로틀 93 °C 상대, 3090 53 °C다.
 
-The box was powered off at 05:47 for the move.
+05:47에 이동하려고 전원을 껐다.
 
-## The new slot is clean, and the experiment that was not run
+## 새 슬롯이 깨끗하고, 안 돌린 실험
 
-The A6000 came back at `0000:61:00.0` under root port `0000:60:01.1` — a
-different IO die quadrant altogether, not one slot up. The 3090 did not
-move. Same load, same eight minutes, Gen4:
+A6000이 `0000:61:00.0`에 돌아왔다. 루트 포트 `0000:60:01.1` 밑 — 한 슬롯 위가 아니라 IO 다이 사분면 자체가 다르다. 3090이 안 움직였다. 같은 부하·같은 8분, Gen4.
 
-| slot | link | condition | window | corrected |
-|---|---|---|---:|---:|
-| `00:03.1` (near the bottom) | Gen4 | idle | 450 s | 0 |
-| `00:03.1` | Gen4 | under load | 483 s | **27** — one every 17.9 s |
-| `00:03.1` | Gen3 | under load | 301 s | 0 |
-| `60:01.1` (moved up) | Gen4 | under load | 502 s | **0** |
+| 슬롯 | 링크 | 조건 | 창 | corrected |
+|---|---|---|---|---:|---:|
+| `00:03.1`(아래 근처) | Gen4 | idle | 450초 | 0 |
+| `00:03.1` | Gen4 | 부하 | 483초 | **27** — 17.9초당 하나 |
+| `00:03.1` | Gen3 | 부하 | 301초 | 0 |
+| `60:01.1`(위로 이동) | Gen4 | 부하 | 502초 | **0** |
 
-Zero on every device, zero AER lines in the kernel log, no Xid, the link
-holding 16 GT/s ×16 at every twenty-second sample. The old slot's rate
-predicts 28 errors across that window. So the machine is repaired, Gen3 is
-not needed, and the full link is back.
+모든 장치 0, 커널 로그 AER 줄 0, Xid 없음, 링크가 20초 샘플마다 16 GT/s ×16 유지.이전 슬롯의 비율이 그 창 28개를 예측한다. 기계가 수리됐다. Gen3이 필요 없고, 전체 링크가 돌아왔다.
 
-**What this cannot say, and it is my fault that it cannot.** Moving the card
-changed the slot and the seating in the same motion. The bottom slot may
-have been short of Gen4 margin, or the card may simply not have been fully
-home in it since the case was opened on 2026-09-12 to add the NVMe — the
-intervention immediately before the first boot that logged errors. Reseating
-in the same slot first would have separated those, and that was the
-suggestion; the card was already moved and booted by the time it was made.
-The distinction is now unrecoverable, and it matters for whoever next puts a
-Gen4 card in that bottom slot.
+**말할 수 없는 것, 내 탓에 말 못 한다.** 카드 이동이 슬롯·장착을 한 동작에 바꿨다. 맨 아래 슬롯이 Gen4 마진 모자라거나, 2026-09-12 NVMe 추가에 케이스 연 뒤 카드가 그냥 덜 박혔거나 — 에러 첫 부팅 직전 개입이다. 같은 슬롯 재장착 먼저가 둘을 나눴을 것이고, 그 제안이었다. 카드가 옮겨지고 부팅될 때 제안이 나왔다. 구분이 이제 회복 불가다. 다음에 그 맨 아래 슬롯에 Gen4 카드를 꽂는 자에게 중요하다.
 
-There is a second thing the record cannot settle, for a duller reason: the
-journal does not reach back past 2026-09-12, and the three boots before the
-first erroring one were nine and ten minutes each and idle. Today's idle
-measurement says an idle window that short produces zero errors anyway. So
-"none in the three boots before" was never evidence that the errors were
-new. There is no loaded baseline from before the move at all.
+기록이 가릴 수 없는 두 번째가 있다. 밋밋한 이유다. 저널이 2026-09-12 앞에 안 닿는다. 에러 첫 부팅 앞 세 부팅이 각 9·10분에 idle이었다. 오늘 idle 측정이 그 짧은 idle 창이 어차피 에러 0이라 말한다. "앞 세 부팅 없음"이 에러가 새 것이라는 증거인 적이 없다. 이사 전 부하 베이스라인이 전혀 없다.
 
-## The first real workload on the new slot, and what it costs in heat
+## 새 슬롯 첫 진짜 workload, 열 값
 
-The measurements above are synthetic: an all-reduce hammer written to
-reproduce a failure. The first ordinary load across the moved card was
-another session's vocoder training, started 06:12 and still running an hour
-later with 38.7 GB resident on the A6000. The fabric is clean under it —
-zero corrected errors on every device, no AER lines, the link at 16 GT/s —
-which is the result that matters, because a training step drives the link
-differently from an all-reduce: host-to-device batches every step rather
-than symmetric peer traffic.
+위 측정이 합성이다. 고장 재현하려고 쓴 all-reduce 망치다. 옮긴 카드 첫 평범 부하는 다른 세션 vocoder 학습이었다. 06:12 시작, 한 시간 뒤에도 돌고, A6000 상주 38.7 GB. 그 밑 패브릭이 깨끗하다 — 모든 장치 corrected 에러 0, AER 줄 없음, 링크 16 GT/s. 의미 있는 결과다. 학습 스텝이 all-reduce와 링크를 다르게 몰기 때문이다. 대칭 피어 트래픽이 아니라 매 스텝 host-to-device 배치를.
 
-What the run surfaced instead is heat.
+대신 표면한 것이 열이다.
 
 | | |
 |---|---:|
-| GPU temperature | 86–87 °C |
-| board's own slot sensor, `PCIE05` | 86 °C |
-| power | 296 W of a 300 W board limit |
-| SM clock | 1710–1740 MHz of 2100 |
-| fan | 72–73 % |
+| GPU 온도 | 86–87 °C |
+| 보드 슬롯 센서 `PCIE05` | 86 °C |
+| 전력 | 보드 제한 300 W 중 296 W |
+| SM 클럭 | 2100 중 1710–1740 MHz |
+| 팬 | 72–73% |
 
-**A correction I made within the hour.** Reading the throttle flags once
-during the run, I reported `SW Power Cap: Active` with both thermal
-slowdowns inactive, and told the user the card was power-capped rather than
-hot. Twenty minutes later `SW Thermal Slowdown` read `Active` too. The
-counters say how much that first reading was worth: sampled thirty seconds
-apart, `SW Thermal Slowdown` advanced 29.7 s and `SW Power Capping` 26.4 s,
-so both are on essentially all the time, and the totals since boot are
-1611 s and 1535 s of a 2982 s uptime. A throttle flag read once is the same
-mistake as an AER counter read once, made in the same session, about the
-same card. The flag is a state with a duty cycle; only the counter gives it.
+**한 시간 안 정정했다.** 실행 중 스로틀 플래그 한 번 읽고 `SW Power Cap: Active`에 열 slowdown 둘 inactive를 보고했다. 카드가 뜨겁지가 아니라 전력 캡이라 사용자에게 말했다. 20분 뒤 `SW Thermal Slowdown`도 `Active`에 읽혔다. 카운터가 첫 읽기가 값어치 얼마인지 말한다. 30초 간격 샘플에 `SW Thermal Slowdown` 29.7초·`SW Power Capping` 26.4초 전진. 둘 다 본질 내내 on이다. 부팅 후 합계가 uptime 2982초 중 1611초·1535초다. 한 번 읽은 스로틀 플래그가 한 번 읽은 AER 카운터와 같은 실수다. 같은 세션, 같은 카드에. 플래그가 듀티 사이클 든 상태다. 카운터만 준다.
 
-The hardware thresholds put that in proportion. `GPU Target Temperature
-Specification` is 84 °C, `Max Operating` 93, `HW Thermal Slowdown` 95,
-`Shutdown` 98. The card is three degrees over the temperature the driver
-tries to hold and eight degrees under the one the hardware acts on; every
-`HW` flag reads `Not Active`. So this is the driver trimming clocks to hold
-a target, not a card in trouble. But it is trimming them continuously, and
-because the power cap is pinned at the same time, **the clock loss cannot be
-attributed to either**. Separating them means taking the budget away — drop
-the board limit and see whether the temperature falls below the target and
-the thermal flag clears — which is the same instrument
-[`tools/ik/gpu-power-sweep.sh`](../tools/ik/gpu-power-sweep.sh) exists for,
-and it is not something to do underneath a live training run.
+하드웨어 임계가 비례에 둔다. `GPU Target Temperature Specification` 84 °C, `Max Operating` 93, `HW Thermal Slowdown` 95, `Shutdown` 98. 카드가 드라이버가 잡으려는 온도 위 3도, 하드웨어가 동작하는 온도 밑 8도다. 모든 `HW` 플래그 `Not Active`에 읽힌다. 목표 잡으려고 드라이버가 클럭 다듬는 것이지 곤란한 카드가 아니다. 다만 계속 다듬고 있고, 전력 캡이 동시에 박혀서 **클럭 손실이 어느 쪽에도 귀속 안 된다**. 나누려면 예산을 뺏는다 — 보드 제한을 내려 온도가 목표 밑에 떨어지고 열 플래그가 걷히는지 본다. [`tools/ik/gpu-power-sweep.sh`](../tools/ik/gpu-power-sweep.sh)이 있는 정확히 그 계기다. live 학습 실행 밑에 할 것이 아니다.
 
-### The board reads the slot, and it agrees
+### 슬롯을 읽는 보드, 동의한다
 
-`ipmitool sdr type temperature` through the BMC has a sensor per PCIe slot:
+BMC `ipmitool sdr type temperature`가 슬롯당 센서를 든다.
 
-| sensor | reading | what is in it |
+| 센서 | 읽기 | 내용 |
 |---|---:|---|
-| `PCIE01 Temp.` | 34 °C | the 3090, idle |
-| `PCIE05 Temp.` | 86 °C | the A6000, under the training load |
+| `PCIE01 Temp.` | 34 °C | 3090, idle |
+| `PCIE05 Temp.` | 86 °C | A6000, 학습 부하 |
 | `CPU Temp.` | 43 °C | |
 | `LAN Temp.` | 51 °C | |
 
-That is worth having for two reasons. It is independent of the card — 86 °C
-of slot against 87 °C of die says the air around the card really is at that
-temperature, rather than one sensor reporting a hot spot. And it is
-readable when the driver is not: during this morning's incident `nvidia-smi`
-could not open either GPU, and this channel would still have answered.
+둘에 값 있다. 카드 독립이다 — 슬롯 86 °C 대 다이 87 °C가 카드 주변 공기 진짜 그 온도라 말한다. 핫스팟 보고 센서 하나가 아니라서다. 드라이버 없을 때 읽힌다. 오늘 아침 사건에 `nvidia-smi`가 GPU 어느 쪽도 못 열었고, 이 채널이 그래도 답했을 것이다.
 
-### The fans, and what "Disabled" does not mean
+### 팬, "Disabled"가 뜻하지 않는 것
 
-All six `CHA_FAN` headers read `Disabled` over IPMI; only `CPU_FAN`
-(2200 RPM), `SOC_FAN` (2700) and `CHIPSET_FAN` (2300) report. On this board
-the BMC is the only source for fan speed at all — the nct6798 Super I/O
-reports zero on every channel — so there is nowhere else to look.
+`CHA_FAN` 헤더 여섯이 IPMI 너머 전부 `Disabled`에 읽힌다. `CPU_FAN`(2200 RPM)·`SOC_FAN`(2700)·`CHIPSET_FAN`(2300)만 보고한다. 이 보드 팬 속도 원천이 BMC뿐이다 — nct6798 Super I/O가 모든 채널 0에 보고해서 다른 볼 데가 없다.
 
-It would be wrong to read that as no chassis airflow. The case has front and
-rear fans; they are wired to the power supply directly rather than to a
-board header, so nothing reports them and nothing controls them. `Disabled`
-means no tachometer on that header, not no fan in the case. The instrument's
-silence is about the instrument. Re-routing them to the headers is on the
-list, and until it happens the chassis fans run at whatever constant speed
-the PSU gives them, with no curve and no telemetry.
+섀시 공기 없음에 읽으면 틀렸다. 케이스 앞뒤 팬이 있다. 보드 헤더가 아니라 전원에 직결이라서 보고하는 것도 제어하는 것도 없다. `Disabled`가 그 헤더에 타코미터 없다는 뜻이지 케이스 팬 없다는 뜻이 아니다. 계기의 침묵이 계기에 대한 것이다. 헤더행 재배선이 목록에 있다. 그때까지 섀시 팬이 PSU 주는 고정 속도에 돈다. 커브 없음, 텔레메트리 없음.
 
-Which leaves the question this section opened with unanswered: whether the
-new slot runs hotter than the bottom one did. The only sustained sample from
-before the move is 72 °C at 138 W, at a fraction of this load, and the 58 °C
-at 298 W that looks comparable was decode bursts of seconds rather than an
-hour at 100 %. There is no baseline to compare against, and saying the move
-made the card hotter would be inventing one.
+열어둔 질문이 그래서 답 없다. 새 슬롯이 맨 아래보다 뜨겁게 도는가. 이사 전 sustained 샘플 유일이 138 W에 72 °C다. 이 부하 일부다. 298 W에 58 °C처럼 보이는 것은 초 단위 디코드 버스트지 100% 한 시간이 아니다. 비교할 베이스라인이 없다. 이동이 카드를 덥게 했다 말하는 것은 없는 것을 지어내는 것이다.
 
-## DDR4-3600 goes back on, and the moved link stays clean under the load that broke the old one
+## DDR4-3600이 돌아오고, 이전 슬롯을 깨뜨린 부하에 옮긴 링크가 깨끗하다
 
-*07:12–07:24.* The memory clock had been dropped to 3200 during the night as one of
-the suspects. The errors returned at 3200, so it was cleared, and once the slot move
-answered the question it went back up: BIOS to DDR4-3600 at 1.30 V, the BMC reading
-the rails at `+VDDIO_ABCD 1.29 V` / `+VDDIO_EFGH 1.28 V` (`dmidecode` still says
-1.2 V, which is the SPD nominal and not a measurement). `Configured Memory Speed:
-3600 MT/s`, host read 144.8 GB/s in each of three runs against 144.6 recorded on
-09-14 and 131.2 at 3200.
+*07:12–07:24.* 메모리 클럭이 밤에 용의자 하나로 3200에 내려가 있었다. 에러가 3200에 돌아와서 걷혔고, 슬롯 이동이 질문에 답하니 올라갔다. BIOS DDR4-3600에 1.30 V. BMC 레일 `+VDDIO_ABCD 1.29 V` / `+VDDIO_EFGH 1.28 V`에 읽는다(`dmidecode`가 아직 1.2 V라 말한다. SPD nominal이지 측정이 아니다). `Configured Memory Speed: 3600 MT/s`, 호스트 읽기 3실행 각 144.8 GB/s. 09-14 기록 144.6 상대, 3200의 131.2 상대.
 
-Then the same two-rank NCCL all-reduce that produced 27 corrected errors in 483 s
-in the old slot ran for 480 s at 3600 in the new one, with the throttle counters and
-both temperature channels sampled beside the AER count
-([`tools/mem3600-load.sh`](../tools/mem3600-load.sh)):
+이어서 이전 슬롯에 483초 27 corrected 에러 낸 같은 2랭크 NCCL all-reduce가 새 슬롯에 3600으로 480초 돌았다. 스로틀 카운터·양 온도 채널을 AER 수 옆에 샘플했다([`tools/mem3600-load.sh`](../tools/mem3600-load.sh)).
 
-| 480 s at DDR4-3600, A6000 in the moved slot | |
+| DDR4-3600 480초, 옮긴 슬롯 A6000 | |
 |---|---:|
-| corrected errors on the A6000's link (`60:01.1` / `61:00.0`) | **0** (old slot: 27 in 483 s) |
-| corrected errors, all four ports | 1 — one `BadTLP` on `40:01.1`, the root port above the **3090**, at 07:21:19 |
+| A6000 링크(`60:01.1` / `61:00.0`) corrected 에러 | **0**(이전 슬롯 483초 27개) |
+| 4포트 전부 corrected 에러 | 1 — `40:01.1`에 `BadTLP` 하나. **3090** 위 루트 포트다. 07:21:19 |
 | Xid | 0 |
-| `SW Thermal Slowdown` counter delta | 0 s |
-| `SW Power Capping` counter delta | 5 s |
-| A6000 die / slot sensor `PCIE05` | 72 °C / 72 °C at 137 W |
-| 3090 die / `PCIE01` | 58 °C / 58 °C at 179 W |
-| all-reduces completed | 10 213, 10.9 GB/s a rank |
+| `SW Thermal Slowdown` 카운터 delta | 0초 |
+| `SW Power Capping` 카운터 delta | 5초 |
+| A6000 다이 / 슬롯 센서 `PCIE05` | 137 W에 72 °C / 72 °C |
+| 3090 다이 / `PCIE01` | 179 W에 58 °C / 58 °C |
+| all-reduce 완료 | 10,213개, 랭크당 10.9 GB/s |
 
-So the moved link is clean at 3600 as it was at 3200 this morning, and "3600 is
-innocent" is now a measurement rather than an inference from the 3200 run. The one
-event on the 3090's port is recorded and not attributed: a single count in 480 s
-cannot be assigned to the memory clock, and the 502 s Gen4 run at 3200 earlier
-today had zero on that port too. If it recurs, it is the 3090's link that gets the
-four-condition experiment next. The temperatures do not bear on the 87 °C of the
-training run above — this hammer draws 137 W on the A6000, that job drew 296.
+옮긴 링크가 3600에 깨끗하다. 오늘 아침 3200에 깨끗하던 그대로다. "3600 무죄"가 3200 실행 추론이 아니라 측정이다. 3090 포트 사건 하나가 기록되고 귀속 안 된다. 480초 단일 카운트는 메모리 클럭에 못 붙인다. 오늘 3200 Gen4 502초 실행도 그 포트 0이었다. 재발하면 4조건 실험 다음 차례가 3090 링크다. 온도가 위 학습 실행 87 °C에 관계없다 — 이 망치가 A6000에 137 W를 그린다. 그 일이 296을 그렸다.
 
-### The slot move flipped the device order, and every placement assumed the old one
+### 슬롯 이동이 장치 순서를 뒤집었고, 모든 배치가 이전 순서를 가정했다
 
-The first thing the kept-model re-verification found was not in a model. With
-`CUDA_DEVICE_ORDER=PCI_BUS_ID`, which every serving script and runner in this repo
-exported, CUDA0 is the lowest bus address. The A6000 used to be at bus 01 and the
-3090 at 41; the A6000 is now at 61. So **CUDA0 became the 3090**, and every `-ot`
-string that puts four expert layers and the compute buffer on CUDA0, the `-ts 2,1`
-split, and the ExLlamaV3 `-gs 44,21` were about to load 44–46 GB onto a 24 GB card.
-The training job on this box found it first, the hard way: its launcher had
-`CUDA_VISIBLE_DEVICES=0` and put a 38 GB run on the 3090, which OOMed at step 52000.
+남긴 모델 재검증이 처음 찾은 것이 모델에 없었다. `CUDA_DEVICE_ORDER=PCI_BUS_ID`에 모든 서빙 스크립트·러너가 내보냈고, CUDA0이 최저 버스 주소다. A6000이 버스 01·3090이 41에 있었는데, 이제 A6000이 61이다. **CUDA0이 3090에 됐다.** expert 4층·연산 버퍼 CUDA0행 모든 `-ot` 문자열, `-ts 2,1` 분할, ExLlamaV3 `-gs 44,21`이 24 GB 카드에 44–46 GB를 올릴 뻔했다. 이 상자 학습 작업이 먼저 밟았다. 세게. 런처가 `CUDA_VISIBLE_DEVICES=0`을 들고 38 GB 실행을 3090에 올려 step 52000에 OOM냈다.
 
-The fix is one file, [`configs/gpu-order.env`](../configs/gpu-order.env), sourced by
-every runner: `CUDA_VISIBLE_DEVICES=<A6000 UUID>,<3090 UUID>`. CUDA enumerates the
-listed devices in list order and accepts UUIDs, so one line pins the index for
-llama.cpp, ik_llama.cpp, ExLlamaV3 and torch alike, and survives the next slot move
-or a third card. Two things the fix does not do: `nvidia-smi` ignores
-`CUDA_VISIBLE_DEVICES` and is addressed with `-i <UUID>`; and reading the file is
-not the test. The test was the first load: the served file with its seven-layer
-placement put **45.8 GB on the A6000 and 20.0 GB on the 3090**, read back by UUID.
+고침이 파일 하나다. [`configs/gpu-order.env`](../configs/gpu-order.env). 모든 러너가 읽어들인다. `CUDA_VISIBLE_DEVICES=<A6000 UUID>,<3090 UUID>`. CUDA가 나열 장치를 목록 순서에 열거하고 UUID를 받는다. 한 줄이 llama.cpp·ik_llama.cpp·ExLlamaV3·torch의 인덱스를 고정하고, 다음 슬롯 이동·세 번째 카드에도 산다. 고침이 안 하는 것 둘. `nvidia-smi`가 `CUDA_VISIBLE_DEVICES`를 무시하고 `-i <UUID>`에 지목한다. 파일 읽기가 테스트가 아니다. 테스트가 첫 로드였다. 서빙 파일 7층 배치가 **A6000에 45.8 GB·3090에 20.0 GB**를 뒀다. UUID 되읽음이다.
 
-## Still open: the card that actually fell
+## 아직 열림: 실제 떨어진 카드
 
-Nothing measured today explains the Xid 79. The 3090's link was the clean
-one before the reboot, stayed clean through every load after it, and did not
-move slots. The error storm and the card that fell off the bus may be one
-fault or two, and this entry has closed only the first.
+오늘 잰 것이 Xid 79를 설명 안 한다. 3090 링크가 리부트 전 깨끗했고, 뒤 모든 부하에 깨끗했고, 슬롯을 안 옮겼다. 에러 폭풍과 버스에서 떨어진 카드가 고장 하나일 수도 둘일 수도 있다. 이 기록이 첫째만 닫았다.
 
-What is not supported by anything measured here is the simplest reading of
-the symptom. A dead board, or a fault in the fabric as such, would not
-confine itself to one of two root complexes while the other stays clean
-through the same load.
+여기 잰 것이 지지하지 않는 것은 증상 가장 단순 읽기다. 죽은 보드나 그 자체 패브릭 고장이면 두 루트 컴플렉스 중 하나에만 가둘 수 없다. 다른 쪽이 같은 부하에 깨끗한데.
 
-The tool for all of it is
-[`tools/pcie-aer-snapshot.sh`](../tools/pcie-aer-snapshot.sh) for the
-before-and-after pair and `tools/fabric-sample.sh` for the line-per-tick
-view through a window, both of which exist because a counter that is
-cumulative since boot says nothing on its own.
+모든 것의 도구가 [`tools/pcie-aer-snapshot.sh`](../tools/pcie-aer-snapshot.sh)이다. 전후 쌍용. `tools/fabric-sample.sh`가 창 너머 틱당 줄용. 카운터가 부팅 후 누적이라 혼자 아무것도 안 말해서 존재한다.

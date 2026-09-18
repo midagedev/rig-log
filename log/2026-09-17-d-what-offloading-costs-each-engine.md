@@ -1,61 +1,37 @@
-# What offloading costs each engine
+# 엔진마다 오프로드 값
 
-*2026-09-17, 21:19–21:37. RTX A6000 48G, one card, one lease per take, io pressure 0 at every
-start. ik_llama.cpp c10fbbcc, mistral.rs at `d5ae0f1` plus [#2430](https://github.com/EricLBuehler/mistral.rs/pull/2430)
-built from source on the box, toktape 0.2.4. Qwen3.6-35B-A3B UD-Q6_K, one stream, thinking on,
-`-n 512`, the same single 238-token prompt in every row. Figures read out of the tapes by
-[`tools/tape-row.py`](../tools/tape-row.py).*
+*2026-09-17 21:19–21:37. RTX A6000 48G 1장, 테이크마다 임대 1개, 시작마다 io 압력 0. ik c10fbbcc, mistral.rs 소스 빌드 `d5ae0f1` + [#2430](https://github.com/EricLBuehler/mistral.rs/pull/2430), toktape 0.2.4. Qwen3.6-35B-A3B UD-Q6_K, 1스트림, thinking on, `-n 512`, 매 행 같은 238토큰 프롬프트 하나. 숫자는 테이프에서 [`tools/tape-row.py`](../tools/tape-row.py)가 읽음.*
 
-[Entry -c](2026-09-17-c-what-mistral-rs-can-and-cannot-offload.md) settled which offload knobs each
-engine *has*. It said nothing about the price, and the price turns out to be the entire answer: on
-the same model and the same card, moving the same blocks to the host costs one engine **0.20 ms** per
-layer per token and the other **442 ms**.
+[기록 -c](2026-09-17-c-what-mistral-rs-can-and-cannot-offload.md)가 각 엔진의 오프로드 노브 유무를 확정했다. 값은 말 안 했다. 값이 답 전부다. 같은 모델·카드에 같은 블록을 호스트에 옮기면 한 엔진에 층·토큰당 **0.20 ms**, 다른 엔진에 **442 ms**가 든다.
 
-> ~~The two engines do not implement the same feature more or less well, they implement two different
-> features with the same name: ik leaves the arithmetic on the GPU and only relocates the weights.~~
-> **Struck the same night, minutes after this was pushed.** It was a code read wearing a
-> measurement's clothes — the fourth of the day, and the one that got furthest. Both engines move the
-> arithmetic to the host. The correction, and the measurement that forced it, are below.
+> ~~두 엔진이 같은 기능을 잘하고 못하고가 아니라 이름 같은 다른 기능이다. ik는 연산을 GPU에 두고 가중치만 옮긴다.~~ **같은 날 밤 Struck.** 코드 리딩이 측정 옷을 입고 있었다 — 그날 네 번째고, 가장 멀리 간 것이다. **양쪽 엔진이 연산을 호스트로 옮긴다.** 정정과 강제 측정은 아래다.
 
-## The design, and the two things that had to be controlled first
+## 설계, 먼저 control 둘
 
-One level means "the experts of the last L of the model's 40 blocks are off the card", and each
-engine expresses it its own way — `-ncmoe L` against `-n 0:$((40-L))`. Both put the *same* blocks on
-the host, which was checked rather than assumed: ik names each tensor it moves (`blk.30.…` through
-`blk.39.…` at L=10) and mistral.rs prints its ranges (`Layers 0-29: cuda[0]` / `Layers 30-39: cpu`).
-The runner is [`tools/engine-ab/offload-cost-sweep.sh`](../tools/engine-ab/offload-cost-sweep.sh).
+1레벨 뜻은 "모델 40블록 뒤 L블록 expert가 카드 밖"이다. 엔진마다 표현이 다르다 — `-ncmoe L` 대 `-n 0:$((40-L))`. *같은* 블록이 호스트에 간다. 가정 말고 확인했다. ik가 옮기는 텐서를 지목하고(`blk.30.…`–`blk.39.…`, L=10), mistral.rs가 범위를 찍는다(`Layers 0-29: cuda[0]` / `Layers 30-39: cpu`). 러너 [`tools/engine-ab/offload-cost-sweep.sh`](../tools/engine-ab/offload-cost-sweep.sh).
 
-The plan had been to pair the rows on measured VRAM. That was wrong twice over, and the server log
-said so in a line nobody had read before:
+행 쌍을 실측 VRAM에 맞출 계획이었다. 두 번 틀렸고, 서버 로그가 처음 읽히는 줄에 말했다.
 
 ```
 WARN mistralrs_core::pipeline::normal: Device mapping contains a mix of GPU and CPU.
      There is no CPU support for PagedAttention, disabling PagedAttention.
 ```
 
-**Any CPU layer at all turns PagedAttention off for the whole run.** So the VRAM drop from offloading
-one 760 MB block is 2 720 MiB, most of which is the vanished paged pool rather than weights, and
-VRAM cannot be the pairing axis. Worse, it means a naive L0-to-L1 comparison moves two variables at
-once. The control row is therefore all forty blocks on the card with PagedAttention off by hand
-(`PA=off`, a new knob on `mrs-take.sh` whose default is `on` so that every earlier row stays
-reproducible): **102.7 tok/s against 111.2 with it on, a 7 % effect.** Whatever the offload costs, it
-is not that. The pairing axis is the weight bytes of the blocks in each range, summed from the GGUF's
-own tensor sizes.
+**CPU 층 하나면 실행 전체의 PagedAttention이 꺼진다.** 그래서 760 MB 블록 하나 오프로드의 VRAM 낙폭이 2,720 MiB다. 대부분 사라진 paged pool이지 가중치가 아니다. VRAM은 쌍 축이 못 된다. 더 나쁘게, 순진한 L0–L1 비교가 변수 둘을 한 번에 움직인다. control 행은 그래서 카드 위 40블록 전부에 PagedAttention 손으로 끈 것이다(`PA=off`, `mrs-take.sh`의 새 노브. 기본 `on`이라 이전 행 전부 재현 유지). **켜고 111.2 대 끄고 102.7 tok/s, 7% 효과.** 오프로드 값이 무엇이든 그것이 아니다. 쌍 축은 각 범위 블록의 가중치 바이트다. GGUF 자체 텐서 크기 합산.
 
-## mistral.rs: 442 ms per offloaded layer, per token
+## mistral.rs: 오프로드 층·토큰당 442 ms
 
-| blocks on host | weight bytes | srv each | ITL p50 | TTFT | tokens out |
+| 호스트 블록 | 가중치 바이트 | 서버 각 | ITL p50 | TTFT | 출력 토큰 |
 |---:|---:|---:|---:|---:|---:|
 | 0, PagedAttention on | 0 | **111.2** | 9.5 ms | 169 ms | 512 |
 | 0, PagedAttention off | 0 | **102.7** | 10.2 ms | 120 ms | 512 |
-| 1 | 0.76 GB | **2.2** | 453.9 ms | 4 709 ms | 512 |
-| 4 | 3.0 GB | **0.6** | 1 779.1 ms | 15 998 ms | 126 |
-| 10 | 7.6 GB | **0.2** | 4 425.4 ms | 42 716 ms | 64 |
+| 1 | 0.76 GB | **2.2** | 453.9 ms | 4,709 ms | 512 |
+| 4 | 3.0 GB | **0.6** | 1,779.1 ms | 15,998 ms | 126 |
+| 10 | 7.6 GB | **0.2** | 4,425.4 ms | 42,716 ms | 64 |
 
-The last two rows ran out the 240 s wall cap rather than reaching 512 tokens, which is why their
-token counts are short; the rate is a rate either way.
+뒤 두 행은 512토큰 못 채우고 240초 벽에 걸렸다. 토큰 수가 짧은 이유다. 속도야 속도다.
 
-Subtract the control and divide, and the sweep stops being a curve:
+control 빼고 나누면 스위프가 곡선이 아니다.
 
 ```
 (453.9  - 10.2) /  1 = 443.7 ms
@@ -63,13 +39,9 @@ Subtract the control and divide, and the sweep stops being a curve:
 (4425.4 - 10.2) / 10 = 441.5 ms
 ```
 
-**A constant 442 ms per offloaded layer per token**, flat to half a percent across a tenfold
-change in how much is offloaded. A cost that is exactly linear in the number of offloaded layers and
-independent of anything else is not a bandwidth story — a bandwidth story would bend as the
-transfers started to overlap. It is a fixed amount of work done once per layer per token.
+**오프로드 층·토큰당 상수 442 ms**, 오프로드량 10배에 0.5% 평탄이다. 오프로드 층 수에 정확히 선형이고 다른 것과 무관한 비용은 대역폭 이야기가 아니다 — 대역폭 이야기면 전송이 겹들기 시작하며 굽는다. 층·토큰당 한 번 도는 고정 작업량이다.
 
-The code says what that work is, in the function [#2430](https://github.com/EricLBuehler/mistral.rs/pull/2430)
-patched, one line above where the patch landed (`mistralrs-quant/src/gguf/cpu.rs`):
+그 작업이 무엇인지 코드는 말한다. [#2430](https://github.com/EricLBuehler/mistral.rs/pull/2430)이 고친 함수, 패치 착지 한 줄 위(`mistralrs-quant/src/gguf/cpu.rs`):
 
 ```rust
 // Dequantize all weights to f32
@@ -77,21 +49,13 @@ let weights = qtensor.dequantize(device)?;
 let unquant = UnquantLinear::new(QuantMethodConfig::Unquantized(Linear::new(weights, None)))?;
 ```
 
-Every forward pass dequantizes the block's **entire** expert stack to F32 and builds a fresh
-`UnquantLinear` around it. In decode a forward pass is one token, so a Q6_K block of 630 MB of expert
-matrices becomes 3.07 GB of F32 per token, per offloaded layer, and is thrown away. 3.7 GB of
-traffic in 442 ms is 8.4 GB/s, which is the right order for a single dequantize pass over host memory.
-Nothing about this uses the fact that a MoE layer activates 8 of its 256 experts — the whole stack is
-unpacked to serve eight of them.
+매 forward 패스에 블록 **전체** expert 스택을 F32에 풀고 새 `UnquantLinear`를 감싼다. 디코드에 forward 패스는 토큰 하나라서, Q6_K 블록 expert 행렬 630 MB가 오프로드 층·토큰마다 3.07 GB F32가 됐다 버려진다. 442 ms에 3.7 GB 트래픽이면 8.4 GB/s다. 호스트 메모리 1패스 풀기의 맞는 자릿수다. MoE 층이 256 중 8 expert를 깨운다는 사실은 안 쓴다. 여덟 위해 전체를 푼다.
 
-That is worth saying plainly because it was missed while patching the very same function this
-morning: the dtype bug was fixed on the line below a per-token full dequantize, and the bigger defect
-was not noticed until the rate was measured. Reading the code found one bug; running it found the
-one that matters.
+뻔히 말할 가치 있다. 오늘 아침 바로 그 함수를 고치며 놓쳐서다. dtype 버그는 아래 줄에서 고쳤고, 토큰당 전체 풀기는 속도 잴 때까지 안 보였다. 코드 읽기가 버그 하나를 찾았고, 돌리기가 중요한 것을 찾았다.
 
-## ik_llama.cpp: 0.20 ms per offloaded layer, per token
+## ik_llama.cpp: 오프로드 층·토큰당 0.20 ms
 
-| blocks on host | srv each | ITL p50 | TTFT | eff GB/s |
+| 호스트 블록 | 서버 각 | ITL p50 | TTFT | 실효 GB/s |
 |---:|---:|---:|---:|---:|
 | 0 | **129.0** | 7.7 ms | 284 ms | 383 |
 | 1 | **124.7** | 7.9 ms | 274 ms | 370 |
@@ -104,112 +68,51 @@ one that matters.
 (9.7 - 7.7) / 10 = 0.20 ms
 ```
 
-Also exactly linear, also a fixed cost per layer per token, and **0.20 ms against 442 ms — a factor
-of 2 200.** Ten blocks, 6.3 GB of expert weight off a 48 GB card, costs 21 % of the rate.
+여기도 정확히 선형, 층·토큰당 고정 비용이다. **442 ms 대 0.20 ms — 2,200배.** 48 GB 카드 밖 expert 가중치 6.3 GB, 10블록이 속도의 21%다.
 
-## Where the arithmetic runs, asked of the process rather than of a name
+## 연산의 자리, 이름이 아니라 프로세스에 묻는다
 
-The first version of this entry answered this from ik's log line, and was wrong. The line is real:
+이 기록 첫 버전이 ik 로그 줄에서 답했고 틀렸다. 줄은 진짜다.
 
 ```
 Tensor blk.39.ffn_up_exps.weight (size = 210.00 MiB) buffer type overridden to CUDA_Host
 ```
 
-> ~~`CUDA_Host` is pinned host memory that CUDA kernels can read directly. The weights leave the card;
-> the matmul does not. So per token per layer the GPU reads only the experts the router actually
-> chose, about 19.7 MB of that block's 630 MB, and at PCIe 4.0 x16 line rate that is 0.79 ms against a
-> measured 0.20 ms, so the transfer is largely overlapped with compute on the layers that are still
-> resident.~~
+> ~~`CUDA_Host`는 CUDA 커널이 직접 읽는 pinned 호스트 메모리다. 가중치가 카드를 떠나고 matmul은 안 떠난다. 그래서 토큰·층마다 GPU가 라우터가 고른 expert만 읽는다. 그 블록 630 MB 중 약 19.7 MB. PCIe 4.0 x16 직선에 0.79 ms 대 실측 0.20 ms라 전송이 상주층 연산에 대개 겹친다.~~
 >
-> **Struck. Every sentence of it is an inference from a buffer type's name.** A buffer type says where
-> the weights live; where ggml schedules the `MUL_MAT_ID` is a different question, and this entry did
-> not ask it. Two arithmetics fit the same 0.20 ms, and the one chosen was the one needing a fourfold
-> overlap the model cannot provide: the eight routed experts are not known until the router runs *in
-> that layer*, and every later layer depends on that layer, so there is nothing for the transfer to
-> hide behind. The other needs no fudge — 19.7 MB out of DDR4-3600, measured on this box at
-> 147.7 GB/s, is **0.13 ms**. And `src/llama.cpp:363`, quoted here in support, says host buffers
-> "should only be used when data is expected to be copied to/from the GPU", which describes a
-> host-side tensor whose *results* are DMA'd back. That is the CPU-compute case. It was read as its
-> opposite.
+> **Struck. 매 문장이 버퍼 타입명에서 낸 추론이다.** 버퍼 타입은 가중치 사는 곳을 말한다. ggml이 `MUL_MAT_ID`를 어디 스케줄하는지는 다른 질문이고, 이 기록이 안 물었다. 같은 0.20 ms에 산술 둘이 맞는다. 고른 쪽은 모델이 낼 수 없는 4배 겹침이 필요했다. 라우팅된 expert 여덟은 그 층 라우터가 돌아야 *알고*, 뒤 층이 전부 그 층에 의존해서 전송이 숨을 데가 없다. 다른 쪽은 보정 필요 없다 — DDR4-3600에서 19.7 MB, 이 상자 실측 147.7 GB/s에 **0.13 ms**다. 근거에 인용한 `src/llama.cpp:363`은 호스트 버퍼가 "GPU에 복사되거나 GPU에서 복사될 데이터에 써야" 한단다. *결과*를 DMA로 돌려받는 호스트측 텐서 서술이다. CPU 연산 경우다. 반대로 읽었다.
 
-Asked properly, with [`tools/ik/ik-where-compute.sh`](../tools/ik/ik-where-compute.sh), which samples
-the server process's `utime+stime` and the card's utilisation across a decode window — one core busy
-is the serving thread, twenty-odd is a matmul on the host:
+제대로 물었다. [`tools/ik/ik-where-compute.sh`](../tools/ik/ik-where-compute.sh)로. 디코드 창에 서버 프로세스 `utime+stime`과 카드 사용률을 샘플한다 — 코어 하나 바쁘면 서빙 스레드, 스물 몇 개면 호스트 matmul이다.
 
-| | cores busy | mean GPU util | srv each |
-|---|---:|---:|---:|
-| ik, all resident | **1.0** | 96 % | 128 |
-| ik, 10 blocks on host (`-ncmoe 10`) | **26.7** | 72 % | 101 |
-| mistral.rs, all resident | **1.0** | 90 % | 111 |
-| mistral.rs, 1 block on host (`-n 0:39`) | **1.3** | **2 %** | 2.2 |
+| | 바쁜 코어 | 평균 GPU 사용률 | 서버 각 |
+|---|---|---:|---:|
+| ik, 전부 상주 | **1.0** | 96% | 128 |
+| ik, 10블록 호스트(`-ncmoe 10`) | **26.7** | 72% | 101 |
+| mistral.rs, 전부 상주 | **1.0** | 90% | 111 |
+| mistral.rs, 1블록 호스트(`-n 0:39`) | **1.3** | **2%** | 2.2 |
 
-**Both engines move the arithmetic to the CPU.** ik spreads it over twenty-seven cores and still keeps
-the card 72 % busy; mistral.rs does it on one and a third cores while the card sits at 2 %, idle,
-waiting for the host. `iqk_mul_mat`, the fast quantized CPU matmul, is most of ik_llama.cpp's reason
-for existing, and the struck paragraph above had this repo denying it.
+**양쪽 엔진이 연산을 CPU에 옮긴다.** ik가 27코어에 펴고 카드를 72% 바쁘게 둔다. mistral.rs는 1.3코어에 돌리고 카드가 2%에 idle로 호스트를 기다린다. `iqk_mul_mat`, 빠른 양자화 CPU matmul이 ik 존재 이유 대개고, 위 struck 문단이 이 리포가 부정한 것이다.
 
-So the 2 200× is not an architectural gap between tiers. It is two kernels in one tier, and it
-decomposes into two factors, both measured here:
+그래서 2,200배는 티어 간 아키텍처 격차가 아니다. 한 티어의 커널 둘이고, 여기서 잰 계수 둘로 분해된다.
 
-* **Threads.** 26.7 cores against 1.3, about 21×. mistral.rs's CPU expert path is effectively serial.
-* **Bytes touched.** ik reads the 8 of 256 routed experts, quantized: 19.7 MB. mistral.rs reads all
-  630 MB and writes 3.07 GB of F32, so 3.7 GB against 19.7 MB, about 190×.
+- **스레드.** 26.7 코어 대 1.3, 약 21배. mistral.rs CPU expert 경로는 사실상 직렬이다.
+- **닿는 바이트.** ik가 256 중 라우팅 8 expert를 양자화 채로 읽는다. 19.7 MB. mistral.rs가 630 MB 전부 읽고 F32 3.07 GB를 쓴다. 19.7 MB 대 3.7 GB, 약 190배.
 
-Their product is the right order for the measured ratio, which is all two loosely multiplied factors
-can claim; neither is offered as the exact decomposition.
+곱이 실측 비율의 자릿수에 맞는다. 느슨히 곱한 계수 둘이 주장할 전부다. 정확한 분해로 내놓지 않는다.
 
-### The control arm that was built after all
+### 뒤늦게 지은 control arm
 
-Three rows were run with `-ot 'blk\.3[0-9]\.ffn_.*_exps=CPU'`, intending real CPU compute for
-comparison, and came back at 124.9, 116.9 and 101.9 tok/s — the `-ncmoe` rows to within noise, with
-the same `CUDA_Host` in the log.
+`-ot 'blk\.3[0-9]\.ffn_.*_exps=CPU'` 3행이 진짜 CPU 연산 비교용으로 돌았고, 124.9·116.9·101.9 tok/s에 돌아왔다 — 노이즈 안 `-ncmoe` 행. 로그의 `CUDA_Host`도 같다.
 
-> ~~So the arm is invalid as designed. What it establishes is that ik offers no CPU-compute tier at
-> all here, which also means this box's `-ot exps=CPU` recipe has never been CPU compute: expert
-> weights in host RAM, yes; computed on the host, no.~~
-> **Struck, and the most consequential of the four** — it would have told this repo, and anyone
-> reading it, that the recipe this workstation serves DeepSeek-V4.1-Flash with does something it does
-> not do. The two flags *do* land in the same place, because `src/llama-load-tensors.cpp:265` sets
-> `default_cpu_buft = llama_default_buffer_type_cpu(true)` and line 270 normalises any host buffer
-> type to it, which under CUDA is the pinned host buffer. But that shared placement **is** CPU
-> compute. The three rows are a duplicate confirmation, not an invalid arm, and the recipe has always
-> been what it looked like.
+> ~~그래서 arm은 설계 무효다. 확정하는 것은 ik가 여기 CPU 연산 티어가 없다는 것인데, 이 상자의 `-ot exps=CPU` 레시피가 CPU 연산인 적 없다는 뜻도 된다. 호스트 RAM expert 가중치 맞고, 호스트 연산 아니다.~~
+> **Struck. 넷 중 파급이 가장 크다** — 이 리포와 읽는 자에게 워크스테이션이 V4.1-Flash 서빙하는 레시피가 안 하는 짓을 한다고 말할 뻔했다. 두 플래그가 *같은 자리에* 닿는다. `src/llama-load-tensors.cpp:265`가 `default_cpu_buft = llama_default_buffer_type_cpu(true)`를 박고 270줄이 호스트 버퍼 타입을 거기로 정규화하는데, CUDA 아래 그게 pinned 호스트 버퍼다. 다만 공유 배치가 **CPU 연산 맞다.** 세 행은 중복 확증이지 무효 arm이 아니고, 레시피는 보이는 그대로였다.
 
-## What this does to the choice, and what goes upstream
+## 선택에 미치는 것, 업스트림에 가는 것
 
-Entry -c called the missing tensor-level placement "a feature-sized hole, not a bug" and ranked it
-above the dtype bug. That ordering survives and gets sharper: even if mistral.rs grew an
-`-ot exps=CPU` equivalent tomorrow, at 442 ms per layer per token it would be unusable. What it needs
-is not a different tier — it is already in the right one — but ik's kernel inside that tier: the
-routed experts only, quantized, across the cores the machine actually has.
+기록 -c가 텐서급 배치 부재를 "버그가 아니라 기능 크기 구멍"이라 했고 dtype 버그 위에 올렸다. 그 순서가 살고 날카로워진다. mistral.rs가 내일 `-ot exps=CPU` 당량을 키워도 층·토큰당 442 ms면 못 쓴다. 필요한 것은 다른 티어가 아니다 — 이미 맞는 티어에 있다. 그 티어 안 ik 커널이다. 라우팅 expert만, 양자화 채로, 기계의 실제 코어에.
 
-The per-token dequantize is the upstream candidate and it is a bigger one than #2430. Two shapes, in
-increasing order of how much of the engine they touch: cache the dequantized stack, which trades host
-RAM for the repeated work and is a few lines; or gather only the routed experts before dequantizing,
-which is what the sparsity is for. The corrected framing makes that report stronger rather than
-weaker, which is the argument for having gone back at all: ik is an existence proof, on this exact
-model and this exact hardware, that a quantized sparse CPU expert path costs 0.20 ms per layer per
-token. That is a better sentence to put in front of a maintainer than any claim about tiers. Not
-filed. A rate is not a diagnosis — 442 ms is consistent with
-the dequantize and with several other things, and the next step is a profile of one offloaded layer
-that attributes the milliseconds, the same discipline that kept ik's batch-2 finding
-([entry -b](2026-09-17-b-where-the-four-stream-gap-actually-is.md)) unfiled.
+토큰당 풀기가 업스트림 후보고 #2430보다 크다. 모양 둘, 엔진 손대는 순서대로. 풀린 스택을 캐시한다. 호스트 RAM을 반복 작업에 맞바꾸고 몇 줄이다. 풀기 전에 라우팅 expert만 모은다. sparsity의 용도 그대로다. 정정한 프레임이 보고를 약화가 아니라 강화한다. 돌아갈 논거다. ik가 같은 모델·하드웨어에 양자화 sparse CPU expert 경로가 층·토큰당 0.20 ms라는 존재 증명이다. 메인테이너 앞에 두기 더 좋은 문장이다, 티어 주장 무엇보다. 미제출. 속도는 진단이 아니다 — 442 ms는 풀기와 다른 몇 가지에 다 맞고, 다음은 오프로드 한 층의 1밀리초 귀속 프로파일이다. ik 배치-2 발견([기록 -b](2026-09-17-b-where-the-four-stream-gap-actually-is.md))을 미제출에 둔 같은 규율이다.
 
-## State
+## 상태
 
-Twelve tapes in `/home/user/toktape-runs` from the sweep, three of them the `-ot …=CPU` duplicate
-confirmation, plus four more from [`tools/ik/ik-where-compute.sh`](../tools/ik/ik-where-compute.sh),
-which is the scratch question of where the matmul runs promoted to a runner so that the next engine
-can be asked in one command instead of argued about. Two of its rows were thrown away rather than
-reported: at 128 tok/s a 512-token take is four seconds of decode, shorter than the sampling window,
-and the server was gone before the second `/proc` read. The runner now names that case
-(`INVALID: server N exited during the sampling window, no row`) instead of printing an empty field,
-which is how the first pair of rows was caught. All the mistral.rs rows carry
-`contended: yes` for the known reason — toktape identifies the attached server by process name and
-`mistralrs` is not a llama.cpp comm — which the toktape side closed today as TTP-107 (`e4874f2`,
-v0.2.5): `/props` may now declare `engine.server_pid`, and
-[`tools/mrs/mrs-shim.py`](../tools/mrs/mrs-shim.py) now does, along with per-device `placement` rows
-built from the engine's own layer ranges and `vram_kv_bytes: 0` when any CPU layer has taken
-PagedAttention away. The box still runs toktape 0.2.4, so the flip from `contended: yes` to `no` is
-**unobserved**; upgrading the recorder and re-taking one mistral.rs/ik pair is what closes it, and
-neither belongs in the middle of a sweep. The A6000 is idle and the lease is released.
+스윕 테이프 열둘이 `/home/user/toktape-runs`에 있다. 셋이 `-ot …=CPU` 중복 확증, [`tools/ik/ik-where-compute.sh`](../tools/ik/ik-where-compute.sh)에서 넷 더. matmul이 도는 자리를 묻는 스크래치 질문이 러너로 승격된 것이다. 다음 엔진을 다투지 말고 한 명령에 묻는다. 그중 두 행은 보고 말고 버렸다. 128 tok/s에 512토큰 테이크는 디코드 4초다. 샘플 창보다 짧아서 두 번째 `/proc` 읽기 전에 서버가 갔다. 러너가 그 경우를 이제 지목한다(`INVALID: server N exited during the sampling window, no row`). 빈 필드 찍는 대신이다. 첫 두 행 쌍이 잡힌 경위다. mistral.rs 행 전부 알려진 이유로 `contended: yes`를 단다 — toktape가 붙은 서버를 프로세스명으로 찾고 `mistralrs`가 llama.cpp comm이 아니다. toktape 쪽이 오늘 TTP-107에 닫았다(`e4874f2`, v0.2.5). `/props`가 이제 `engine.server_pid`를 선언할 수 있고, [`tools/mrs/mrs-shim.py`](../tools/mrs/mrs-shim.py)가 한다. 엔진 자체 레이어 범위의 장치별 `placement` 행과, CPU 층이 PagedAttention을 떼면 `vram_kv_bytes: 0`도 함께. 상자는 아직 toktape 0.2.4라 `contended: yes`→`no` 뒤집기는 **미관측**이다. 녹음기 올리고 mistral.rs/ik 쌍 하나 다시 찍는 것이 닫는다. 둘 다 스위프 중간 일 아니다. A6000 idle, 임대 해제.

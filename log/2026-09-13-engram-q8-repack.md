@@ -1,173 +1,82 @@
-# Putting the engram tables back at Q8_0: 6 % of perplexity for 125 GB nobody loads
+# engram 테이블 Q8_0 복귀: 아무도 안 읽는 125 GB에 PPL 6%
 
-*2026-09-13. Model: DeepSeek-V4.1-Flash, the Q3_K_M upload from
-`vcruz305/DeepSeek-V4.1-Flash-GGUF`, served by mainline llama.cpp with the
-production flags in `configs/v41-serve.sh`. Scripts in
-`tools/engram-repack/`.*
+*2026-09-13. 모델 DeepSeek-V4.1-Flash, `vcruz305/DeepSeek-V4.1-Flash-GGUF`의 Q3_K_M 업로드. mainline llama.cpp에 `configs/v41-serve.sh` 프로덕션 플래그 서빙. 스크립트 `tools/engram-repack/`.*
 
-## Why
+## 이유
 
-The Q3_K_M upload quantizes everything at Q3_K, including the two engram
-tables: 384 M rows × 256 of n-gram memory in layers 1 and 14, 42 GB each at
-Q3_K. Those tables are never resident (`log/2026-09-12-deepseek-v41-first-run.md`
-measured them staying on the drive; a token touches a handful of rows), so
-their precision costs disk and nothing else. The uploader's Q8_0 build of the
-same model has the same tensors at Q8_0, and the converter writes engram from
-the fp8 original as Q8_0 unconditionally, so those bytes are what a fresh
-conversion would produce. The question was whether Q3_K had damaged them,
-and the cheap way to find out was to graft the Q8_0 tensors into the Q3_K_M
-shards and measure both files with the same commands.
+Q3_K_M 업로드가 engram 테이블 둘까지 Q3_K에 양자화했다. 1·14층의 384M행 × 256 n-gram 메모리, Q3_K에 각 42 GB. 그 테이블은 상주 안 한다([첫 실행](2026-09-12-deepseek-v41-first-run.md)에 드라이브 상주 측정. 토큰이 몇 행씩 손댄다). 정밀도가 디스크 값만 내지 다른 것은 안 낸다. 같은 모델 업로더 Q8_0 빌드가 같은 텐서를 Q8_0에 들고, 컨버터가 fp8 원본에서 engram을 무조건 Q8_0에 쓴다. fresh 변환이면 나올 바이트 그대로다. 묻는 것은 Q3_K가 망가뜨렸는지. 싼 확인은 Q8_0 텐서를 Q3_K_M 샤드에 이식하고 같은 명령에 두 파일을 재는 것이다.
 
-## The repack
+## 재포장
 
-Only two of the nine shards carry engram tensors (02 has layer 1, 05 has
-layer 14). For each, `repack.py` reads the shard's header, copies every KV
-verbatim, copies every tensor byte-identical except the four engram tensors,
-and takes those from the Q8_0 shards that hold them. The write streams in
-1 GiB slices with `fadvise(DONTNEED)` so a 100 GB copy does not evict the
-served model from the page cache. Output goes to `.tmp`, is verified (tensor
-inventory, sha256 of each engram tensor against the Q8_0 source, sha256 of the
-whole file), and only then renamed. The other seven shards are hard links to
-the originals.
+engram 텐서 든 샤드는 아홉 중 둘(02에 1층, 05에 14층). 각각 `repack.py`가 샤드 헤더를 읽고, KV 전부 verbatim 복사, engram 텐서 넷 빼고 텐서 바이트 동일 복사, 넷은 쥐고 있는 Q8_0 샤드에서 가져온다. 쓰기는 1 GiB 슬라이스 스트리밍에 `fadvise(DONTNEED)` — 100 GB 복사가 서빙 모델을 페이지 캐시에서 쫓지 않게. 출력 `.tmp`행, 검증(텐서 인벤토리, 각 engram 텐서 sha256 Q8_0 원천 대조, 전체 파일 sha256) 후 rename. 나머지 일곱 샤드는 원본 하드링크.
 
-| | shard 02 | shard 05 |
+| | 샤드 02 | 샤드 05 |
 |---|---|---|
-| swapped | `blk.1.engram_{embd,wkv}` Q3_K→Q8_0, `blk.1.engram_{q,k}` Q3_K→BF16 | same for `blk.14` |
-| size | 42.3 GB → 104.6 GB | 44.9 GB → 107.2 GB |
-| write | 577 s | 665 s |
-| verify (re-read + hash) | 1203 s | 1604 s |
+| 교체 | `blk.1.engram_{embd,wkv}` Q3_K→Q8_0, `blk.1.engram_{q,k}` Q3_K→BF16 | `blk.14` 동일 |
+| 크기 | 42.3 GB → 104.6 GB | 44.9 GB → 107.2 GB |
+| 쓰기 | 577초 | 665초 |
+| 검증(재독+해시) | 1203초 | 1604초 |
 
-Fetching the three Q8_0 shards that hold the engram tensors took 68 min for
-219 GB at the 80 MB/s cap we run downloads at. The result directory is 472 GB,
-of which 125 GB is new. Loaded with `-lv 4`, the tensor-type summary changes
-by exactly eight entries (Q3_K 476→468, Q8_0 +4, BF16 40→44) and the count
-stays 1046. Nothing else in the file differs; `test_roundtrip.py` checks the
-streaming writer byte-for-byte against the gguf-py library path on a small
-synthetic file.
+engram 든 Q8_0 샤드 셋 가져오기가 다운로드 cap 80 MB/s에 219 GB 68분. 결과 디렉터리 472 GB 중 새로 125 GB. `-lv 4` 로드에 텐서타입 요약이 정확히 8항목 바뀐다(Q3_K 476→468, Q8_0 +4, BF16 40→44). 개수 1046 유지. 파일에 다른 차이 없음. `test_roundtrip.py`가 스트리밍 라이터를 작은 합성 파일에 gguf-py 라이브러리 경로와 바이트 대조한다.
 
 ## Perplexity
 
-wikitext-2 test, `llama-perplexity -c 2048 --chunks 4 -b 2048 -ngl 0 -t 32`,
-the same command for both files. The bracketed values are the tool's running
-estimates after each chunk, not per-chunk numbers; four chunks is 8192
-tokens, hence the wide ±.
+wikitext-2 test, `llama-perplexity -c 2048 --chunks 4 -b 2048 -ngl 0 -t 32`. 두 파일 같은 명령. 대괄호 값은 청크마다 도구 실행 추정치지 청크별 숫자가 아니다. 4청크 8192토큰이라 ±가 넓다.
 
-| after chunk | engram Q3_K (upload) | engram Q8_0 (repack) |
+| 청크 뒤 | engram Q3_K(업로드) | engram Q8_0(재포장) |
 |---|---|---|
 | 1 | 1.7334 | 1.7271 |
 | 2 | 1.7571 | 1.6684 |
 | 3 | 1.8354 | 1.6858 |
-| 4 (final) | **2.2438 ± 0.0631** | **2.1090 ± 0.0585** |
+| 4 (최종) | **2.2438 ± 0.0631** | **2.1090 ± 0.0585** |
 
-Six percent lower, and the intervals do not overlap. The computation is
-deterministic and the two files differ in eight tensors, so this is what
-those tensors cost at Q3_K.
+6% 낮고, 구간이 안 겹친다. 연산이 결정적이고 두 파일이 텐서 여덟에 다르니, Q3_K의 그 텐서 값 그대로다.
 
-### Which of the four tensors
+### 네 텐서 중 무엇인가
 
-Two more variants, each built by the same repack against the same sources
-and measured with the same command, split the eight tensors into the big
-table and everything else. Every variant was verified the same way: the
-swapped tensor's bytes hashed against the Q8_0 source, and the tensors that
-were supposed to stay put hashed against the original and logged as
-untouched.
+변형 둘 더. 같은 재포장·원천·명령에 8텐서를 큰 테이블과 나머지 else로 나눈다. 변형마다 같은 검증이다. 바꾼 텐서 바이트를 Q8_0 원천에 해시, 그대로 둔다던 텐서를 원본에 해시해 untouched 로그에 남긴다.
 
-| variant | `engram_embd` | `engram_wkv` | `engram_q/k` | added | PPL | closes |
+| 변형 | `engram_embd` | `engram_wkv` | `engram_q/k` | 추가 | PPL | 메움 |
 |---|---|---|---|---|---|---|
-| the upload | Q3_K | Q3_K | Q3_K | — | 2.2438 ± 0.0631 | — |
+| 업로드 | Q3_K | Q3_K | Q3_K | — | 2.2438 ± 0.0631 | — |
 | small only | Q3_K | Q8_0 | BF16 | 0.2 GB | 2.2171 ± 0.0626 | 0.0267 |
 | wkv only | Q3_K | Q8_0 | Q3_K | 0.2 GB | 2.2183 ± 0.0626 | 0.0255 |
 | table only | Q8_0 | Q3_K | Q3_K | 125 GB | 2.1391 ± 0.0591 | 0.1047 |
-| the repack | Q8_0 | Q8_0 | BF16 | 125 GB | 2.1090 ± 0.0585 | 0.1348 |
+| 재포장 | Q8_0 | Q8_0 | BF16 | 125 GB | 2.1090 ± 0.0585 | 0.1348 |
 
-The two halves are additive. They close 0.0267 and 0.1047 separately, 0.1314
-together, against 0.1348 measured for both at once — a residual of 0.0034,
-two and a half percent of the effect and far inside the error bars. Nothing
-here interacts; each group of tensors costs what it costs.
+두 절반이 가산이다. 따로 0.0267·0.1047을 메우고 같이 0.1314, 한 번 측정 0.1348 대 — 잔차 0.0034, 효과의 2.5%에 오차대 한참 안이다. 여기 상호작용 없다. 텐서군마다 값어치가 값어치다.
 
-What the split is really about is the price. The table carries roughly four
-fifths of the loss and asks 125 GB for it. The small tensors carry the
-remaining fifth and ask two hundred megabytes, which is about a hundred and
-sixty times more perplexity recovered per byte. A user who does not want a
-472 GB directory can still have the cheap fifth.
+나눈 진짜 뜻은 가격이다. 테이블이 손실 5분의 4를 짊어지고 125 GB를 달란다. 작은 텐서가 나머지 5분의 1을 짊어지고 200 MB를 달란다. 바이트당 회수 perplexity가 약 160배다. 472 GB 디렉터리가 싫은 사용자가 싼 5분의 1을 가져갈 수 있다.
 
-Two honest limits. The small variant moved `engram_wkv` and the two gate
-vectors together, so it cannot say which of them carries that fifth; the
-gate vectors are two 5120x4 tensors per layer and the projection is 67 MB,
-which makes `wkv` the likely owner but not the measured one. And because the
-V4.1 branch already exempts the gate vectors, a conversion done with today's
-branch would start from a file that has part of this fixed — the upload
-predates that commit. Separating `wkv` alone is one more variant and about
-forty minutes, since without the table the shards are the original 42 GB
-rather than 104 GB.
+정직한 제한 둘. small 변형이 `engram_wkv`와 게이트 벡터 둘을 같이 옮겨서, 그 5분의 1 중 무엇인지는 못 말한다. 게이트 벡터가 층마다 5120x4 텐서 둘이고 투영이 67 MB라 `wkv` 유력이지 측정 주인이 아니다. V4.1 브랜치가 이미 게이트 벡터를 면제해서, 오늘 브랜치의 변환이면 출발 파일이 일부 고쳐져 있다 — 업로드가 그 커밋 앞이다. `wkv` 단독 분리가 변형 하나 더에 40분 남짓이다. 테이블 없으면 샤드가 104 GB가 아니라 원본 42 GB라서다.
 
-That variant has since run. With only `engram_wkv` moved to Q8_0 and the gate
-vectors left at Q3_K, perplexity is 2.2183 ± 0.0626, against 2.2171 for the
-small variant: it closes 0.0255 of the 0.0267. The gate vectors add 64 KB
-between them and account for the remaining 0.0012, which is noise. The
-projection owns the cheap fifth, and it is now measured rather than inferred.
-Sizes are the shard-byte deltas: 99,532,800 bytes per swapped shard for the
-wkv variant, 99,597,120 for the small one.
+그 변형이 이어서 돌았다. `engram_wkv`만 Q8_0에 옮기고 게이트 벡터 Q3_K에 두면 PPL 2.2171 대 2.2183 ± 0.0626. 0.0267 중 0.0255를 메운다. 게이트 벡터가 사이 64 KB를 더하고 나머지 0.0012를 맡는데 노이즈다. 투영이 싼 5분의 1 주인이다. 이제 측정이지 추론이 아니다. 크기는 샤드 바이트 delta다. wkv 변형에 스왑 샤드당 99,532,800 바이트, small에 99,597,120.
 
-## Fact recall
+## 사실 회상
 
-Perplexity says the distribution got sharper; it does not say whether the
-model knows more. Three probes, all greedy with thinking off
-(`reasoning_effort: none`), each variant served in turn with the production
-flags.
+PPL이 분포가 뾰족해졌다고 말한다. 더 아는지는 안 말한다. 프로브 셋, 전부 탐욕 thinking off(`reasoning_effort: none`). 변형마다 차례로 프로덕션 플래그 서빙.
 
-Two hand-written sets first — 24 well-known facts, then 29 harder ones
-leaning on Korean literature and history. Both variants answered every
-scored question correctly in both sets. Answer text differed on 1 and 7
-questions respectively, all wording (a trailing period, "Kim So-wol" vs
-"김소월", "5,730 years" vs "about 5,700 years"). Saturated: these sets cannot
-see the difference, if there is one.
+손 작성 셋 둘 먼저 — 유명 사실 24개, 한국 문학·역사에 기운 어려운 것 29개. 두 변형이 두 셋의 채점 문항 전부 정답이다. 답 텍스트가 각 1·7문항 달랐고 전부 wording(끝 마침표, "Kim So-wol" 대 "김소월", "5,730 years" 대 "about 5,700 years"). 포화다. 이 셋에 차이가 보일 수 없다, 있다면.
 
-Then PopQA (Mallen et al. 2023), which exists for exactly this question:
-14,267 Wikidata facts with the subject's monthly page views attached, so the
-long tail is labelled. Sample of 400 with a fixed seed — 200 from the least
-popular 2,000 (views 5–128) and 200 from around the median (656–1494) — scored
-by exact match against the dataset's alias list.
+이어서 PopQA(Mallen et al. 2023). 정확히 이 질문용이다. 14,267 Wikidata 사실에 피사체 월간 조회수가 붙어서 long tail에 라벨 있다. 고정 시드 400 샘플 — 최하위 2,000개(조회 5–128)에서 200, 중앙 근처(656–1494)에서 200 — 데이터셋 alias 목록에 정확 일치 채점.
 
-| band | n | engram Q3_K | engram Q8_0 |
+| 밴드 | n | engram Q3_K | engram Q8_0 |
 |---|---|---|---|
-| views 5–128 | 200 | 31.0 % | 30.5 % |
-| views 656–1494 | 200 | 38.5 % | 37.5 % |
-| all | 400 | 34.7 % (139) | 34.0 % (136) |
+| 조회 5–128 | 200 | 31.0% | 30.5% |
+| 조회 656–1494 | 200 | 38.5% | 37.5% |
+| 전부 | 400 | 34.7%(139) | 34.0%(136) |
 
-Thirteen questions flipped: eight the Q3_K file got right and the Q8_0 file
-wrong, five the other way. That is a coin toss, not a difference. The number
-worth keeping is the other one: **the answer text differs on 88 of 400
-questions (22 %)** while the score does not move. Sharper engram tables
-change what the model says on a fifth of long-tail questions and do not
-change how often it is right. Read together with the perplexity table: the
-damage at Q3_K is to the probabilities, not to the facts the model can
-retrieve with one short answer.
+뒤집힌 13문항. Q3_K 파일 맞고 Q8_0 틀린 8개, 반대 5개. 동전 던지기지 차이가 아니다. 둘 값은 다른 하나다. **답 텍스트가 400 중 88문항(22%)에 다르다.** 점수는 안 움직인다. 뾰족해진 engram 테이블이 long-tail 질문 5분의 1에 말하는 것을 바꾸고, 맞히는 빈도는 안 바꾼다. PPL 표와 같이 읽는다. Q3_K 손상이 확률에 있지, 짧은 답 한 번에 꺼내는 사실에 있지 않다.
 
-So the repack is worth keeping — 125 GB of disk that is never read into RAM
-buys 6 % of perplexity — but it is not a fact-recall upgrade, and the claim
-this entry supports is the narrower one. Where sharper probabilities should
-show up as speed is speculative decoding, which verifies draft tokens
-against the target's confidence; that measurement waits on the DSpark port
-in ik_llama.cpp (`log/2026-09-13-deepseek-v41-on-ik-llama.md`).
+그래서 재포장은 둘 가치 있다 — RAM에 안 읽히는 디스크 125 GB가 PPL 6%를 산다. 사실 회상 업그레이드가 아니다. 이 기록이 떠받치는 주장은 좁은 것이다. 뾰족해진 확률이 속도로 나와야 할 곳은 추측 디코딩이다. draft 토큰을 타깃 확신에 검증해서다. 그 측정은 ik의 DSpark 포트를 기다린다(`log/2026-09-13-deepseek-v41-on-ik-llama.md`).
 
-## What the quantizer does today, and where upstream actually is
+## 오늘의 양자화기, 업스트림의 실제 자리
 
-This section first read ~~mainline `src/llama-quant.cpp` already keeps
-`engram_q.weight` and `engram_k.weight` unquantized~~. That was wrong about
-which tree, and the mistake matters because it is the difference between
-"already fixed upstream" and "nobody upstream has seen this yet".
+이 절이 처음에 ~~mainline `src/llama-quant.cpp`가 이미 `engram_q.weight`·`engram_k.weight`를 비양자화에 둔다~~고 읽었다. 어느 트리인지 틀렸다. 중요한 틀림이다. "업스트림 이미 고침"과 "업스트림 아무도 못 봄"의 차이니까.
 
-Upstream `ggml-org/llama.cpp` has no engram in `llama-quant.cpp`, and no
-DeepSeek-V4.1 at all. Its V4.1 support is an open draft pull request,
-[#28696](https://github.com/ggml-org/llama.cpp/pull/28696), 443 added lines
-that touch only `conversion/` and `gguf-py/` with no C++ in them. An earlier
-engram pull request, #19654, was closed in February without merging.
+업스트림 `ggml-org/llama.cpp`에 `llama-quant.cpp`의 engram이 없고, DeepSeek-V4.1 자체가 없다. V4.1 지원이 open draft PR [#28696](https://github.com/ggml-org/llama.cpp/pull/28696) 하나다. 443줄 추가가 `conversion/`·`gguf-py/`만 손대고 C++이 없다. 이른 engram PR #19654는 2월에 머지 없이 닫혔다.
 
-What every entry here calls mainline is the llama.cpp *line* rather than the
-ik fork, and concretely it is `vcruz305/llama.cpp`, the V4.1 branch written
-by the same person who published the GGUF files this machine serves. The
-gate-vector exemption is that branch's, committed 2026-09-11:
+여기 모든 기록이 mainline이라 부르는 것은 ik 포크가 아니라 llama.cpp *line*이다. 구체적으로 `vcruz305/llama.cpp` — 이 기계가 서빙하는 GGUF 파일을 공개한 같은 사람이 쓴 V4.1 브랜치다. 게이트 벡터 면제가 그 브랜치 것이다. 2026-09-11 커밋:
 
 ```c
 // DeepSeek-V4.1 engram gate scales: one value per channel, applied with
@@ -176,24 +85,13 @@ quantize &= name.find("engram_q.weight") == std::string::npos;
 quantize &= name.find("engram_k.weight") == std::string::npos;
 ```
 
-The upload still carries them at Q3_K, so it was built before that commit or
-with another tool. No tree has a rule for `engram_embd.weight` or
-`engram_wkv.weight`, which is why the table takes the body's type.
+업로드는 여전히 Q3_K에 들고 있어서, 그 커밋 앞 빌드거나 다른 도구다. `engram_embd.weight`·`engram_wkv.weight` 규칙은 어느 트리에도 없다. 테이블이 몸통 타입을 따르는 이유다.
 
-Given the table is never resident, a default of Q8_0 for `engram_embd` costs
-the user disk and nothing else, and the perplexity table above is the
-evidence. The recipient is therefore the branch author rather than a
-maintainer of merged code, and the right moment is when the C++ half of V4.1
-support goes up.
+테이블이 상주 안 하니 `engram_embd` 기본 Q8_0이 사용자에게 디스크 값만 낸다. 증거가 위 PPL 표다. 받는 쪽은 머지 코드 메인테이너가 아니라 브랜치 저자다. C++ 절반 V4.1 지원이 올라가는 시점이 맞는 때다.
 
-The attribution above is what makes it reportable: a claim about "the table"
-had to show that it is the table, and now it does, along with the cheaper
-half that a user without 125 GB can still take. The candidate is recorded in
-[`docs/upstream-contributions.md`](../docs/upstream-contributions.md); it is
-not filed, and filing is not this session's call.
+위 귀속이 보고 가능하게 만든다. "테이블" 주장은 테이블임을 보여야 했고, 이제 보인다. 125 GB 없는 사용자가 가져갈 싼 절반과 함께. 후보는 [`docs/upstream-contributions.md`](../docs/upstream-contributions.md)에 기록됐다. 미제출이다. 제출은 이 세션 결정이 아니다.
 
-The searches behind "nobody upstream has this", verbatim, so the absence is
-checkable by someone else:
+"업스트림 아무도 없음" 뒤의 조사는 verbatim이다. 부재를 다른 쪽이 확인할 수 있게.
 
 ```
 gh search issues --repo ggml-org/llama.cpp engram
@@ -206,111 +104,45 @@ gh api graphql -f query='query{ search(query: "repo:ggml-org/llama.cpp engram
 gh api repos/ggml-org/llama.cpp/contents/src/llama-quant.cpp | base64 -d | grep -i engram
 ```
 
-The code search returned nothing, the discussion count was zero, the file
-holds no `engram` at all, and the only two hits anywhere were the open draft
-#28696 and the closed #19654.
+코드 조사가 무응답, 토론 수 0, 파일에 `engram` 없음. 어디 적중 둘은 open draft #28696과 닫힌 #19654뿐이다.
 
-## The thermal guard fired, twice
+## thermal guard가 두 번 울렸다
 
-The PopQA run was the longest stretch of CPU decode this machine has done
-with V4.1 — experts on the CPU, 32 threads, one request after another. The
-thermal guard (`configs/thermal-guard.sh`, coolant limit 52 °C for 30 s)
-stopped `llama-server` at 08:32:00 after the Q3_K pass (5.5 min) and 375 of
-400 questions of the Q8_0 pass (another 5.5 min), and again at 08:38:37 on
-the retry, five minutes after a start at 42.9 °C. CPU package read 88–89 °C
-from 08:24 on. The coolant fell back to 42.9 °C within ninety seconds of the
-stop each time. CPU boost was confirmed off (`cpb` reads 0, scaling max
-3.6 GHz), so this is the machine's steady state, not a regression from
-yesterday's move and reboot.
+PopQA 실행이 V4.1 CPU 디코드 최장 구간이었다. expert CPU행, 32스레드, 요청 연달아. thermal guard(`configs/thermal-guard.sh`, 냉각수 52 °C 30초 제한)가 Q3_K 패스 뒤 08:32:00에 `llama-server`를 멈췄다(5.5분). Q8_0 패스 400 중 375문항 뒤(또 5.5분). 재시도에 08:38:37에 또. 42.9 °C 시작 5분 뒤다. CPU 패키지가 08:24부터 88–89 °C를 읽었다. 냉각수가 멈출 때마다 90초에 42.9 °C에 돌아왔다. CPU 부스트 꺼짐 확인했다(`cpb` 0, 스케일링 최대 3.6 GHz). 기계의 steady state지, 어제 이사·리부트 회귀가 아니다.
 
-The guard's comment says "measured sustained 43–45 °C". That was measured
-serving V4 with the active experts on the GPUs. V4.1 decode with experts on
-the CPU heats the loop at roughly 2 °C per minute and reaches the limit in
-five. Two consequences for the record: any decode number here that was
-measured over more than about five minutes of continuous load was measured
-on a throttling or about-to-be-stopped machine, and next session's ik and
-DSpark throughput runs must be short or paced. The retry was, by waiting
-for ≤44 °C before starting and running only the 50 remaining questions.
-`popqa.py` now saves partial results every 25 questions, which is what let
-the retry be 50 questions instead of 400.
+가드 주석이 "측정 sustained 43–45 °C"라 말한다. V4 서빙에 active expert GPU행에서 잰 것이다. CPU행 expert의 V4.1 디코드가 루프를 분당 ~2 °C에 달구고 5분에 제한에 닿는다. 기록에 결론 둘. 5분 남짓 연속 부하에 잰 여기 디코드 숫자는 스로틀 중이거나 멈추기 직전 기계에서 잰 것이다. 다음 세션 ik·DSpark 처리량 실행은 짧거나 pace를 둔다. 재시도가 그랬다. 44 °C 이하에 시작 대기, 남은 50문항만 실행. `popqa.py`가 이제 25문항마다 부분 결과를 저장한다. 재시도가 400 대신 50문항인 경위다.
 
-### Capping the clock costs nothing
+### 클럭 cap이 공짜다
 
-The obvious question was whether the CPU needs its clock for this load at
-all. `acpi-cpufreq` on this board exposes three P-states, 3.6, 2.7 and
-1.8 GHz. Two short runs per cap with the coolant allowed to fall back
-between them — three 200-token decodes on short prompts, then two
-1,308-token prompts each with up to 200 tokens of decode, package power
-read from RAPL (`intel-rapl:0`, package-0) over each request:
+뻔한 질문은 이 부하에 CPU 클럭이 필요한가 자체였다. 이 보드 `acpi-cpufreq`가 P-state 셋을 내놓는다. 3.6·2.7·1.8 GHz. cap당 짧은 실행 둘, 사이 냉각수 fallback 허용 — 짧은 프롬프트 200토큰 디코드 셋, 이어서 1,308토큰 프롬프트 둘에 각 최대 200토큰 디코드. 요청마다 패키지 전력 RAPL(`intel-rapl:0`, package-0)에서 읽기.
 
-| cap | decode, 200 tok ×3 | decode after 1.3k prompt ×2 | prefill 1.3k ×2 | pkg W during request | CPU after run |
+| cap | 디코드, 200토큰 ×3 | 1.3k 프롬프트 뒤 디코드 ×2 | 1.3k 프리필 ×2 | 요청 중 패키지 W | 실행 뒤 CPU |
 |---|---|---|---|---|---|
 | 3.6 GHz | 16.5 / 18.0 / 18.1 | 17.2 / 18.4 | 84 / 114 | 94–106 | 67.5 °C, 58.5 °C |
 | 2.7 GHz | 18.8 / 18.5 / 19.3 | 16.1 / 17.9 | 100 / 105 | 94–95 | 60.9 °C, 55.2 °C |
 | 1.8 GHz | 17.0 / 17.9 / 18.0 | 11.8 / 16.6 | 81 / 41 | 66–78 | 57.4 °C, 50.6 °C |
 
-Decode does not care about the clock between 2.7 and 3.6 GHz; the cores are
-waiting on memory either way. At 1.8 GHz it starts to, and prefill halves
-on one run. The coolant rose 3.2 °C over the first run at 3.6 GHz and 1.6 °C
-at 2.7 GHz, with the CPU package 7 °C cooler at the same throughput.
+디코드가 2.7–3.6 GHz 클럭에 신경 안 쓴다. 코어가 어느 쪽도 메모리를 기다린다. 1.8 GHz에 신경 쓰기 시작하고, 프리필이 한 실행 절반에 떨어진다. 냉각수가 3.6 GHz 첫 실행에 3.2 °C 올랐고 2.7 GHz에 1.6 °C. 같은 처리량에 CPU 패키지 7 °C 차갑다.
 
-The power column is the surprise: the package draws about 100 W during
-V4.1 decode at any clock, a third of the 280 W PPT the BIOS is set to.
-Lowering the PPT further would not touch this load — the limit is never
-reached — and the 88 °C readings under a 100 W draw say the heat problem
-is the cold plate's contact with the sWRX8 IHS (which the Kraken X3 does
-not fully cover; that is why boost is off), not the power. The cap that
-does help is the clock. Two caveats: RAPL on Zen 3 through the
-`intel-rapl` driver is a vendor-specific counter this repo has not
-cross-checked against a wall meter, and these are two-sample runs on a
-quiet machine, good for the shape of the curve and not for the third digit.
+전력 열이 surprise다. 패키지가 V4.1 디코드에 클럭 무관 약 100 W를 그린다. BIOS 박은 280 W PPT의 3분의 1이다. PPT를 더 낮춰도 이 부하에 안 닿는다 — 제한에 닿은 적이 없다. 100 W 소모에 88 °C 읽기가 말하는 것은 열 문제가 콜드플레이트와 sWRX8 IHS의 접촉이다(Kraken X3가 다 안 덮는다. 부스트 꺼진 이유다). 전력이 아니다. 돕는 cap이 클럭이다. caveat 둘. Zen 3 RAPL이 `intel-rapl` 드라이버의 벤더도가 카운터라 이 리포가 벽 미터에 대조 안 했다. 조용한 기계 2샘플 실행이라 곡선 모양용이지 세째 자리용이 아니다.
 
-### A second session was on the machine, and one measurement paid for it
+### 두 번째 세션이 기계에 있었고, 한 측정이 값을 치렀다
 
-From 09:29 to 11:07 a `llama-server` this session did not start held both
-GPUs and about one core. Another Claude session on the same workstation had
-launched it, serving the original Q3_K_M on port 8001 for a different
-project. Nothing announced it: the load average was the only symptom, and a
-load average does not say who.
+09:29–11:07에 이 세션이 안 띄운 `llama-server`가 GPU 둘과 코어 하나쯤을 쥐었다. 같은 워크스테이션의 다른 Claude 세션이 띄웠다. 원래 Q3_K_M을 다른 프로젝트용 포트 8001에 서빙했다. 알린 것 없다. loadavg가 유일한 증상이었고, loadavg는 누구를 말 안 한다.
 
-Both perplexity runs above overlapped it. Perplexity is deterministic, so
-the numbers stand unchanged; what the contention bought was wall time, and
-the small variant's pass took 160 s against 87 s for the same work earlier
-in the day.
+위 PPL 실행 둘이 겹쳤다. PPL이 결정적이라 숫자는 그대로 선다. 경합이 산 것은 wall time이다. small 변형 패스가 낮의 같은 일 87초 대 160초가 걸렸다.
 
-One measurement was lost outright. A throughput comparison launched its own
-server on port 8001, then waited for `/health` to answer — and `/health`
-answered, from the server that was already there. It measured a stranger,
-cold, under a 472 GB `sha256sum`, and reported 5.44, 9.53 and 11.92 tok/s
-climbing run over run, which is the shape of a model still being paged in.
-The second engine then failed to start at all: `cudaMalloc failed: out of
-memory`, 29 GB asked for on a card whose 38 GB was already spoken for.
+한 측정이 통째로 나갔다. 처리량 비교가 자체 서버를 포트 8001에 띄우고 `/health` 답을 기다렸다 — `/health`가 답했다. 이미 있던 서버에서. 낯선 서버를 쟀다. 찬 상태, 472 GB `sha256sum` 밑. 5.44·9.53·11.92 tok/s에 실행마다 오르는 모양이 나왔다. 페이지인 중인 모델 모양이다. 두 번째 엔진이 아예 안 떴다. `cudaMalloc failed: out of memory`. 38 GB 중 29 GB를 달란다. 카드 38 GB가 이미 말해진 뒤였다.
 
-Three things are now in the script rather than in someone's memory. It
-refuses to measure a port it did not open, and prints who is listening. It
-refuses to start when any process holds a GPU, and prints which. It waits
-for its own server's log line before trusting a health endpoint, and counts
-`sha256sum` and any `llama-server` as noise alongside the obvious ones.
+셋이 이제 스크립트에 있지 누구 기억에 있지 않다. 안 연 포트 잰 것을 거부하고, 듣는 자를 찍는다. GPU 쥔 프로세스 있으면 시작을 거부하고, 어느 것인지 찍는다. 자체 서버 로그 줄을 health 엔드포인트 신뢰 전에 기다리고, `sha256sum`과 모든 `llama-server`를 뻔한 것들과 함께 노이즈에 센다.
 
-The general form is worth stating, because the first version of that script
-was written carefully and still got this wrong: on a machine more than one
-agent shares, "is the box quiet" is not a question about load. It is two
-questions about ownership — is anything else listening on my port, and does
-anything else hold a device I am about to ask for.
+일반형이 말할 가치 있다. 그 스크립트 첫 버전이 조심스러웠는데도 틀렸기 때문이다. 에이전트 여럿이 나누는 기계에 "상자 조용한가"는 부하 질문이 아니다. 소유권 질문 둘이다 — 내 포트에 다른 쪽이 듣는가, 물으려는 장치를 다른 쪽이 쥐는가.
 
-## Not measured, not claimed
+## 안 잰 것, 주장 안 하는 것
 
-- ~~Which of the four engram tensors carries the perplexity difference.~~ Measured the same day, above: the table four fifths, `engram_wkv` the rest, the gate vectors noise.
-- Any effect on speed. The probes' per-answer rates were on 3–13 token
-  answers and are not decode rates by the rule in
-  `docs/live-run-cockpit-brief.md`.
-- Whether a longer or thinking-mode answer would show a fact-recall
-  difference; the probes were single short answers.
-- The engram tensors on ik_llama.cpp; both variants were measured on
-  mainline. The ik port loads the same files, so the comparison should
-  transfer, but it was not run.
+- ~~네 engram 텐서 중 PPL 차이 주인이 무엇인가.~~ 같은 날 측정, 위. 테이블 5분의 4, `engram_wkv` 나머지, 게이트 벡터 노이즈.
+- 속도 효과. 프로브의 답당 속도가 3–13토큰 답에 있었다. [도구 인계](../docs/tool-handoff.md) 규칙상 디코드 속도가 아니다.
+- 긴·thinking 답의 사실 회상 차이. 프로브가 짧은 답 하나씩이었다.
+- ik의 engram 텐서. 두 변형 다 mainline에 쟀다. ik 포트가 같은 파일을 올리니 비교가 옮을 것이나 안 돌렸다.
 
-*Applied 2026-09-13 09:03: `configs/cpu-clockcap` and its unit cap all 64
-policies at 2.7 GHz at boot, after `cpu-noboost`. Verified with `cpupower
-frequency-info` ("within 1.80 GHz and 2.70 GHz") on all policies; the served
-model stayed up through the change.*
+*2026-09-13 09:03 적용: `configs/cpu-clockcap`과 유닛이 64개 정책 전부 부팅에 2.7 GHz에 묶는다. `cpu-noboost` 뒤다. `cpupower frequency-info`("within 1.80 GHz and 2.70 GHz") 전 정책 검증. 서빙 모델이 변경 중에도 up이었다.*

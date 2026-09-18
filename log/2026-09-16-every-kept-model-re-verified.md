@@ -1,100 +1,41 @@
-# Every model that survived the storage pass, re-run on the box it now is
+# 남긴 모델 전부, 바뀐 상자에서 다시 돌리다
 
-*2026-09-16, 07:28–08:30.* This morning's storage pass deleted 1.3 TB under one
-rule: a file stays if an upstream PR needs it to be reproduced
-([`31d3b55`](../docs/v41-experiment-plan.md)). That rule is only worth anything
-if the files that stayed still produce the numbers they were kept for, and the
-box they are on is not the box they were measured on: since those numbers were
-taken the A6000 has moved slots, the memory clock has gone 3600 → 3200 → 3600,
-and the case has been open twice. So each kept file was loaded once, on the
-same runner, with the same prompt and the same recorder as its recorded row,
-and the number written next to the recorded one. The chain ran strictly one job
-at a time behind the GPU lease, each job's I/O pressure recorded at start
-(`quiet: io avg10=…` in the chain log), nothing else on the machine.
+*2026-09-16 07:28–08:30.* 오늘 아침 스토리지 패스가 1.3 TB를 지웠다. 규칙 하나: 업스트림 PR 재현에 필요한 파일만 남긴다. 그 규칙은 남긴 파일이 남긴 이유의 숫자를 아직 내야 가치가 있고, 상자는 숫자 잴 때 상자가 아니다. 그 사이 A6000이 슬롯을 옮겼고, 메모리 클럭이 3600→3200→3600을 다녀왔고, 케이스가 두 번 열렸다. 그래서 남긴 파일마다 한 번씩 로드했다. 같은 러너·프롬프트·녹음기, 기록 옆에 오늘 숫자. GPU 임대 뒤에 엄격히 한 작업씩, 작업마다 시작 시 IO 압력 기록, 기계에 다른 것 없음.
 
-## The first finding was not in a model
+## 첫 발견은 모델이 아니었다
 
-With `CUDA_DEVICE_ORDER=PCI_BUS_ID`, CUDA0 is the lowest bus address. The A6000
-used to sit at bus 01 and the 3090 at 41; the A6000 is now at 61. **CUDA0 had
-become the 3090**, and every placement in this repo — the `-ot` strings that put
-four expert layers and the compute buffer on CUDA0, `-ts 2,1`, the ExLlamaV3
-`-gs 44,21` — was about to load 44–46 GB onto a 24 GB card. The training job
-that shares this box found it first, the hard way: `CUDA_VISIBLE_DEVICES=0` put
-a 38 GB run on the 3090 and it OOMed at step 52000.
+`CUDA_DEVICE_ORDER=PCI_BUS_ID`에서 CUDA0은 버스 주소 최저다. A6000이 버스 01에 있었고 3090이 41에 있었는데, 이제 A6000이 61이다. **CUDA0이 3090이 됐다.** 이 리포의 모든 배치 — CUDA0에 expert 4층과 연산 버퍼를 올리는 `-ot` 문자열, `-ts 2,1`, ExLlamaV3 `-gs 44,21` — 가 24 GB 카드에 44–46 GB를 올릴 뻔했다. 이 상자를 나누는 학습 작업이 먼저 밟았다. `CUDA_VISIBLE_DEVICES=0`이 38 GB 실행을 3090에 올려 스텝 52000에 OOM.
 
-The fix is one sourced file, [`configs/gpu-order.env`](../configs/gpu-order.env):
-`CUDA_VISIBLE_DEVICES=<A6000 UUID>,<3090 UUID>`. CUDA enumerates the listed
-devices in list order and accepts UUIDs, so one line pins the index for
-llama.cpp, ik_llama.cpp, ExLlamaV3 and torch, and survives the next slot move or
-a third card. `nvidia-smi` ignores it and is addressed with `-i <UUID>`. Reading
-the file is not the test; the first two loads were. The served V4.1 file put
-45.8 GB on the A6000 and 20.0 GB on the 3090, and the ExLlamaV3 `-gs 44,21` put
-43.8 GB on the A6000 — both read back by UUID, both the intended split. Full
-account in [the 09-16 fabric log](2026-09-16-the-overclock-and-the-fabric.md).
+수정은 source 파일 하나, [`configs/gpu-order.env`](../configs/gpu-order.env): `CUDA_VISIBLE_DEVICES=<A6000 UUID>,<3090 UUID>`. CUDA는 나열 순서대로 열거하고 UUID를 받으니, 한 줄이 llama.cpp·ik·ExLlamaV3·torch의 인덱스를 고정하고 다음 슬롯 이동·세 번째 카드에도 산다. `nvidia-smi`는 무시하고 `-i <UUID>`로 지목한다. 파일을 읽는 게 테스트가 아니다. 처음 두 로드가 테스트다. 서빙 V4.1 파일이 A6000에 45.8 GB·3090에 20.0 GB, ExLlamaV3 `-gs 44,21`이 A6000에 43.8 GB — 둘 다 UUID로 읽어 확인, 의도한 분할이다. 전말은 [09-16 패브릭 로그](2026-09-16-the-overclock-and-the-fabric.md).
 
-## The numbers came back
+## 숫자가 돌아왔다
 
-| kept file | kept for | recorded | **today** | runner |
+| 남긴 파일 | 남긴 이유 | 기록 | **오늘** | 러너 |
 |---|---|---:|---:|---|
-| `DeepSeek-V4.1-Flash-Q3_K_M` 324 G | PR #2455 perplexity baseline | 2.2355 ± 0.0626 | **2.2355 ± 0.0626** (chunks 1.7393 / 1.7633 / 1.8389 / 2.2355) | `ik-v41-verify.sh`, CPU only, 32 threads |
-| `…-engramQ8-tokembdBF16-attnQ8` 445 G (served) + `DSpark` 23 G | the serving configuration; the draft PR | 25.2 tok/s drafted, warm | 18.1 / 21.1 / 21.5 cold, **23.8 / 25.05 warm**; acceptance 119/238 | `ik-v41-verify.sh` draft arm at the served seven-layer `-ot`, `--lazy-mode auto`; load 3 min 40 s |
-| `Qwen3.6-35B-A3B-UD-Q4_K_XL` | the one-card entry; WKS-25 | 140 tok/s | **140 tok/s** (≈386 GB/s) | `ik-vram-take.sh`, A6000 by UUID, `-n 400` |
-| `Qwen3.6-35B-A3B-UD-Q6_K` | same entry; the toktape hero take | 132 tok/s | **132 tok/s** (≈392 GB/s) | same |
-| `small/Qwen2.5-7B-Instruct-Q3_K_M` | the dense control in that entry | 118 tok/s | **117 tok/s** (≈417 GB/s) | same |
-| `small/DeepSeek-V2-Lite-Chat.Q3_K_M` | the small MoE probe | — | 202 tok/s (≈264 GB/s) | same, `-c 8192` |
-| `GLM-5.3-Flash-exl3-4.05` 154 G | the ExLlamaV3 MTP draft-depth reproducer | 22.0 tok/s | **22.4 tok/s**; load 66 s | `exl3serve-take.sh`, `-gs 44,21 -mcs 185 -mtp`, one stream |
+| `DeepSeek-V4.1-Flash-Q3_K_M` 324 G | PR #2455 PPL 베이스라인 | 2.2355 ± 0.0626 | **2.2355 ± 0.0626**(청크 1.7393 / 1.7633 / 1.8389 / 2.2355) | CPU only 32스레드 |
+| served 445 G + `DSpark` 23 G | 서빙 구성, draft PR | warm 25.2 tok/s drafted | cold 18.1 / 21.1 / 21.5, **warm 23.8 / 25.05**, accept 119/238 | served 7층 `-ot`, `--lazy-mode auto`, 로드 3분 40초 |
+| `Qwen3.6-35B-A3B-UD-Q4_K_XL` | 한 카드 기록, WKS-25 | 140 tok/s | **140 tok/s**(≈386 GB/s) | A6000 UUID 지목, `-n 400` |
+| `Qwen3.6-35B-A3B-UD-Q6_K` | 같은 기록, 히어로 테이크 | 132 tok/s | **132 tok/s**(≈392 GB/s) | 동일 |
+| `Qwen2.5-7B Q3_K_M` | 그 기록의 dense 대조 | 118 tok/s | **117 tok/s**(≈417 GB/s) | 동일 |
+| `DeepSeek-V2-Lite Q3_K_M` | 작은 MoE 프로브 | — | 202 tok/s(≈264 GB/s) | 동일, `-c 8192` |
+| `GLM-5.3-Flash-exl3-4.05` 154 G | ExLlamaV3 MTP 재현자 | 22.0 tok/s | **22.4 tok/s**, 로드 66초 | `-gs 44,21 -mcs 185 -mtp`, 1스트림 |
 
-Six of seven recorded numbers came back exactly or within one token a second; the
-served decode's warm rows bracket the recorded 25.2. The cold rows are the engram
-rows being read off NVMe for the first time since the reboot (WKS-20 measured that
-cost at 6.8 % of decode on fresh text; here the first prompt paid more because
-the page cache was empty of the whole 445 GB file, not only the rows). The
-perplexity match to four decimals is the strongest line in the table: it is a
-deterministic CPU computation on the same bytes, so it also says the 324 GB on
-the new NVMe is the same 324 GB the PR was verified on.
+일곱 중 여섯이 정확히·1 tok/s 안으로 돌아왔다. 서빙 디코드 warm 행이 기록 25.2를 감싼다. cold 행은 리부트 후 engram 행의 첫 NVMe 읽기다(WKS-20이 fresh 텍스트 비용을 디코드 6.8%로 쟀고, 여기 첫 프롬프트는 행뿐 아니라 파일 445 GB 전체가 캐시에 없어서 더 냈다). 소수 넷째 자리까지 붙은 PPL이 표에서 가장 강한 행이다. 같은 바이트의 결정적 CPU 연산이라서, 새 NVMe의 324 GB가 PR 검증 때 324 GB와 같다는 말도 된다.
 
-The draft acceptance reads 50 % here against the 61 % recorded for the same file.
-The two are not the same measurement: the verify runner sends three short
-prompts with `n_predict 200` at temperature 0 through `/completion`, the
-recorded figure is the twenty-prompt served set through the chat endpoint. It
-is noted, not struck, and the twenty-prompt set is the place to check it if it
-matters.
+draft accept가 여기 50% 대 기록 61%다. 같은 측정이 아니다. verify 러너는 `/completion`에 짧은 프롬프트 셋 `n_predict 200` temperature 0, 기록은 채팅 엔드포인트 20프롬프트 served 셋이다. 적어두고 struck은 안 한다. 따질 곳은 20프롬프트 셋이다.
 
-## The sources, which cannot be run
+## 돌릴 수 없는 것(소스)의 바이트 검사
 
-Three of the kept directories are sources, not servable files: the fp8 release
-(476 G, the only local requantization source), the uploader's Q8_0 set (285 G,
-the engram and MXFP4 graft source) and the plain Q3_K_M, which is both a
-baseline and a graft base. For those the test is bytes, run last so its I/O
-pressure (avg10 8–10 while hashing) did not sit under any measurement:
+남긴 디렉터리 셋은 서빙 파일이 아니라 소스다. fp8 릴리스(476 G, 유일한 로컬 재양자화 원천), 업로더 Q8_0 세트(285 G, engram·MXFP4 graft 원천), plain Q3_K_M(베이스라인 겸 graft 베이스). 검사는 바이트로, 측정 밑에 IO 압력(avg10 8–10)이 안 깔리게 마지막에 돌렸다. 9샤드 sha256 9 OK(5분), safetensor 48개 릴리스 MANIFEST 대조 48 OK(8분) 등 전부 통과. struck 없음. 남긴 1.9 TB가 잰 1.9 TB다.
 
-| directory | what was checked | result |
-|---|---|---:|
-| `DeepSeek-V4.1-Flash-Q3_K_M` | `sha256sum -c SHA256SUMS`, 9 shards, 324 G | 9 OK, 5 min |
-| `DeepSeek-V4.1-Flash-fp8` | the 48 safetensors against the release `MANIFEST` sha256 | 48 OK, 8 min |
-| `DeepSeek-V4.1-Flash-Q8_0-engram-src` | shards 8–10 against the LFS oids in `paths-info.json` (220 G); shards 1–2 have no oid on file, header parse only | 3 OK; 1–2 parse, 18 tensors each |
-| `…-attnQ8-exp8MXFP4` | the nine shards parse; expert tensors of blk 0–7 by dtype | 24 tensors, all `MXFP4` — the graft WKS-18 stage 1 describes |
+## 녹음용 테이크 둘
 
-Nothing was struck. The 1.9 TB that stayed is the 1.9 TB that was measured.
+toktape `0.2.3-2-g0f88bd3`, A6000 UUID 지목, 테이프 소독 후 `assets/`행.
 
-## Two clips for the recorder
+| 테이크 | 디코드 | 비고 |
+|---|---|---|
+| 4태스크 65토큰씩, `-np 4` | 합계 149, 각 37.6 | TTFT p50 1.3초. 프리필은 측정 아님(100토큰 미만) |
+| 같은 넷 234토큰 패딩 | 합계 149, 각 37.5 | TTFT p50 6.2초. `-np 4`에 프리필 넷이 거의 직렬 |
+| 1스트림 design 문서 252 in, `-n 4096` | 136 | 프리필 1066, TTFT 273 ms. 36초 출력. 끝날 때 A6000 80 °C 298 W |
 
-The pass ended with three takes for [toktape](https://github.com/midagedev/toktape),
-all on its `0.2.3-2-g0f88bd3` build, the A6000 selected by UUID, tapes sanitized
-into `assets/` (hostname only):
-
-| take | prompts | decode | prefill | note |
-|---|---|---:|---:|---|
-| `qwen36-35b-a3b-q6k-4stream-short-prompts` | four tasks, 65 tokens each, `-np 4`, `-n 512` | 149 aggregate, 37.6 each | not a measurement (under 100 tokens) | TTFT p50 1.3 s |
-| `qwen36-35b-a3b-q6k-4stream-hero` | the same four padded to 234 tokens | 149 aggregate, 37.5 each | 149 aggregate, 56.1 each | TTFT p50 6.2 s: four prefills close to serial on `-np 4` |
-| `qwen36-35b-a3b-q4kxl-1stream-long` | one design-document prompt, 252 in, `-n 4096` | 136 | 1066, TTFT 273 ms | 36 s of output; A6000 80 °C at 298 W by the end |
-
-The single-stream clip replaces the 7-second one from 09-15, which ended before
-a viewer could read it; this one fills its 4096 tokens in 36 seconds with the
-code blocks forming on screen. The four-stream card on that build printed the
-bandwidth as 112 GB/s, 15 % of peak — active bytes times the *per-stream* rate.
-The recorder's session traced it the same hour: for a batched MoE the honest
-figure is a range, 2.138 GB always-read plus 0.832 GB of routed experts per
-token, so 112 GB/s if all four tokens pick the same experts and 206 if none do,
-and the card is being changed to print that range. The one-stream ratio (373
-GB/s, 49 %) was right on the same build.
+싱글스트림 클립이 09-15 7초짜리를 대체한다. 끝나기 전에 읽을 수 없던 것이라서다. 36초에 4096토큰을 채우고 코드 블록이 화면에 형성된다. 배치 MoE 대역폭 표기는 그 시간에 고쳐졌다. 4스트림 카드가 112 GB/s(피크 15%)를 찍었는데, 분자가 active 바이트 × *스트림당* 속도라서다. 정직한 숫자는 범위다. 항상 읽는 2.138 GB + 토큰당 routed expert 0.832 GB라서, 네 토큰이 같은 expert를 고르면 112 GB/s, 하나도 안 겹치면 206이다. 카드가 그 범위를 찍게 바뀐다. 1스트림 비율(373 GB/s, 49%)은 같은 빌드에서 맞았다.

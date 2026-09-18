@@ -1,146 +1,53 @@
 # rig-log — agent context
 
-A build log for one workstation, measured. Start sessions about this machine
-here, not in another repo: the machine's facts, the serving configs, and the
-record of what was sent upstream all live in this tree.
+한 워크스테이션의 빌드 로그, 측정한 것만. 이 기계 이야기는 여기서 시작한다. 기계 사실·서빙 설정·업스트림 전송 기록이 전부 이 트리에 있다.
 
-## What this repo is for
+## 이 리포의 용도
 
-Two purposes, and the second is easy to forget:
+둘, 두 번째를 잊기 쉽다.
 
-1. **Measure what this hardware can actually do** — large language models
-   first, then video, images, audio. Every entry carries the exact command
-   line, the measured throughput, and the thing that turned out to be wrong.
-2. **Find and ship upstream contributions.** Running unreleased models on
-   mismatched hardware walks straight into other people's untested paths.
-   When a run fails, the question is not only "how do I get past this" but
-   "is this a bug someone else will hit, and is it reportable?" A crash with
-   a minimal reproducer is worth more than a workaround nobody can check.
-   The method is [`docs/upstream-contributions.md`](docs/upstream-contributions.md);
-   the record is the table in that file.
+1. **이 하드웨어로 실제로 무엇을 할 수 있는지 잰다** — 대규모 언어 모델 먼저, 그 다음 영상·이미지·오디오. 모든 기록에 실행한 명령줄, 측정한 처리량, 틀렸던 점이 들어간다.
+2. **업스트림 기여를 찾아 보낸다.** 미출시 모델을 맞지 않는 하드웨어에서 돌리면 남의 테스트 안 된 경로를 밟는다. 실행이 깨지면 "어떻게 비껴가는가"뿐 아니라 "남이 밟을 버그인가, 보고 가능한가"를 묻는다. 최소 재현자가 있는 크래시가 검증 불가한 우회보다 낫다. 방법은 [`docs/upstream-contributions.md`](docs/upstream-contributions.md), 기록은 그 파일의 표다.
 
-Both purposes have the same discipline: **a claim in this repo is something
-that was measured on this machine, on a stated date.** If a number is derived
-rather than measured, it says so. If a claim turns out to be wrong, the
-correction goes in and the old claim is struck — a log that quietly edits its
-own history is worth nothing.
+공통 규율: **이 리포의 주장은 이 기계에서, 명시된 날짜에 측정된 것이다.** 도출값이면 도출됐다고 밝힌다. 틀리면 지우지 않고 선을 그어 정정한다. 조용히 고쳐 쓰는 로그는 가치가 없다.
 
-## The machine
+## 기계
 
-Facts, contact paths, and the two board gotchas are in
-[`README.md`](README.md). It is the canonical summary; keep it current.
+사실·접속 경로·보드 gotcha는 [`README.md`](README.md)가 정본이다. 최신으로 유지한다.
 
-Private operational detail — hostnames, systemd units, BIOS to-dos, the
-dashboard — lives in `~/repo-mid/vps-infra/hosts/ws.md` and
-`hosts/ws-llm-serving.md`, which are **not** public. Nothing from those files
-gets copied here verbatim: this repo names the machine by its hardware, never
-by its tailnet name or address.
+비공개 운영 상세(호스트명, systemd 유닛, BIOS 할 일, 대시보드)는 `~/repo-mid/vps-infra/hosts/ws.md`와 `hosts/ws-llm-serving.md`에 있고 **공개가 아니다.** 그 파일 내용을 verbatim으로 복사하지 않는다. 이 리포는 기계를 하드웨어로만 부르고 tailnet 이름·주소를 안 쓴다.
 
-Reaching it: over Tailscale; the node name is in the private host notes, not
-here — two lines above is the rule this would otherwise break. It serves an
-OpenAI-compatible API on loopback, published over the tailnet. `llm.service` holds both GPUs, so anything that
-needs VRAM starts with stopping it and ends with starting it again and
-confirming the rate came back.
+접속은 Tailscale 경유. OpenAI 호환 API를 loopback에서 서빙, tailnet에 공개. `llm.service`가 GPU 둘을 쥐니 VRAM 작업은 중단부터 시작하고, 끝나면 다시 켜고 속도가 돌아왔는지 확인한다.
 
-## Tracking
+## 추적
 
-Work items go to the **WKS** project on the self-hosted tracker (`gadak
---workspace gdk`, project key `WKS`). Findings that outrun an issue go to a
-wiki page in the `GDK` space and get linked from the issue by URL. Do not
-open a `TODO.md` here. **Experiments carry the label `experiment`** — one
-issue per experiment with the measured state so far and what would settle
-it (user instruction 2026-09-14); the experiment queue in
-`docs/v41-experiment-plan.md` and those issues say the same thing. On the
-Mac the PATH `gadak` is a dev build whose home is `~/.gadak-dev`, so the
-`gdk` workspace needs `GADAK_HOME=$HOME/.gadak`.
+작업은 셀프호스트 트래커 **WKS** 프로젝트(`gadak --workspace gdk`). 이슈를 넘는 발견은 `GDK` 공간 위키 페이지에 쓰고 이슈에서 URL로 건다. `TODO.md`를 열지 않는다. **실험은 라벨 `experiment`** — 실험당 이슈 하나에 지금까지 잰 상태와 무엇을 재면 끝나는지를 적는다. 실험 큐는 [`docs/v41-experiment-plan.md`](docs/v41-experiment-plan.md)에 있고 이슈와 같은 말을 한다. Mac의 PATH `gadak`은 홈이 `~/.gadak-dev`인 dev 빌드라 `gdk` 워크스페이스는 `GADAK_HOME=$HOME/.gadak`이 필요하다.
 
-Friction with gadak itself goes to the **GDK** board as its own issue, with
-the command and its real output — routing around it destroys the evidence.
+gadak 자체 마찰은 **GDK** 보드에 별도 이슈로, 명령과 실제 출력과 함께 — 우회가 증거를 없앤다.
 
 ## Layout
 
 ```
-log/        one file per experiment, dated. The measured record.
-docs/       longer write-ups: upstream bug dossiers, method, hardware notes
-configs/    the scripts actually running on the machine, copied as-is
-tools/      recording: VHS tapes and the scripts they drive
-assets/     the clips and sheets
+log/        실험당 한 파일, 날짜순. 측정한 기록
+docs/       긴 글: 업스트림 버그 서류, 방법, 하드웨어 노트
+configs/    기계에서 실제로 돌아가는 스크립트, 그대로 복사
+tools/      기록 수단: VHS 테이프와 구동 스크립트
+assets/     클립과 시트
 ```
 
-## Conventions
+## 관례
 
-- **Prose, not bullets, for findings.** An entry explains what was tried, what
-  the number was, and what it cost. Tables for measurements, sentences for
-  reasoning.
-- **Include the failures.** The runs that lost speed are part of the record;
-  an entry that only shows the winning configuration is an advertisement.
-- **English in this repo** — it is public and the upstream audience reads it.
-  Session conversation stays Korean.
-- **No private addresses, no hostnames, no passwords.** Check before commit;
-  the serving script here has its host generalized on purpose.
-  **A tape carries the hostname twice** (`summary.server.host`, `summary.host.hostname`) and
-  the card prints it; run `tools/tape-sanitize.py` on every tape before it enters `assets/`
-  and `tools/check-tapes-sanitized.sh` before the commit. Measured 2026-09-17: a tape copied
-  straight off the box was committed with the real name and a peer session caught it, not
-  the author.
-- **A clip's filename carries the recorder build, not the rate.** Measured
-  2026-09-16, the hard way: two sessions uploaded three generations of the same
-  two clips, and sorted by upload time the folder read `131tps-38s`,
-  `133tps-37s`, `132tps-37s` — the number in the name does not order with the
-  version, and nothing in any name said which build recorded it. The rate is
-  what stayed the same across builds (51.5, 50.7, 51.0 tok/s for one arm); the
-  recorder version is what changed, and it is what the card stamps. So:
-  `<model>-<quant>-<what>-<toktape version>.mp4`. Clip uploads are a shared
-  resource like the GPU lease and the working tree — one session owns them at a
-  time and says what went up. **No duration in the name either**, for the same
-  reason the rate is out: measured 2026-09-16, two GIFs named `tail14s` and
-  `tail20s` actually play 15.90 s and 21.83 s, because a tape's frames do not
-  run at a uniform 1/30 and one card frame is held for 3.77 s. A measured number
-  in a filename cannot be struck; put it in the caption.
-- **To shorten a clip, cut frames — never `--duration`.** That flag compresses
-  or stretches the run into the time you name, and a viewer then cannot tell a
-  stall from the encoding. Cut losslessly out of the finished GIF instead, and
-  keep this order: `gifsicle --unoptimize <file> '#<start>-' -O3 -o <out>`.
-  `--unoptimize` first is not optional — **GIF indices are stored images, not
-  seconds × fps**, because the encoder folds frames identical to their
-  predecessor (275 stored for 387 rendered, measured). Selecting before
-  unoptimizing silently returns the wrong span: a peer asked for `#237-386` of
-  a 387-frame clip and got 38 images with no error. Also note `--frames` and
-  `--mp4` render at a larger canvas than `--gif` (font size 20 against 13, no
-  flag to change it), so a frame sequence cannot reproduce the GIF's canvas and
-  re-encoding from frames is not the way to make a smaller GIF.
-- **Every clip that leaves this repo names the recorder with its link**: "recorded
-  with [toktape](https://github.com/midagedev/toktape)" in the tweet, the post,
-  the PR body, the log line. The clip is also an advertisement for the tool
-  (user instruction 2026-09-14).
-- Assets: the sheet is `assets/placement-sheet.html`, re-screenshot at
-  1280×720. Keep the favicon and title stable across republishes.
-- **toktape is a sibling project we feed requirements to.** When a recording
-  or serving round here shows something the recorder should do itself (a
-  witness it asked us for by hand, a mode it lacks), send the request to the
-  toktape session directly rather than working around it (user instruction
-  2026-09-14).
-- **Model files come down with [`tools/fetch-gguf.sh`](tools/fetch-gguf.sh)** —
-  parallel range workers, the expected size read from the API, and a file that
-  only appears at its final path when its byte count matches. Measured
-  2026-09-15: one connection 28 MB/s against eight at 80 MB/s on the same file
-  and link, so a 29 GB model is six minutes rather than seventeen. Do not hand-roll
-  a `curl` for a model again; a half-written `.gguf` where a loader can see it is
-  the failure this prevents.
-- **A `throttled` flag is a question, not a finding.** Every card this machine
-  records says `throttled: yes`, at 150 W and at 300 W alike, so the flag cannot
-  tell a binding cap from a cap that was brushed once. Answer it by taking the
-  budget away: [`tools/ik/gpu-power-sweep.sh`](tools/ik/gpu-power-sweep.sh) runs
-  the same take at several board limits and restores the default on every exit
-  path. Measured 2026-09-15: 47 % less power cost 15 % of the rate, so the flag
-  had been pointing at the wrong thing all day.
-- **A tape's `Sampling` row is the request, not the answer.** `--no-think` sends
-  `chat_template_kwargs`, and llama-server silently ignores those unless it was started with
-  `--jinja` — measured 2026-09-17, after two hero takes labelled `thinking off` were published
-  with all four streams opening `<think>`. The runners pass `--jinja` and call
-  [`tools/check-take-nothink.py`](tools/check-take-nothink.py), which fails a take whose answer
-  contradicts its own request. Read the answer before believing a request parameter.
-- **Benchmarks need a quiet machine, and "quiet" is a protocol**: one lease,
-  IO pressure rather than load average, the witness recorded in every row,
-  and delegates get the runner script rather than an instruction. The method
-  and the incidents behind it are [`docs/quiet-machine.md`](docs/quiet-machine.md).
+- **발견은 산문으로, 불릿 아님.** 무엇을 시도했고 숫자가 뭐였고 비용이 뭐였는지 문장으로 쓴다. 측정은 표, 추론은 문장.
+- **실패를 포함한다.** 느려진 실행이 기록의 일부다. 이긴 구성만 보이는 기록은 광고다.
+- **이 리포 안은 한국어** (2026-09-18 결정). ~~영어로 쓴다 — 공개 리포이고 업스트림 독자가 읽는다. 대화만 한국어.~~ 선 그음: 이 기계 기록의 1차 독자가 작성자 자신이고, 업스트림으로 나가는 것은 리포 전체가 아니라 특정 문서라는 것이 열흘치 기록으로 분명해졌다. 나가는 것은 계속 영어다 — 업스트림 이슈·PR 본문, 버그 보고, 업스트림이 읽을 코드 주석, 넓은 타임라인용 카드의 영문 절반. 경계는 [`docs/upstream-contributions.md`](docs/upstream-contributions.md)다: 업스트림으로 나간 본문은 영어로 두고, 이 리포 안에서 그것을 가리키는 서술은 한국어로 쓴다.
+- **기계번역은 리드가 읽기 전까지 초안이다.** 구조 게이트가 못 보는 의미 변경이 천 단어당 1건 넘게 나온다. `tools/check-translation.py`와 `tools/check-glossary.py`를 먼저 돌려 스크립트가 가릴 것을 가리고, 나머지는 읽는다.
+- **사설 주소·호스트명·비밀번호 금지.** 커밋 전 확인. 서빙 스크립트의 호스트는 일부러 일반화돼 있다. **테이프는 호스트명을 두 군데에 담고 있다**(`summary.server.host`, `summary.host.hostname`) — `assets/` 들어가기 전 `tools/tape-sanitize.py`, 커밋 전 `tools/check-tapes-sanitized.sh`. 측정한 적 있다: 박스에서 바로 복사한 테이프가 실명으로 커밋됐고 저자가 아니라 peer 세션이 잡았다.
+- **클립 파일명은 녹화기 빌드지 속도가 아니다.** `<model>-<quant>-<what>-<toktape 버전>.mp4`. 파일명의 측정 숫자는 정정 불가라 산문에 둔다. 길이도 마찬가지다. 클립 업로드는 GPU 임대·작업 트리처럼 공유 자원 — 한 번에 한 세션이 소유하고 올린 것을 말한다.
+- **클립을 짧게 하려면 프레임을 자른다, `--duration` 금지.** 그 플래그는 실행을 짧은 시간에 구겨 스톨을 가린다. `gifsicle --unoptimize <file> '#<start>-' -O3 -o <out>` 순서로 — `--unoptimize` 먼저가 필수다(GIF 인덱스는 저장 이미지지 초×fps가 아니라서).
+- **리포를 나가는 모든 클립에 녹화기를 링크와 함께 밝힌다.** "recorded with [toktape](https://github.com/midagedev/toktape)". 클립은 도구의 광고이기도 하다.
+- 시트 원본은 `assets/placement-sheet.html`, 1280×720에 재촬영. 파비콘·제목은 재배포에 고정.
+- **toktape는 요구사항을 먹이는 형제 프로젝트다.** 손으로 모으는 증인이 필요해지면 로컬 우회가 아니라 toktape 세션에 직접 보낸다.
+- **모델 파일은 [`tools/fetch-gguf.sh`](tools/fetch-gguf.sh)로 받는다.** 병렬 레인지 워커 + API에서 읽은 기대 크기 + 바이트 수 맞을 때만 최종 경로에 나타난다. 손 `curl` 금지. 로더 눈에 보이는 반쪽 `.gguf`가 막는 실패다.
+- **`throttled` 플래그는 질문이지 발견이 아니다.**150 W나 300 W이나 전부 yes라 binding 캡과 스친 캡을 구분 못 한다. 예산을 빼앗아 묻는다. [`tools/ik/gpu-power-sweep.sh`](tools/ik/gpu-power-sweep.sh), 기본값은 모든 종료 경로에서 복원.
+- **테이프 `Sampling` 행은 요청이지 답이 아니다.** `--no-think`는 `chat_template_kwargs`를 보내고, `--jinja` 없이 뜬 llama-server는 조용히 무시한다. 러너는 `--jinja`를 넘기고 [`tools/check-take-nothink.py`](tools/check-take-nothink.py)로 답이 요청에 어긋나는 take를 떨어뜨린다. 요청 파라미터를 믿기 전에 답을 읽는다.
+- **벤치는 조용한 기계에서, "조용함"은 프로토콜이다.** 단일 임대 + loadavg가 아니라 IO 압력 + 매 행 증인 기록. 위임에는 지시가 아니라 러너 스크립트를 준다. 방법과 사고 경위는 [`docs/quiet-machine.md`](docs/quiet-machine.md).

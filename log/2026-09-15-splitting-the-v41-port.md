@@ -1,135 +1,76 @@
-# Splitting the DeepSeek-V4.1 port into two PRs
+# V4.1 이식을 PR 둘로 나누다
 
-2026-09-15, evening. ik_llama.cpp at `19dfb71b`, the port branch rebased onto
-it, the same Q3_K_M shards as every earlier run on this machine.
+2026-09-15 저녁. ik `19dfb71b`에 리베이스한 포트 브랜치, 매번 같은 Q3_K_M 샤드.
 
-## Why
+## 이유
 
-The port went up in [#2438](https://github.com/ikawrakow/ik_llama.cpp/issues/2438#issuecomment-5656281274)
-as a branch rather than a PR, with the question attached: split it into
-reviewable pieces, or leave it as a reference? The answer arrived this
-morning — "I think it would be easier if split in 2 PRs."
+이식은 [#2438](https://github.com/ikawrakow/ik_llama.cpp/issues/2438#issuecomment-5656281274)에 브랜치로 올라갔고 질문이 붙었다. 리뷰 가능하게 쪼개는가, 참조용으로 두는가. 오늘 아침 답이 왔다. "2 PR로 나누면 easier."
 
-A branch that works is not a PR. The branch had eight commits, three of them
-"fix what the first commit did", one of them already merged upstream, and
-comments written to explain the model to myself. None of that survives
-contact with a reviewer.
+동작하는 브랜치는 PR이 아니다. 커밋 여덟 개 중 셋이 "첫 커밋 고치기", 하나는 이미 업스트림 머지, 주석은 모델을 나에게 설명하려고 쓴 것이다. 리뷰어 앞에서 살아남는 게 하나도 없다.
 
-## The rebase
+## 리베이스
 
-The branch was based on `3bb386eb`; main had moved eighteen commits. Three
-conflicts, all of them small, and all three interesting for the same reason —
-they are places where someone else's work arrived in the same lines:
+베이스 `3bb386eb`에서 main이 열여덟 커밋 움직였다. 충돌 셋, 다 작고 다 같은 이유로 흥미롭다 — 남의 작업이 같은 줄에 도착한 자리다.
 
-- `exp_probs_b_vl` is now created by the loader on main. The V4-Flash vision
-  PR (#2431, merged 2026-09-15) added the same tensor for its own reason, so
-  the port's line was a duplicate and the port's comment described it wrongly
-  ("unused by text inference" — on main it routes image tokens).
-- `LLM_TENSOR_FFN_EXP_PROBS_B_VL` had to be kept in the tensor-name table.
-- The swiglu-limits guard grew `LLM_ARCH_GLM5NEXT` on main while the port
-  replaced its `DEEPSEEK4` test with `llm_arch_is_dsv4()`. The merge keeps
-  both.
+- `exp_probs_b_vl`은 이제 main의 로더가 만든다. V4-Flash vision PR(#2431, 오늘 머지)이 자기 이유로 같은 텐서를 넣어서, 포트 쪽 줄은 중복이고 주석은 틀렸다("text inference 미사용" — main에서는 이미지 토큰을 라우팅한다).
+- `LLM_TENSOR_FFN_EXP_PROBS_B_VL`은 텐서명 표에 유지.
+- swiglu-limits 가드가 main에서 `LLM_ARCH_GLM5NEXT`를 얻는 동안 포트는 `DEEPSEEK4` 검사를 `llm_arch_is_dsv4()`로 바꿨다. 머지는 둘 다 살린다.
 
-The fourth resolution was a deletion: `GGML_CUDA_NO_PINNED_WEIGHTS` was on the
-branch and is now on main as [#2444](https://github.com/ikawrakow/ik_llama.cpp/pull/2444),
-so the rebase dropped it as already applied.
+네 번째 해결은 삭제다. `GGML_CUDA_NO_PINNED_WEIGHTS`는 브랜치에 있었고 이제 main에 있다([#2444](https://github.com/ikawrakow/ik_llama.cpp/pull/2444)). 이미 적용된 것으로 리베이스에서 뺐다.
 
-## The split
+## 분할
 
-`llm_arch_is_dsv4()` is the seam. Everything the model needs to load and run
-is one PR; everything the DSpark draft needs is the other.
+`llm_arch_is_dsv4()`가 이음새다. 모델이 로드·동작하는 데 필요한 전부 한 PR, DSpark draft에 필요한 전부 다른 PR이다.
 
-| | files | commits | diff |
+| | 파일 | 커밋 | diff |
 | --- | --- | --- | --- |
-| PR 1, the model | 13 | 2 | +794 / −108 |
-| PR 2, the draft | 5 | 2 | +56 / −14 |
+| PR 1, 모델 | 13 | 2 | +794 / −108 |
+| PR 2, draft | 5 | 2 | +56 / −14 |
 
-The three follow-up commits were folded into the commit they fix, so the
-reviewer reads the code as it stands and not as it was arrived at. The engram
-row prefetch stays its own commit: it is a separate claim with its own
-measurement, and it can be reverted without taking the architecture with it.
+후속 커밋 셋은 고치는 커밋에 접었다. 리뷰어가 도달 과정이 아니라 선 상태를 읽는다. engram 행 prefetch는 자기 커밋으로 남는다. 자기 측정 딸린 별도 주장이라 아키텍처 없이 revert 가능하다.
 
-GitHub does not stack cross-fork PRs — the base of a PR from a fork has to be
-a branch of the upstream repo — so PR 2 waits for PR 1 to land rather than
-carrying its 794 lines as review noise. The branch comparison is linked from
-PR 1 for anyone who wants to see the draft half now.
+GitHub는 포크 간 PR 쌓기를 안 한다 — 포크 PR의 베이스는 업스트림 리포 브랜치여야 한다. 그래서 PR 2는 794줄을 리뷰 노이즈로 짊어지지 않고 PR 1 착륙을 기다린다. draft 절반이 지금 보고 싶으면 PR 1에 브랜치 비교 링크가 있다.
 
-## Comments
+## 주석
 
-`CONTRIBUTING.md` is explicit: "Minimize as much as possible the AI slop. Both
-in the PR description and in the endless comments left behind in the code by
-the LLM. If in doubt, just remove all AI generated comments."
+`CONTRIBUTING.md`는 명시적이다. "AI slop 최소화. PR 설명과 LLM이 남긴 끝없는 코드 주석 둘 다. 의심스러우면 AI 생성 주석 전부 삭제."
 
-The branch added 101 comment lines to 870 of code. The rule applied was: a
-comment stays if breaking it breaks the code — the table must stay mmapped,
-the hash constants index straight into it, readers alias their source's
-storage, a shared token has no unambiguous history. A comment goes if it
-teaches: every "V4 does X, V4.1 does Y" pair that restated the two lines
-underneath it, and every sentence explaining what the next call does. 101
-lines became 66.
+브랜치가 코드 870줄에 주석 101줄을 얹었다. 적용한 규칙: 깨뜨리면 코드가 깨지는 주석만 산다 — 테이블은 mmap 유지, 해시 상수는 곧장 인덱싱, reader는 소스 저장소를 alias, 공유 토큰은 모호하지 않은 history 없음. 가르치는 주석은 간다. 아래 두 줄을 바꿔 말한 "V4는 X, V4.1은 Y" 쌍 전부, 다음 호출 설명 문장 전부. 101줄이 66줄이 됐다.
 
-## Re-measuring
+## 재측정
 
-The Saturday numbers were measured against `3bb386eb`. Eighteen commits later
-they are no longer the port's numbers, and two of those commits are CPU GEMM
-work, so the whole pair was run again today — both engines, same file, same
-box, nothing else running.
+토요일 숫자는 `3bb386eb` 기준이다. 열여덟 커밋 뒤에는 포트의 숫자가 아니고, 그중 둘이 CPU GEMM 작업이라 전부 오늘 다시 돌렸다. 양쪽 엔진, 같은 파일·상자, 다른 것 없음.
 
-wikitext-2, four chunks of 2048, CPU only:
+wikitext-2, 2048 4청크, CPU only:
 
-| build | [1] | [2] | [3] | [4] | final |
+| 빌드 | [1] | [2] | [3] | [4] | 최종 |
 | --- | --- | --- | --- | --- | --- |
-| the port, on `19dfb71b` | 1.7393 | 1.7633 | 1.8389 | 2.2355 | 2.2355 ± 0.0626 |
-| llama.cpp V4.1 branch `38f6868e` | 1.7352 | 1.7666 | 1.8493 | 2.2556 | 2.2556 ± 0.0641 |
-| the port on `3bb386eb`, 2026-09-13 | 1.7229 | 1.7499 | 1.8242 | 2.2258 | 2.2258 ± 0.0622 |
+| 포트, `19dfb71b` 위 | 1.7393 | 1.7633 | 1.8389 | 2.2355 | 2.2355 ± 0.0626 |
+| llama.cpp V4.1 브랜치 `38f6868e` | 1.7352 | 1.7666 | 1.8493 | 2.2556 | 2.2556 ± 0.0641 |
+| 포트, `3bb386eb` 위, 09-13 | 1.7229 | 1.7499 | 1.8242 | 2.2258 | 2.2258 ± 0.0622 |
 
-Both sides moved by about the width of a chunk-to-chunk wobble, in the same
-direction, and the port stays a hair under the reference. The point is not the
-0.01: it is that a two-day-old number measured against a moved base is not
-evidence of anything, and the PR would have carried it as if it were.
+양쪽이 청크간 흔들림 폭만큼 같은 방향으로 움직였고, 포트가 참조 밑에 바짝 있다. 요점은 0.01이 아니다. 움직인 베이스에 잰 이틀 된 숫자는 아무 증거도 아니고, PR은 그걸 증거인 양 달고 갈 뻔했다.
 
-Decode at the published split — experts of six layers on the cards, the rest on
-the CPU, `-c 16384 -ngl 99 -t 32 -b 2048 -ub 512`, 200-token greedy completions,
-three on cold engram rows and two with the rows in page cache:
+공개 분할 디코드 — expert 6층 온카드·나머지 CPU, `-c 16384 -ngl 99 -t 32 -b 2048 -ub 512`, 200토큰 탐욕 완성 5개(찬 engram 행에 3, 페이지 캐시에 2):
 
-| build | new prompts | rows cached |
+| 빌드 | 새 프롬프트 | 행 캐시 |
 | --- | --- | --- |
-| the port | 20.41, 20.55, 20.73 | 21.21, 21.22 |
-| llama.cpp V4.1 branch | 21.27, 21.21, 21.20 | 21.35, 21.91 |
+| 포트 | 20.41, 20.55, 20.73 | 21.21, 21.22 |
+| llama.cpp V4.1 브랜치 | 21.27, 21.21, 21.20 | 21.35, 21.91 |
 
-Mainline is about 3 % ahead, which is where it was on Saturday (18.6 against
-18.4). Both engines decode faster than they did then.
+mainline이 약 3% 앞이다. 토요일 자리 그대로다(18.6 대 18.4). 양쪽 엔진이 그때보다 빨라졌다.
 
-## What the runner caught
+## 러너가 잡은 것
 
-The measurement script was written for this round and caught four things, in
-the order they happen to a person doing it by hand:
+이 라운드용 측정 스크립트가 네 개를 잡았다. 손으로 하면 겪는 순서대로다.
 
-1. `--lazy-mode auto` is a mainline flag. ik's server printed its help and
-   exited, and the session-leader assertion fired against a pid that was
-   already gone — so it reported "not a session leader" for a process that had
-   died. The assertion now distinguishes the two.
-2. `-ot` to the CPU asks for 283 GiB of pinned host memory on a 251 GB box.
-   This is the path [#2444](https://github.com/ikawrakow/ik_llama.cpp/pull/2444)
-   was written for; the runner now sets `GGML_CUDA_NO_PINNED_WEIGHTS=1`.
-3. mainline's `/health` answers 200 while the model is still loading. The
-   readiness check was a health code, so five requests went out against a
-   loading server, came back without `timings`, and the run still printed
-   `IK_V41_DONE`. Readiness is now a completion that actually returns timings.
-4. A response without `timings` is now a failed run rather than a line of
-   output. The third defect was only visible because a Python `KeyError`
-   happened to be loud; the next one would not have been.
+1. `--lazy-mode auto`는 mainline 플래그다. ik 서버가 help를 찍고 죽었는데, 세션리더 assertion이 이미 간 pid에 발동해서 "세션 리더 아님"을 죽은 프로세스에 보고했다. assertion이 둘을 구분한다.
+2. CPU행 `-ot`가 251 GB 상자에 283 GiB pinned 호스트 메모리를 달란다. [#2444](https://github.com/ikawrakow/ik_llama.cpp/pull/2444)가 쓰인 경로다. 러너는 이제 `GGML_CUDA_NO_PINNED_WEIGHTS=1`을 박는다.
+3. mainline `/health`는 모델 로딩 중에도 200을 답한다. readiness 체크가 health 코드라 요청 다섯이 로딩 중 서버에 나가 `timings` 없이 돌아오고도 실행은 `IK_V41_DONE`을 찍었다. readiness는 이제 timings를 실제로 돌려주는 completion이다.
+4. `timings` 없는 응답은 이제 출력 한 줄이 아니라 실패한 실행이다. 세 번째 결함은 파이썬 `KeyError`가 우연히 시끄러워서 보였다. 다음 것은 안 보였을 것이다.
 
-The script is [`tools/ik/ik-v41-verify.sh`](../tools/ik/ik-v41-verify.sh). It
-takes a branch and a tag, gates on the clock, the cards and the lease, and runs
-either engine through the same measurement path — which is the only reason the
-two rows above are comparable.
+스크립트는 [`tools/ik/ik-v41-verify.sh`](../tools/ik/ik-v41-verify.sh)다. 브랜치와 태그를 받아 클럭·카드·임대를 걸고, 양쪽 엔진을 같은 측정 경로에 돌린다 — 위 두 행이 비교 가능한 유일한 이유다.
 
-## Where it stands
+## 현재
 
-[#2455](https://github.com/ikawrakow/ik_llama.cpp/pull/2455) is open with the
-two tables above and its own list of what is not implemented: session save of
-the shared streams, the MTP graph, the quantizer exemption for the engram gate
-scales, vision, and a batch that shares a token between sequences (the n-gram
-history is ambiguous there, so it asserts rather than guessing). The draft PR
-follows it.
+[#2455](https://github.com/ikawrakow/ik_llama.cpp/pull/2455)가 위 두 표와 미구현 목록(공유 스트림 세션 저장, MTP 그래프, engram 게이트 스케일 양자화 예외, vision, 시퀀스 간 토큰 공유 배치 — n-gram history가 모호해서 추측 말고 assert)을 달고 열려 있다. draft PR이 뒤따른다.

@@ -1,130 +1,78 @@
-# Two NVMe drives, and the benchmark that kept measuring the cache
+# NVMe 두 개, 그리고 캐시만 재던 벤치
 
-**2026-09-12.** A 4 TB Phison E18 was added to this machine today. Measured
-against the 2 TB Samsung 980 PRO already in it, the useful difference is not in
-the burst numbers everyone quotes — those are within a few percent of each
-other — but in what happens after about four minutes of writing, which is
-exactly the regime this machine works in when it moves a 155 GB model file.
+**2026-09-12.** Phison E18 4 TB가 오늘 들어왔다. 기존 삼성 980 PRO 2 TB와 비교. 버스트 숫자는 몇 % 차이도 안 난다. 갈리는 것은 쓰기 4분 뒤 — 155 GB 모델 파일을 옮기는 이 기계의 실제 구간이다.
 
-Everything below was measured on the machine in [the README](../README.md) on
-this date, with `llm.service` stopped and the page cache dropped before each
-run. The harnesses are [`configs/disk-bench.sh`](../configs/disk-bench.sh) and
-[`configs/disk-sustained.sh`](../configs/disk-sustained.sh).
-
-Both drives are on PCIe 4.0 x4 and negotiate the full link:
+`llm.service` 정지, 매 실행 전 페이지 캐시 드롭. 하네스 [`configs/disk-bench.sh`](../configs/disk-bench.sh)·[`configs/disk-sustained.sh`](../configs/disk-sustained.sh). 둘 다 PCIe 4.0 x4 풀링크다.
 
 ```
 23:00.0  Phison E18   LnkCap: Speed 16GT/s, Width x4   LnkSta: Speed 16GT/s, Width x4
 2c:00.0  Samsung      LnkCap: Speed 16GT/s, Width x4   LnkSta: Speed 16GT/s, Width x4
 ```
 
-## Burst, which says almost nothing
+## 버스트: 거의 말하는 것 없음
 
-32 GiB per test, O_DIRECT, libaio, one job.
+32 GiB, O_DIRECT, libaio, 1 job.
 
-| | Phison E18 4 TB (empty) | Samsung 980 PRO 2 TB (36% full, root) |
+| | Phison E18 4 TB(빈) | 삼성 980 PRO 2 TB(36% 사용, 루트) |
 |---|---|---|
-| seq write 1M QD8 | 5.23 GB/s | 5.23 GB/s |
-| seq read 1M QD8 | 6.00 GB/s | **7.09 GB/s** |
-| rand read 4K QD32 | **152,519 IOPS** | 138,773 IOPS |
-| rand read 4K QD1 | 15,836 IOPS, 0.056 ms | **18,038 IOPS, 0.048 ms** |
-| rand write 4K QD32 | **137,888 IOPS** | 97,883 IOPS |
-| temperature, before → after | 49 → 50 °C | 35 → 39 °C |
+| 순차 쓰기 1M QD8 | 5.23 GB/s | 5.23 GB/s |
+| 순차 읽기 1M QD8 | 6.00 GB/s | **7.09 GB/s** |
+| 랜덤 읽기 4K QD32 | **152,519 IOPS** | 138,773 IOPS |
+| 랜덤 읽기 4K QD1 | 15,836 IOPS, 0.056 ms | **18,038 IOPS, 0.048 ms** |
+| 랜덤 쓰기 4K QD32 | **137,888 IOPS** | 97,883 IOPS |
 
-The Samsung reads faster and answers a single queued 4K read sooner; the Phison
-takes more random writes. On sequential writes they are identical to two
-decimal places, which is the first hint that 32 GiB is not measuring either
-drive — it is measuring both drives' SLC write caches, and those happen to
-saturate the same part of the path.
+순차 쓰기가 소수 둘째 자리까지 동일 — 32 GiB는 드라이브를 재는 게 아니라 양쪽 SLC 쓰기 캐시를 잰다. 평균에 가려진 진짜 차이 하나. 순차 1M 쓰기 p99 지연이 Phison 11.3 ms 대 삼성 1.5 ms, 읽기 10.4 ms 대 1.2 ms다.
 
-One real difference does show up here. The Phison's p99 latency on sequential
-1M writes is 11.3 ms against the Samsung's 1.5 ms, and on reads 10.4 ms against
-1.2 ms. Average throughput hides that entirely.
+## 지속: 이야기의 전부
 
-## Sustained, which is the whole story
+캐시 바닥날 때까지 쓰고 10초마다 보고. 둘 다 TRIM 후 3분 idle에서 시작.
 
-Write until the cache runs out, and report every ten seconds. Both drives
-TRIMmed and left idle three minutes first, so the comparison starts from the
-same kind of state.
+| | 캐시 구간 | 벼랑 위치 | 이후 하한 |
+|---|---|---|---|
+| Phison E18 4 TB, 빈 | 5.74–5.85 GB/s | 약 430 GiB | **3.70 GB/s** |
+| 삼성 980 PRO 2 TB, 36% 사용 | 5.16 GB/s | 약 230 GiB | **1.47 GB/s** |
 
-**Samsung 980 PRO 2 TB — 400 GiB:**
+전이의 모양은 표가 아니라 곡선에 있다. 삼성 400 GiB:
 
 ```
  40s   5.16 GB/s
- 50s   3.67 GB/s     <- transition
+ 50s   3.67 GB/s     <- 전이
  60s   1.48 GB/s
 ...
 170s   1.47 GB/s
 overall 2.45 GB/s over 175 s
 ```
 
-**Phison E18 4 TB — 1400 GiB:**
+Phison 1400 GiB:
 
 ```
  60s   5.74 GB/s
- 90s   3.74 GB/s     <- transition
+ 90s   3.74 GB/s     <- 전이
 ...
 360s   3.70 GB/s
 overall 4.16 GB/s over 361 s
 ```
 
-| | cache phase | cliff at about | floor after it |
-|---|---|---|---|
-| Phison E18 4 TB, empty | 5.74–5.85 GB/s | 430 GiB | **3.70 GB/s** |
-| Samsung 980 PRO 2 TB, 36% full | 5.16 GB/s | 230 GiB | **1.47 GB/s** |
+두 드라이브 모두 전이는 한 구간(10–30초) 안에서 끝나고, 그 뒤로는 실행이 끝날 때까지 평탄하다. 하한이 **2.5배** 갈린다. NAND 다이 2배 + 빈 드라이브 대 36% 사용(동적 SLC 풀 축소) 때문이다. 오늘 이 기계의 두 드라이브에 대한 공정한 서술이지, 두 제품에 대한 공정한 서술은 아니다.
 
-The floor is where the drives actually differ, and by two and a half times. Two
-things produce that and only one of them is a verdict about the hardware: the
-Phison has twice the NAND dies to fold data into, and it was empty while the
-Samsung was 36% full, which shrinks a dynamic SLC pool. This is a fair
-statement about these two drives in this machine today. It is not a fair
-statement about the two products.
+세 번째 상태도 기록한다. 바쁜 기계의 평소 상태라서다. 400 GiB 실행 직후 TRIM·idle 없이 Phison에 1400 GiB를 걸면 첫 10초부터 평탄 3.09 GB/s — 캐시 구간 없이, 쉰 뒤 하한 3.70보다 17% 밑이다. 최근 쓰기 이력이 전송 내 위치보다 비싸다.
 
-There is a third state worth recording, because it is the one a busy machine is
-usually in. Running 1400 GiB on the Phison **immediately after** a 400 GiB run,
-with no TRIM and no idle, gives a flat 3.09 GB/s from the very first ten-second
-window — no cache phase at all, and 17% below the 3.70 GB/s floor the same
-drive reaches when rested. Recent write history costs more than position within
-a transfer does.
+## 실수, 두 번
 
-## The mistake, twice
+삼성 첫 실행 200 GiB는 평탄 5.16 GB/s, 벼랑 없음. Phison 첫 클린 실행 400 GiB는 평탄 5.85 GB/s, 벼랑 없음. 둘 다 "벼랑 없음 관찰"로 들어갈 뻔했다.
 
-The first Samsung run was 200 GiB. It reported a flat 5.16 GB/s and no cliff.
-The first clean Phison run was 400 GiB. It reported a flat 5.85 GB/s and no
-cliff. Both were about to go into this entry as "no cliff observed."
+벼랑은 230 GiB와 430 GiB에 있다. 각 실행이 찾는 것 바로 앞에서 멈췄다. **벼랑 전에 멈추는 벤치는 빠른 드라이브를 보고하지 않는다. 캐시 크기를 처리량 단위로 보고하고, 그랬다는 표시도 안 낸다.** 평탄해서 더 믿음직해 보였다.
 
-The cliffs are at 230 GiB and 430 GiB. Each run stopped just short of the one
-it was looking for, and a benchmark that stops before the cliff does not report
-a fast drive — it reports the size of the cache, in units of throughput, and
-gives no sign that is what it did. Both runs looked *more* trustworthy for
-being flat.
+잡은 것은 드라이브별 크기가 아니라 같은 크기로 돌린 것이다. 삼성을 비교용으로 200→400 GiB 늘리자 벼랑이 나왔고, 그게 Phison의 평탄 400 GiB를 의심하게 해 1400 GiB 재실행으로 갔다.
 
-What caught it was running the two drives at the same size rather than at a
-size chosen per drive. The Samsung cliff appeared when its run was extended
-from 200 to 400 GiB for comparability, and finding it there is what made the
-Phison's flat 400 GiB suspicious enough to re-run at 1400.
+그래서 지속 쓰기 테스트의 중단 규칙은 커 보여서 정한 숫자가 아니라 드라이브 거동에 묶는다. 전이 후 수분 평탄까지 쓰거나, 전이가 없다는 게 분명해질 때까지.
 
-So: a sustained-write test needs a stopping rule tied to the drive's behaviour,
-not to a number that seemed big. Write until the rate has been flat for several
-minutes *after* a transition, or until it is clear the drive has none.
+## 재측정자에게
 
-## A note for whoever re-measures this
+위 Phison 수치는 장착 1시간 드라이브에서 나왔다. 세션 끝에는 이 실행들로 ~3.4 TB를 먹었다 — 거의 한 번 풀라이트다. 나중에 5.85 GB/s가 안 나오면 방법보다 먼저 의심한다. 한 번 쓴 드라이브는 새 것과 다르고, TRIM+idle이 대부분이지 전부를 되돌리진 않는다.
 
-The Phison figures above were taken on a drive that had been in the machine for
-about an hour. By the end of the session it had absorbed roughly 3.4 TB across
-these runs — close to one full drive-write. A later re-measurement that fails to
-reproduce 5.85 GB/s should suspect that before suspecting the method: a drive
-that has been written across once behaves differently from one out of the box,
-and TRIM plus an idle period recovers most but not necessarily all of it.
+## 여기서의 의미
 
-## What it means here
+모델 라이브러리 587 GB는 루트 디스크에 있다. Phison으로 옮기면 약 2분(430 GiB 5.7 GB/s + 나머지 3.7) 대 삼성 약 4분 반. OS 든 디스크에서 대량 쓰기가 빠진다. 용량으로 이미 맞던 결정이 쓰기 하한으로 두 번 맞는다.
 
-The model library is 587 GB and lives on the root disk. Moving it to the
-Phison takes roughly two minutes — about 430 GiB at 5.7 GB/s, the rest at
-3.7 — against roughly four and a half on the Samsung, and it gets bulk writes
-off the disk holding the operating system. The decision was already right for
-space; the write floor makes it right twice.
-
-The tail-latency result argues the other way for anything latency-sensitive,
-and the root filesystem is exactly that. Leaving the OS on the Samsung is the
-correct split.
+꼬리 지연은 반대다. 지연 민감한 것 — 루트 파일시스템이 정확히 그거다 — 에는 삼성이 맞다. OS를 삼성에 두는 게 올바른 분할이다.

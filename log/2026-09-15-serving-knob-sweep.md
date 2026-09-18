@@ -1,71 +1,25 @@
-# Serving knobs, one at a time: the current profile is the optimum of the six
+# 서빙 노브 스위프: 여섯 중 서는 것은 현재 프로파일
 
-**2026-09-15, 06:34–06:49.** With `llm.service` stopped for the user's own GPU
-work, the six-arm sweep that had been queued since the `-ub 4096` change ran
-on a quiet machine (`serve-opt.sh`, port 8097). One knob per arm against the
-served configuration, each arm a fresh load, then three 400-token greedy
-decodes, one 11 929-token prefill and the VRAM after it.
+**2026-09-15 06:34–06:49.** `-ub 4096` 적용 후 밀린 6-arm 스위프. 조용한 기계, arm마다 fresh 로드, 400토큰 디코드 3회 + 11,929토큰 프리필 + 이후 VRAM.
 
-## Arms
+베이스는 실서빙 `llm-serve.sh`: ik 빌드 4887, V4-Flash-0731 UD-Q4_K_XL, `-c 32768 -ngl 99 -ts 2,1 -mla 3 -t 32 -b 4096 -ub 4096`, expert 0–6층 48 GB 카드·11–14층 24 GB 카드, DSpark draft(`-cd 8192`, `n_max=3`), `--jinja --reasoning-format none`.
 
-Base is the live `llm-serve.sh`: ik_llama.cpp build 4887, DeepSeek-V4-Flash-0731
-UD-Q4_K_XL, `-c 32768 -ngl 99 -ts 2,1 -mla 3 -t 32 -b 4096 -ub 4096`, experts
-of layers 0–6 on the 48 GB card and 11–14 on the 24 GB card, DSpark draft
-(`-cd 8192`, `--spec-type dspark:n_max=3`), `--jinja --reasoning-format none`.
+| arm | 변경 | 디코드(3×400) | 11.9k 프리필 | TTFT | VRAM(48/24 GB) |
+|---|---|---|---|---|---|
+| **base** | — | 26.0 / 26.2 / 26.3 | **478** | 24.9초 | 48,394 / 21,452 MiB |
+| rtr | `-rtr` | 25.7 / 26.9 / 27.2 | **291** | 41.0초 | 47,766 / 21,288 |
+| kvq8 | `-ctk q8_0 -ctv q8_0` | 26.7 / 24.2 / 28.3 | 478 | 25.0초 | 47,944 / 21,230 |
+| layer5 | 24 GB 카드에 11–15층 | (디코드 동작) | **충돌** | — | — |
+| nmax4 | `n_max=4` | 22.2 / 21.9 / 23.6 | 478 | 25.0초 | 48,386 / 21,444 |
+| nmax5 | `n_max=5` | 21.3 / 20.4 / 21.0 | 477 | 25.0초 | 48,392 / 21,464 |
 
-| arm | change | load | decode tok/s (3 × 400) | 11.9k prefill | TTFT | VRAM after prefill (48 / 24 GB card) |
-|---|---|---:|---|---:|---:|---|
-| **base** | — | 54 s | 26.0 / 26.2 / 26.3 | **478** | 24.9 s | 48 394 / 21 452 MiB |
-| rtr | `-rtr` (repack at load) | 54 s | 25.7 / 26.9 / 27.2 | **291** | 41.0 s | 47 766 / 21 288 |
-| kvq8 | `-ctk q8_0 -ctv q8_0` | 61 s | 26.7 / 24.2 / 28.3 | 478 | 25.0 s | 47 944 / 21 230 |
-| layer5 | layers 11–15 on the 24 GB card | 54 s | (decodes ran) | **crash** | — | — |
-| nmax4 | `dspark:n_max=4` | 54 s | 22.2 / 21.9 / 23.6 | 478 | 25.0 s | 48 386 / 21 444 |
-| nmax5 | `dspark:n_max=5` | 55 s | 21.3 / 20.4 / 21.0 | 477 | 25.0 s | 48 392 / 21 464 |
+- **`-rtr`: 프리필 39% 날리고 얻는 것 없음.** CPU 상주 가중치용인데, 이 프로파일의 CPU expert는 이미 `_R` 타입이거나 재배치가 ik CUDA 경로에 더 나쁘다. 디코드는 밴드 안. 끈다.
+- **KV q8_0: 잴 수 있는 변화 없음**(프리필 478→478), 48 GB 카드에서 ~450 MiB 절약. `-c 32768`에서 f16 캐시가 제약이 아니라 사는 쪽이 없다. 컨텍스트 올리는 날의 노브다. 미적용.
+- **24 GB 카드 5층은 `-ub 4096`과 안 맞는다.** 로드는 되고(22.6 GB) 짧은 디코드도 도는데, 11.9k 프리필이 그 카드의 2,560 MiB 연산 버퍼에서 죽는다(`cudaMalloc` 실패 후 segfault). ubatch가 5층 headroom을 먹었다. 둘은 택일이고, ubatch는 프리필 2.1배·층은 디코드 2%다. 4층 유지.
+- **draft 길면 디코드 느려진다.** `n_max` 4·5가 3 대비 −15%·−20%. 09-13 DSpark 스위프와 같은 모양. 3 유지.
 
-## What each one did
+400토큰 thinking 답이 arm마다 달랐다(base와 `-rtr`도 셋 다 다름). 추측 디코더+다른 배치·배치라 당연하고(sub-ulp 차이 누적), 노브 증거 아니다. 답 파일(`sopt-ans-{1,2,3}.txt`)은 보관만. 메모리클럭 작업의 identity 게이트가 64토큰·고정 구성을 쓴 이유다.
 
-**`-rtr` cost 39 % of prefill and bought nothing.** Run-time repacking is
-meant for CPU-resident weights; on this profile the CPU experts are already
-`_R` types or the repack changes a layout the ik CUDA path then handles
-worse. Decode was inside the run-to-run band. Off.
+판정: `llm-serve.sh` 변경 없음. 여섯 중 하나 충돌, 둘 디코드 손실, 하나 프리필 손실, 하나 중립이다. 06:19 적용 프로파일이 이 기계 서빙 모델의 최측정 구성으로 선다. 싱글스트림 디코드 26 tok/s, 11.9k 프리필 478 tok/s, TTFT 25초.
 
-**KV q8_0 changed nothing measurable** at the 12k prompt (prefill 478 → 478,
-decode noisy around the same mean) and saved about 450 MiB on the 48 GB
-card and 220 MiB on the 24 GB card. At `-c 32768` the f16 cache is not the
-constraint, so the saving has no buyer today; it becomes the right knob if
-the context is ever raised. Not applied.
-
-**A fifth expert layer on the 24 GB card does not fit with `-ub 4096`.** Load
-succeeded (22.6 GB on the card, up from 19.4), the three short decodes ran,
-and the 11.9k prefill died allocating the 2 560 MiB compute buffer on that
-card (`cudaMalloc failed: out of memory`, then a segfault). The ubatch change
-consumed the headroom that a fifth layer would have used; the two are
-alternatives, and the ubatch is worth 2.1× on prefill while a layer is worth
-about 2 % on decode. Stays at four.
-
-**Longer draft runs slow decode.** `n_max` 4 and 5 lost 15 % and 20 % against
-3, the same shape as the DSpark sweep of 2026-09-13: past three drafted
-tokens the acceptance falls off faster than the verification batch grows.
-Stays at 3.
-
-## Identity across arms
-
-The 400-token thinking answers to the three probe prompts were not identical
-across arms — even base and `-rtr` diverged on all three, and the two `n_max`
-arms agreed only with each other. That is expected for 400 tokens of greedy
-generation through a speculative decoder with different batch shapes and
-placements (sub-ulp differences in the logits compound), and it is why the
-identity gate in the memory-clock work used 64 tokens and a fixed
-configuration. The divergence here is not evidence about any knob; the
-answer files are kept (`sopt-ans-{1,2,3}.txt`) but not read as a result.
-
-## Verdict
-
-No change to `llm-serve.sh`. Of the six, one crashes, two lose decode, one
-loses prefill, one is neutral. The profile applied on 2026-09-15 06:19 stands
-as the best measured configuration of this machine for the served model:
-decode 26 tok/s single-stream, 11.9k prefill 478 tok/s, TTFT 25 s.
-
-Not swept: `-ub 2048` (skipped on purpose, 4096 fits), `-t 24/28` (the
-memory-clock work saw 32 threads as the cap), `-amb`, `-fmoe` variants and
-the draft's own layer placement. Each is a 15-minute arm on the same script.
+안 잰 것: `-ub 2048`(4096이 드니 일부러 스킵), `-t 24/28`(메모리클럭에서 32가 상한), `-amb`·`-fmoe` 변형·draft 자체 층 배치. 같은 스크립트에 arm당 15분이다.

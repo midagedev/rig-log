@@ -1,84 +1,32 @@
-# Prefill on the served model: the ubatch is worth 2.1×, the engine 1.15×
+# 서빙 모델 프리필: ubatch 2.1배, 엔진 1.15배
 
-**2026-09-15, 05:58–06:10.** A side effect of chasing a fork-only abort
-(`docs/checkpoint-restore-dsv4.md`, last section): mainline llama.cpp
-prefilled an 11.9k-token prompt on the served DeepSeek-V4-Flash file at 434
-tok/s with `-ub 4096`, while the serving profile runs `-ub 1024`. That
-deserved a proper A/B on one model, one placement, no draft.
+**2026-09-15 05:58–06:10.** 포크 전용 abort를 쫓다 나온 부산물([v41-serving](../docs/v41-serving.md) 마지막 절): mainline이 서빙 V4-Flash 파일 11.9k 프롬프트를 `-ub 4096`에 434 tok/s로 프리필하는데 서빙 프로파일은 `-ub 1024`로 돈다. 한 모델·한 배치·draft 없이 제대로 잴 일이다.
 
-## Setup
+조건은 엔진과 ubatch 빼고 전부 동일이다. V4-Flash-0731 UD-Q4_K_XL(145 GB), `-c 32768 -ngl 99 -t 32`, expert 0–6층 48 GB 카드·11–14층 24 GB 카드·나머지 CPU, draft 없음, `--jinja`. 11,929토큰 프롬프트(wikitext-2 5만자 슬라이스)에 출력 32토큰, arm당 2회(`cache_prompt` off라 2회차는 warm 반복). 조용한 기계, `llm.service` 정지, 한 번에 한 arm. mainline master 41abbfd, ik 빌드 4887(`-mla 3`).
 
-Same everything except the engine and the ubatch: DeepSeek-V4-Flash-0731
-UD-Q4_K_XL (145 GB), `-c 32768 -ngl 99 -t 32`, experts of layers 0–6 on the
-48 GB card and 11–14 on the 24 GB card, the rest on the CPU, no draft model,
-`--jinja`. One 11 929-token prompt (a 50 000-character slice of
-wikitext-2), 32 output tokens, two runs per arm (`cache_prompt` off, so the
-second run is a warm repeat, not a cache hit). Quiet machine, `llm.service`
-stopped, one arm at a time (`prefill-ab.sh`, `prefill-ab2.sh`). Mainline is
-master 41abbfd (2026-09-14); ik_llama.cpp is build 4887 (3ded8071), with
-`-mla 3` as the serving script uses.
-
-## Result
-
-| engine | `-b`/`-ub` | prefill tok/s (run 1 / 2) | TTFT | decode tok/s | VRAM 48 GB / 24 GB card |
+| 엔진 | `-b`/`-ub` | 프리필(1회/2회) | TTFT | 디코드 | VRAM 48/24 GB |
 |---|---|---|---|---|---|
-| mainline | 1024 | 191.5 / 189.5 | 62.3 s | 22.1 | 30.6 / 16.8 GB |
-| mainline | 4096 | 433.7 / 431.8 | 27.5 s | 22.0 | 31.1 / 18.6 GB |
-| ik_llama.cpp | 1024 | 235.6 / 236.2 | 50.6 s | 22.3 | 30.0 / 17.5 GB |
-| ik_llama.cpp | **4096** | **495.8 / 500.4** | **24.1 s** | 22.6 | 32.8 / 19.0 GB |
+| mainline | 1024 | 191.5 / 189.5 | 62.3초 | 22.1 | 30.6 / 16.8 GB |
+| mainline | 4096 | 433.7 / 431.8 | 27.5초 | 22.0 | 31.1 / 18.6 GB |
+| ik | 1024 | 235.6 / 236.2 | 50.6초 | 22.3 | 30.0 / 17.5 GB |
+| ik | **4096** | **495.8 / 500.4** | **24.1초** | 22.6 | 32.8 / 19.0 GB |
 
-Two things, both clean. Going from `-ub 1024` to `-ub 4096` gives 2.27× on
-mainline and 2.11× on ik, and costs 0.5 and 2.8 GB of VRAM respectively;
-decode does not move. And ik is 1.15–1.24× faster than mainline at the
-same ubatch on this hybrid path — the opposite sign from the 2026-09-13
-CPU-heavy V4.1 comparison, where ik trailed on prefill by a quarter; this
-is a different model with most of the bytes on the CPU experts but the
-attention on the cards, and the number is what it is.
+둘 다 깨끗하다. `-ub 1024→4096`이 mainline 2.27배·ik 2.11배, VRAM 비용 0.5·2.8 GB. 디코드는 안 움직인다. 같은 ubatch에서 ik가 mainline보다 1.15–1.24배 빠르다 — 09-13 CPU-heavy V4.1 비교(ik 프리필 −25%)와 부호가 반대다. 모델이 다르고(바이트 대부분 CPU expert, 어텐션은 카드) 숫자는 숫자다.
 
-## What it means for serving
+서빙 의미: 서빙 프로파일(ik, `-b 2048 -ub 1024`, DSpark draft)이 긴 프롬프트 프리필 절반을 버리고 있었다. 카드 예산은 된다. draft 얹고 48 GB 카드 40.3 GB인데 `-ub 4096`이 2.8 GB 더 달란다. 서빙 구성 예상: 11.9k TTFT 50초→24초대, 짧은 프롬프트 무변화.
 
-The serving profile (`llm-serve.sh`: ik, `-b 2048 -ub 1024`, DSpark draft)
-has been leaving half of its long-prompt prefill on the table. The card
-budget allows the change: the serving run sits at 40.3 GB on the 48 GB card
-with the draft loaded, and `-ub 4096` asks 2.8 GB more. Expected on the
-served configuration: 11.9k prompt TTFT from about 50 s to about 24 s;
-short prompts unchanged.
+**같은 날 06:19 적용**(`configs/llm-serve.sh`, `-b 4096 -ub 4096`, 사용자 결정). draft 얹은 서빙 구성 실측:
 
-**Applied 06:19 the same morning** (`configs/llm-serve.sh`, `-b 4096 -ub
-4096`, user's decision), and measured on the served configuration with the
-DSpark draft loaded:
-
-| served, ub 4096, draft on | prompt_n | prefill | TTFT | decode | VRAM after (48 / 24 GB card) |
+| 서빙 ub 4096, draft on | prompt_n | 프리필 | TTFT | 디코드 | VRAM(48/24 GB) |
 |---|---:|---:|---:|---:|---|
-| short prompt | 10 | — | 0.31 s | 21.0 | 42.9 / 19.4 GB at load |
-| 11.9k document | 11 929 | 476 tok/s | 25.1 s | 29.5 (64 tok) | 48.4 / 21.5 GB |
-| 18.6k document | 18 566 | 467 | 39.8 s | | 48.4 / 21.6 |
-| 26.6k document | 26 618 | 464 | 57.3 s | | 48.4 / 21.7 |
-| 400-token decode | 13 | — | 0.34 s | 26.5 | |
+| 짧은 프롬프트 | 10 | — | 0.31초 | 21.0 | 로드 시 42.9 / 19.4 GB |
+| 11.9k 문서 | 11,929 | 476 tok/s | 25.1초 | 29.5(64토큰) | 48.4 / 21.5 GB |
+| 18.6k 문서 | 18,566 | 467 | 39.8초 | | 48.4 / 21.6 |
+| 26.6k 문서 | 26,618 | 464 | 57.3초 | | 48.4 / 21.7 |
+| 400토큰 디코드 | 13 | — | 0.34초 | 26.5 | |
 
-The CUDA pool on the 48 GB card grows to 48.4 of 49.1 GB on the first long
-prefill and stays there — the same figure at 12k, 18.6k and 26.6k tokens —
-so the 700 MiB that remain are the steady state, not a margin that shrinks
-with the prompt. Decode and short-prompt latency are unchanged; a 12k
-document now waits 25 s instead of 50.
+48 GB 카드 CUDA 풀이 첫 긴 프리필에 49.1 중 48.4 GB까지 차고 그대로 있다. 12k·18.6k·26.6k 동일 — 남은 700 MiB는 steady state지 프롬프트 따라 주는 마진이 아니다. 디코드·짧은 프롬프트 지연 무변화. 12k 문서 대기 50초→25초.
 
-The "prefill 54 tok/s" that the decode probes have been printing for the
-served model is not a prefill rate: those prompts are ~30 tokens, and the
-figure is the fixed per-prefill cost divided by a tiny count. A long-prompt
-prefill on the served configuration has not been measured with the draft
-loaded; the row above without the draft is the nearest thing.
+디코드 프로브가 찍던 "프리필 54 tok/s"는 프리필 속도가 아니다. 프롬프트 ~30토큰이라 고정 프리필 비용을 작은 수로 나눈 것이다. draft 얹은 긴 프롬프트 프리필은 안 재봤다. 위 draft 없는 행이 가장 가까운 것이다.
 
-## Not measured
-
-- The same four arms with the DSpark draft loaded (VRAM and any prefill
-  interaction with the draft's own prefill).
-- `-ub 2048` (the fork's coding profile used it; on this model the 4096 row
-  fits, so the intermediate point was skipped).
-- ~~Whether `GGML_OP_OFFLOAD_MIN_BATCH` exists on ik.~~ It does not, and the
-  question is moot: ik's `ggml_backend_cuda_offload_op` already scales the
-  offload threshold for MoE by `total_experts / active_experts` (a batch
-  must carry `min_batch × 256 / 8` tokens before RAM-resident experts are
-  copied to the card), so the short-prompt PCIe floor measured on the
-  mainline-derived fork (WKS-27, 7.7 s) is not on the ik serving path in
-  the first place — which is why the served model answers a 30-token prompt
-  in half a second. The 768 threshold stays a fork/mainline setting.
+안 잰 것: draft 얹은 같은 4 arm(VRAM·draft 프리필 간섭), `-ub 2048`(포크 코딩 프로파일이 썼지만 4096이 드니 중간점 스킵). `GGML_OP_OFFLOAD_MIN_BATCH`는 ik에 없고 질문 자체가 무의미하다 — ik `ggml_backend_cuda_offload_op`가 MoE에 `total_experts / active_experts`로 임계를 스케일한다(배치가 `min_batch × 256 / 8` 토큰을 실어야 RAM expert를 카드에 복사), mainline 파생 포크의 짧은 프롬프트 PCIe 하한(WKS-27, 7.7초)은 ik 서빙 경로에 애초에 없다. 30토큰 프롬프트에 0.5초 답이 그래서 나온다. 768 임계는 포크/mainline 설정으로 남는다.

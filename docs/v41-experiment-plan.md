@@ -3,7 +3,7 @@
 **2026-09-12.** A plan, written before the first run rather than after it, so
 that the numbers it produces can disagree with it.
 
-[The lever survey](raising-tokens-per-second.md) projects **16–18 tok/s** for
+[The lever survey](throughput-model.md) projects **16–18 tok/s** for
 DeepSeek-V4.1-Flash on this machine and ranks six ways to raise it. Every one
 of those figures rests on a single borrowed constant — 64.8 GB/s of effective
 memory bandwidth, back-calculated from a *different* model measured on
@@ -112,20 +112,57 @@ getting this wrong silently: a draft model that could not allocate its KV
 scheduler logged an error on every decode step and ran *slower* than no
 speculation, with nothing pointing at VRAM.
 
-## E4 — Concurrency, which may be the largest number here
+## E4 — Concurrency — ~~which may be the largest number here~~ measured 2026-09-18, and it is not
 
-`-np 4`, four concurrent completions, aggregate throughput.
+~~The V4 run measured 47 tok/s aggregate against 29 single-stream — a 1.6× that costs nothing
+but a flag, because a layer's experts are read once and used by every token in the batch. If
+the goal is a served endpoint rather than one fast stream, this outranks every other lever on
+the list.~~ The premise is wrong for this model at this placement. `-c 32768 -np 3`, three
+real translation requests at temperature 0, [`tools/v41-concurrency.sh`](../tools/v41-concurrency.sh):
 
-The V4 run measured 47 tok/s aggregate against 29 single-stream — a 1.6×
-that costs nothing but a flag, because a layer's experts are read once and
-used by every token in the batch. If the goal is a served endpoint rather than
-one fast stream, this outranks every other lever on the list.
+| streams | per-stream decode tok/s | summed | against one stream |
+|---:|---|---:|---:|
+| 1 | 27.6 | 27.6 | — |
+| 3 | 12.8 / 9.5 / 12.0 | **34.3** | **1.24×** |
 
-It also interacts with engram in a way nothing else does: four streams at
-different positions need four different sets of engram rows, so major faults
-per token should stay roughly constant while tok/s rises. If they scale
-super-linearly instead, engram is a concurrency bottleneck and that is a new
-finding.
+A third of the theoretical 3×, and it is not free: `-c 32768` is what makes three slots of
+11 008 tokens, and it halves prefill. Single-stream prefill fell from **56.8 tok/s** at
+`-c 16384` to **31 tok/s** here, measured as prompt tokens over time-to-first-token on the same
+document. For a queue of 74 documents, prefill is about an hour of a 3.3-hour run, so paying
+half of that back to gain a quarter of the decode is close to a wash and may be a loss.
+
+The reason to expect otherwise was that "a layer's experts are read once and used by every
+token in the batch". That is true when the layer is on a card. **Here the experts are on the
+host** (`exps=CPU`), and three tokens route to three different sets of eight experts, so three
+streams read roughly three times the bytes over the same memory bus. Batching cannot amortise
+what is not shared.
+
+This is the second engine and the second model to show it. The first is the finding held
+unfiled in [`upstream-contributions.md`](upstream-contributions.md): DeepSeek-V2-Lite Q3_K_M on
+ik_llama.cpp gives decode 202.1 tok/s at batch 1 and **156.1** at batch 2, slower in total,
+while dense Qwen2.5-7B in the same harness scales normally. That one is held because a
+reproducer without a cause is a symptom report. The explanation above is a cause, and it is
+testable: **a MoE that fits entirely in VRAM should batch normally.** Solar Open 100B IQ4_XS is
+55.5 GB against 72 GB of card, no expert on the host — it is the control this finding needs
+before anything is filed.
+
+The engram question is unanswered: these rows do not carry major-fault counts. It stays open.
+
+### What the two flawed levels were
+
+Levels 1 and 2 of that run are recorded but are not the measurement, and the reason is worth
+keeping. Every level re-sends the same first part, so at level 2 llama-server answered part 0
+from its prompt cache: time-to-first-token was **83.1 s** at level 1 and **18.0 s** at level 2
+for the same prompt. The level-2 aggregate of 27.7 tok/s is therefore against a prefill that
+did not happen. One stream also ran away to 4 100 tokens on a 935-word part and finished long
+after the other, so its per-stream rate is mostly a solo rate. Level 3's three streams overlap
+for most of their length, which is why it is the row quoted above. A corrected pass sets
+`cache_prompt: false` and discards a warm-up level.
+
+An earlier attempt at the same run measured nothing at all: without `--reasoning off` V4.1 put
+every token of an 8 192-token reply into `reasoning_content`, the answer was empty, and the
+harness reported 21.1 tok/s over 388 s — a rate for deliberation, against a cap, with nothing
+translated. The harness now counts reasoning deltas and says when a stream answered nothing.
 
 ## E5 — Prefill, separately
 
@@ -142,7 +179,7 @@ a table where that happened.
 
 Measured since the sections above were written: the ik-against-mainline gap
 is a first-pass page-fault gap (warm, ik 18.8 against mainline 19.8 at the
-same split; [docs](ik-vs-mainline-v41-gap.md)), and long-prompt prefill on
+same split; [docs](v41-serving.md)), and long-prompt prefill on
 the served `-ub 512` profile is 214 tok/s against 343 at `-ub 2048` (4288
 tokens, earlier build). Three windows, in this order; each stops the
 production server, runs on port 8099, and restores it.
@@ -170,7 +207,7 @@ floor is the per-ubatch PCIe copy of the CPU expert set and `--no-op-offload`
 beats it below ~700 tokens (WKS-27). Threshold sweep done: `GGML_OP_OFFLOAD_MIN_BATCH=768` closes the
 short-prompt floor (257 tok 10.2 → 4.5 s, long prefill unchanged, 1024
 and 2048 lose; log section "The offload threshold"). Queue now:
-~~end-of-prompt checkpoint patch A/B~~ **done 2026-09-15: the 26–31 s turns were the V4.1 port reporting `n_swa = 128` to the server (mainline hides it for dsv4); one-line fix in `llama_model_n_swa`, turns 21 → 8.8 s, `docs/checkpoint-restore-dsv4.md`** + CUDA-path KV q8_0 check (done, q8_0 accepted) → then Q11 PCIe AER, Q7, Q12, WKS-24/25/26.
+~~end-of-prompt checkpoint patch A/B~~ **done 2026-09-15: the 26–31 s turns were the V4.1 port reporting `n_swa = 128` to the server (mainline hides it for dsv4); one-line fix in `llama_model_n_swa`, turns 21 → 8.8 s, `docs/v41-serving.md`** + CUDA-path KV q8_0 check (done, q8_0 accepted) → then Q11 PCIe AER, Q7, Q12, WKS-24/25/26.
 
 ### Priority as of 2026-09-14 afternoon
 

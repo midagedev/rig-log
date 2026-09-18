@@ -1,181 +1,93 @@
-# Two Qwen models three weeks old: 51 tok/s from 125B, and the fast half of a pair
+# 석 달 된 Qwen 두 모델: 125B에 51 tok/s, 페어의 빠른 절반
 
-*2026-09-16, 08:15–09:00.* The question was what a current model does on this
-box, and whether a fast model and a slow one can be served together. Two
-downloads answer both. [Qwen3.8-Flash-Next](https://huggingface.co/Qwen/Qwen3.8-Flash-Next)
-is 125B with 6B activated **plus a 51B n-gram embedding table** and a 4B MTP
-head — the first model in this log whose headline parameter count is mostly a
-lookup table, which is the same idea as DeepSeek V4.1's engram tensors and the
-reason it was picked over the smaller
-[Qwen3-Coder-Next](https://huggingface.co/Qwen/Qwen3-Coder-Next) (80B-A3B).
-Both were fetched with [`tools/fetch-gguf.sh`](../tools/fetch-gguf.sh), which
-needed a fix first: the Hugging Face tree API lists one directory at a time and
-every sharded unsloth quant lives in a subfolder, so the size lookup failed on
-all of them.
+*2026-09-16 08:15–09:00.* 요즘 모델이 이 상자에서 뭐 하는지, 빠르고 느린 모델을 같이 서빙할 수 있는지 묻고 다운로드 둘로 답한다. [Qwen3.8-Flash-Next](https://huggingface.co/Qwen/Qwen3.8-Flash-Next)는 125B에 6B 활성 **+ 51B n-gram 임베딩 테이블**과 4B MTP 헤드 — 이 로그 첫 모델로, 헤드라인 파라미터 대부분이 룩업 테이블이다. DeepSeek V4.1 engram 텐서와 같은 아이디어고, 작은 [Qwen3-Coder-Next](https://huggingface.co/Qwen/Qwen3-Coder-Next)(80B-A3B) 대신 고른 이유다. 둘 다 [`tools/fetch-gguf.sh`](../tools/fetch-gguf.sh)로 받았다. 먼저 고쳐야 했다. HF tree API가 디렉터리 하나씩 나열하고 샤딩 unsloth 퀀트가 전부 하위 폴더에 살아서, 크기 조회가 전부 실패했다.
 
-Engine: mainline `llama.cpp` at `930e2fa59`, which carries the `qwen4exp`
-architecture. Placement is an argument to
-[`tools/qwen38/qwen38-take.sh`](../tools/qwen38/qwen38-take.sh), never a
-default, and every run records per-card VRAM by UUID.
+엔진은 `qwen4exp` 아키텍처 담은 mainline `llama.cpp` `930e2fa59`. 배치는 [`tools/qwen38/qwen38-take.sh`](../tools/qwen38/qwen38-take.sh)의 인자지 기본값이 아니고, 매 실행 카드별 VRAM을 UUID로 기록한다.
 
-## 51 tok/s from a 103.7 GiB file
+## 103.7 GiB 파일에 51 tok/s
 
-The placement that loaded first try: the 26.8 GiB n-gram table to the host,
-expert layers `blk 0-27` on the A6000, `blk 28-39` on the 3090, `blk 40-47` in
-RAM. That is 47.7 GB on the 48 GB card and 20.9 GB on the 24 GB card, with
-39.7 GiB left on the host.
+첫방에 로드된 배치: 26.8 GiB n-gram 테이블 호스트행, expert `blk 0-27` A6000, `blk 28-39` 3090, `blk 40-47` RAM. 48 GB 카드에 47.7 GB, 24 GB 카드에 20.9 GB, 호스트에 39.7 GiB 남는다.
 
-| Qwen3.8-Flash-Next UD-Q4_K_XL, 434-token coding prompt, `-n 2048`, thinking off | decode | prefill | major faults a token |
+| Qwen3.8-Flash-Next UD-Q4_K_XL, 434토큰 코딩 프롬프트, `-n 2048`, thinking off | 디코드 | 프리필 | 토큰당 major fault |
 |---|---:|---:|---:|
-| first run, page cache cold for the table | 48.7 tok/s | 278 tok/s | 10.3 |
-| after `cat`-ing the shards, run 1 | 49.2 | 300 | 8.9 |
-| run 2 | **51.1** | **414** | **0** |
+| 첫 실행, 테이블 페이지 캐시 찬 상태 | 48.7 tok/s | 278 tok/s | 10.3 |
+| 샤드 `cat` 후 1회차 | 49.2 | 300 | 8.9 |
+| 2회차 | **51.1** | **414** | **0** |
 
-For comparison, DeepSeek V4.1 on the same box decodes 25.05 tok/s warm with a
-speculative draft. This model is twice that rate with no draft at all, which is
-what 6B activated against V4.1's larger active set buys.
+비교로 같은 상자 DeepSeek V4.1은 draft 달고 warm 25.05 tok/s다. 이 모델은 draft 없이 두 배다. V4.1의 큰 active 셋 대 6B 활성이 사는 값이다.
 
-> ~~at a similar file size.~~ **Struck 2026-09-16, later the same day**, while
-> this comparison was being carried into the README, and verified twice over by
-> two sessions independently. The two files are not a similar size and it is not
-> close. `du --apparent-size`, in the GiB that `du -h` prints as `G`:
+> ~~at a similar file size.~~ **같은 날 뒤늦게 Struck**, README에 옮기던 중. 두 세션이 독립적으로 두 번씩 검증했다. 두 파일은 비슷한 크기가 아니고 가깝지도 않다. `du --apparent-size`, `du -h`가 `G`로 찍는 GiB다.
 >
 > | | |
 > |---|---:|
-> | the four UD-Q4_K_XL shards measured above | **103.7 GiB** |
-> | the whole `Qwen3.8-Flash-Next` directory (shards + the MTP pack) | 110.1 GiB |
-> | the served V4.1, `…-engramQ8-tokembdBF16-attnQ8` | **444.2 GiB** |
-> | the plain `Q3_K_M` before the engram graft | 324 GiB |
+> | 위 측정 UD-Q4_K_XL 4샤드 | **103.7 GiB** |
+> | `Qwen3.8-Flash-Next` 디렉터리 전체(샤드 + MTP 팩) | 110.1 GiB |
+> | 서빙 V4.1 | **444.2 GiB** |
+> | engram graft 전 plain `Q3_K_M` | 324 GiB |
 >
-> Four times on either reading, so the clause was claiming something that was
-> never measured — and claiming it in this model's favour. *Same size, double
-> the rate* is a much stronger statement than *a quarter of the size, double the
-> rate*, and only the second one happened. The rate comparison and the reason
-> given for it stand; the size equivalence is withdrawn. Worth recording that
-> the sentence survived four copies — the entry, its commit message, a report to
-> a user, and a peer message arguing from it — before anyone divided the two
-> numbers.
+> 어느 쪽으로 읽어도 4배다. 그 절은 잰 적 없는 것을 이 모델 편으로 주장했다. *같은 크기, 두 배 속도*는 *4분의 1 크기, 두 배 속도*보다 훨씬 강한 주장이고, 일어난 것은 두 번째뿐이다. 속도 비교와 이유는 서고, 크기 동등은 철회다. 문장이 복사 네 개 — 기록, 커밋 메시지, 사용자 보고, 거기서 논거 펴던 peer 메시지 — 를 살아서 두 숫자를 나누기 전에 아무도 안 나눴다는 것도 기록한다.
 
-The n-gram table behaves exactly like the engram tables did (WKS-20): reading
-its rows off NVMe costs about 5 % of decode, 48.7 against 51.1, and the cost is
-paid in major faults rather than in bandwidth — 8.9 faults a token, which is
-close to the sixteen rows a token the architecture reads. Getting it resident
-is not automatic: the page cache held 244 GB and the table still faulted,
-because the other models measured this morning were competing for the same
-cache. The load mode is what makes residency a property of the configuration
-rather than of what ran before it:
+n-gram 테이블은 engram 테이블이 그랬다(WKS-20). NVMe에서 행 읽기가 디코드 ~5%(48.7 대 51.1) 들고, 비용은 대역폭이 아니라 major fault로 낸다 — 토큰당 8.9 fault, 아키텍처가 읽는 토큰당 16행에 가깝다. 상주는 자동이 아니다. 페이지 캐시 244 GB인데도 fault가 났다. 아침에 잰 다른 모델들이 같은 캐시를 다퉜다. 상주를 구성의 속성으로 만드는 것은 로드 모드다. আগে 돌린 것과 무관하게.
 
-| same placement, same prompt, only `-lm` moves | decode | prefill | host residency | major faults a token | load |
+| 같은 배치·프롬프트, `-lm`만 이동 | 디코드 | 프리필 | 호스트 상주 | 토큰당 fault | 로드 |
 |---|---:|---:|---|---:|---:|
-| `-lm mmap+mlock` | **51.5 tok/s** | 424 tok/s | 39.7 GiB, all in RAM | 0 | 65 s |
-| `-lm none` | 49.7 | 369 | 1.4 in RAM / 38.3 on disk | 4.0 | 15 s |
+| `-lm mmap+mlock` | **51.5 tok/s** | 424 tok/s | 39.7 GiB 전부 RAM | 0 | 65초 |
+| `-lm none` | 49.7 | 369 | RAM 1.4 / 디스크 38.3 | 4.0 | 15초 |
 
-So the whole spread is 48.7 to 51.5 tok/s, under 6 %, and `mlock` buys the top
-of it for fifty seconds of extra load time. That is the useful shape of the
-answer: a 51B lookup table is cheap to serve off NVMe and cheaper to pin, which
-is the opposite of what its parameter count suggests and the same conclusion the
-engram work reached from the other direction.
+그래서 전체 흩어짐 48.7–51.5 tok/s, 6% 안. `mlock`이 로드 50초에 그 꼭대기를 산다. 답의 쓸모 모양: 51B 룩업 테이블은 NVMe 서빙이 싸고 핀이 더 싸다. 파라미터 수가 암시하는 반대고, engram 작업이 다른 방향에서 낸 같은 결론이다.
 
-One caveat the recorder printed and should not be believed yet: the Decode row
-reads "≈ 1416 GB/s from RAM, 978 % of peak". The card takes everything placed
-on the host as bytes read per token, and 26.8 GiB of that is a hash table read
-sixteen rows at a time. The recorder's session has the report; the expert
-layers in RAM are a real per-token read, the table is not.
+녹음기가 찍은 caveat 하나는 아직 믿으면 안 된다. Decode 행 "≈ 1416 GB/s from RAM, 978% of peak". 카드가 호스트 배치 전부를 토큰당 읽기 바이트로 잡는데, 그중 26.8 GiB는 한 번에 16행씩 읽는 해시 테이블이다. 녹음기 세션에 보고 갔다. RAM의 expert 레이어는 진짜 토큰당 읽기, 테이블은 아니다.
 
-## The fast half: Coder-Next at 133 tok/s
+## 빠른 절반: Coder-Next 133 tok/s
 
-Qwen3-Coder-Next IQ4_XS is 39.7 GiB and fits whole on the A6000 with 32k of
-context, so it needs no placement at all.
+Qwen3-Coder-Next IQ4_XS 39.7 GiB는 컨텍스트 32k와 함께 A6000에 통째로 든다. 배치가 필요 없다.
 
-| Qwen3-Coder-Next IQ4_XS, one stream, A6000 | decode | prefill | TTFT |
+| Qwen3-Coder-Next IQ4_XS, 1스트림, A6000 | 디코드 | 프리필 | TTFT |
 |---|---:|---:|---:|
-| 403-token coding prompt, `-n 2048` | 133 tok/s | 1013 tok/s | 444 ms |
-| 246-token design prompt, `-n 4096` | 131 | 758 | 367 ms |
+| 403토큰 코딩 프롬프트, `-n 2048` | 133 tok/s | 1013 tok/s | 444 ms |
+| 246토큰 설계 프롬프트, `-n 4096` | 131 | 758 | 367 ms |
 
-That is the pair the machine can actually serve: 131-133 tok/s from a card, and
-51 tok/s from a 125B model across both cards and RAM. They cannot both hold
-their current placements at once — the slow one is using 68 of 72 GB of VRAM —
-so serving both means giving the 3090 to the fast model and taking twelve
-expert layers off it, which the layer-cost measurements put at about 3 % of
-decode a layer.
+기계가 실제로 서빙할 수 있는 페어다. 카드에서 131–133 tok/s, 양 카드+RAM 125B 모델에서 51 tok/s. 현재 배치를 둘 다 쥘 수는 없다 — 느린 쪽이 VRAM 72 중 68 GB를 쓴다. 둘 서빙은 빠른 모델에 3090을 주고 느린 쪽 expert 12층을 내리는 것이다. 층 비용 측정상 층당 디코드 ~3%다.
 
-## What broke, and it is an open PR
+## 깨진 것, 열린 PR이다
 
-The MTP draft does not load:
+MTP draft가 안 오른다.
 
 ```
 check_tensor_dims: tensor 'token_embd.weight' not found
 ```
 
-unsloth ships draft-head-only GGUFs, and the `qwen4exp` loader on master
-demands the trunk tensors and the PLE block unconditionally. This is exactly
-what [ggml-org/llama.cpp#28097](https://github.com/ggml-org/llama.cpp/pull/28097)
-("qwen4exp: support draft-head-only GGUFs (unsloth layout) + fix draft-load
-regression") describes, and that PR is open. Its author reproduced it on a
-pure-CPU box; this is the same failure on CUDA with two cards and the
-`mtp-Qwen3.8-Flash-Next-shared-Q8_0.gguf` pack, which is worth adding to the
-PR because a second platform is what an open patch needs.
+unsloth는 draft-head-only GGUF를 내놓고, master의 `qwen4exp` 로더는 trunk 텐서와 PLE 블록을 무조건 요구한다. [llama.cpp#28097](https://github.com/ggml-org/llama.cpp/pull/28097)("qwen4exp: draft-head-only GGUF 지원 + draft-load 회귀 수정")의 그대로고, 그 PR 열려 있다. 저자는 순수 CPU 상자에서 재현했다. 여기는 CUDA 2카드에 `mtp-Qwen3.8-Flash-Next-shared-Q8_0.gguf` 팩으로 같은 실패다. 열린 패치에 두 번째 플랫폼으로 얹을 가치 있다.
 
-## A negative result on the indexer nondeterminism
+## 인덱서 비결정성 negative 결과
 
-[Issue #28497](https://github.com/ggml-org/llama.cpp/issues/28497) reports that
-greedy `qwen4exp` output is not reproducible on CUDA once the context exceeds
-the QSA indexer's top-k, because `top-k.cu` calls
-`cub::DeviceTopK::MaxPairs` with `determinism::not_guaranteed` over tied block
-scores. The reporter saw it on 2× RTX 3090, the same `sm_86` as one of these
-cards, on CUDA 13.3 with CCCL 3.x.
+[이슈 #28497](https://github.com/ggml-org/llama.cpp/issues/28497): QSA 인덱서 top-k 넘는 컨텍스트에서 탐욕 `qwen4exp` 출력이 CUDA에서 재현 안 된다. `top-k.cu`가 `cub::DeviceTopK::MaxPairs`를 타이 블록 스코어에 `determinism::not_guaranteed`로 부른다. 보고자는 2× RTX 3090(여기 카드 하나와 같은 `sm_86`), CUDA 13.3, CCCL 3.x.
 
-It did not reproduce here. Two greedy runs at 434 in / 2048 out — total context
-2482, past the 2048-token indexer budget — produced byte-identical
-completions, 8655 bytes each, on a build whose `top-k.cu` does contain the
-`determinism::not_guaranteed` call, with CUDA 13.0. Two runs is weak evidence
-and the issue's own reproducer is kernel-level and needs no model, so this is a
-data point about the CUDA version, not a refutation.
+여기서 재현 안 됐다. 탐욕 2회, in 434 / out 2048 — 총 컨텍스트 2482, 2048 인덱서 예산 초과 — 완성본 바이트 동일, 각 8655 바이트. `determinism::not_guaranteed` 호출 든 빌드, CUDA 13.0이다. 2회는 약한 증거고 이슈 자체 재현자는 커널급이라 모델이 필요 없다. 반박이 아니라 CUDA 버전에 대한 데이터포인트다.
 
-*(The first attempt at this comparison extracted zero bytes from both tapes,
-because a tape is gzipped, and reported "IDENTICAL" — a parser that read
-nothing looking exactly like agreement. The check above fails loudly when
-either side is empty. Same class of mistake as reading a throttle flag once,
-found the same day.)*
+*(이 비교 첫 시도는 양쪽 테이프에서 0바이트를 뽑고 "IDENTICAL"을 보고했다. 테이프가 gzip이라서다. 아무것도 안 읽은 파서가 일치처럼 보이는 것이다. 위 체크는 한쪽이라도 비면 시끄럽게 깨진다. 스로틀 플래그 한 번 읽기와 같은 종의 실수, 같은 날 발견.)*
 
-## The clips
+## 클립
 
-Both models recorded with [toktape](https://github.com/midagedev/toktape)
-`0.2.3-2-g0f88bd3`; tapes sanitized into `assets/`.
+둘 다 [toktape](https://github.com/midagedev/toktape) `0.2.3-2-g0f88bd3` 녹음, 테이프 소독 후 `assets/`행.
 
-| clip | what it shows |
+| 클립 | 내용 |
 |---|---|
-| `qwen3-coder-next-iq4xs-133tps-1stream-37s.mp4` | the fast model writing a design document at 133 tok/s, 4096 tokens in 37 s |
-| `qwen3.8-flash-next-q4kxl-51tps-mlock-48s.mp4` | the 125B model at 51.0 tok/s with the table pinned, 2048 tokens in 48 s |
+| `qwen3-coder-next-iq4xs-133tps-1stream-37s.mp4` | 빠른 모델이 133 tok/s에 설계 문서 작성, 37초에 4096토큰 |
+| `qwen3.8-flash-next-q4kxl-51tps-mlock-48s.mp4` | 테이블 핀 125B 모델 51.0 tok/s, 48초에 2048토큰 |
 
-Both were recorded three times before they were right, and the reason is worth
-keeping: **the card stamps the toktape version that recorded the tape, not the
-one that rendered it**, so a re-render on a newer build leaves the old version
-on the card. The classification of a tensor is also fixed at record time — the
-tape carries the per-device, per-class byte split, not the tensor names — so the
-host-bandwidth error above could not be corrected by re-rendering either. On the
-recorder's fixed build the pre-fix tape prints no bandwidth clause at all and a
-caveat naming both numbers, which is the honest reading of a tape whose recorded
-split is wrong.
+둘 다 세 번씩 녹음해서 맞췄다. 이유는 남긴다. **카드에 찍히는 것은 테이프를 렌더한 빌드가 아니라 녹음한 toktape 버전이다.** 새 빌드 재렌더는 카드에 예전 버전을 남긴다. 텐서 분류도 녹음 시점 고정 — 테이프가 텐서명이 아니라 장치·클래스별 바이트 분할을 싣고 있어서, 위 호스트 대역폭 에러도 재렌더로 못 고쳤다. 고친 빌드의 녹음기에서 고치기 전 테이프는 대역폭 절 없이 두 숫자 지목하는 caveat을 찍는다. 분할 틀린 테이프의 정직한 읽기다.
 
-The fix is confirmed against a prediction the recorder's session wrote before
-seeing the new tape, which is the only kind of confirmation worth much here:
+예측 대 측정에 고침을 확인했다. 녹음기 세션이 새 테이프 보기 전에 쓴 예측이라서 — 여기서 값어치 있는 확인은 그 종류뿐이다.
 
-| | predicted | measured |
+| | 예측 | 실측 |
 |---|---|---|
-| `other` bytes a token | ~1.4 GB | 1.413 |
-| `embeddings` | not counted, ~27.5 GB resident | not counted, 29.476 GB resident |
-| CPU active a token | 0.26-0.28 GB | 0.256 |
-| host figure | 13-14 GB/s, no refusal | 13.1 GB/s, exact |
-| whole-model record | ~6.3 GB a token | 6.334 |
+| 토큰당 `other` 바이트 | ~1.4 GB | 1.413 |
+| `embeddings` | 안 셈, 상주 ~27.5 GB | 안 셈, 상주 29.476 GB |
+| 토큰당 CPU active | 0.26–0.28 GB | 0.256 |
+| 호스트 수치 | 13–14 GB/s, 거부 없음 | 13.1 GB/s, 정확 |
+| 전모델 기록 | 토큰당 ~6.3 GB | 6.334 |
 
-The one row that looks like a miss is not one: 26.8 GiB is 28.78 GB, and with the
-0.675 GB main embedding matrix that is 29.46 — the prediction of 27.5 carried a
-GiB figure into a GB sum without converting it. The behaviour predicted was
-right and the arithmetic checking it was not, which is the more dangerous of the
-two: had the measurement come back at 27.5 it would have been called a match.
+miss처럼 보이는 한 행은 아니다. 26.8 GiB는 28.78 GB고, 0.675 GB 메인 임베딩 행렬과 29.46 — 27.5 예측이 GiB 숫자를 GB 합에 단위 안 바꾸고 실은 것이다. 예측한 거동은 맞고 확인 산술이 틀렸다. 둘 중 더 위험한 쪽이다. 27.5에 실측이 왔으면 match라 불렀을 것이다.
 
-Before the fix the same tape derived 1495 GB/s at 1033 % of a 145 GB/s bus,
-because the 26.8 GiB table sat in `other` and was counted in full every token.
-The decode rate is the same run three times over — 51.5, 50.7, 51.0 tok/s — so
-nothing about the measurement moved; only what the card claimed about it.
+고치기 전 같은 테이프는 145 GB/s 버스 대비 1033%에 1495 GB/s를 도출했다. 26.8 GiB 테이블이 `other`에 앉아 매 토큰 통째로 셈됐기 때문이다. 디코드 속도는 같은 실행 세 번 — 51.5, 50.7, 51.0 tok/s — 움직인 것은 측정 어디에도 없고 카드 주장뿐이다.

@@ -1,227 +1,102 @@
-# Two giants of the same size, and the model that could not draw them
+# 같은 크기의 두 거인, 그리지 못한 모델
 
-*2026-09-16, one A6000 (48 GB). Z-Image-Turbo and Krea-2-Turbo, first image generation on
-this machine.*
+*2026-09-16, A6000 1장(48 GB). Z-Image-Turbo와 Krea-2-Turbo. 이 기계의 첫 이미지 생성.*
 
-An image model came onto this box for one reason: LTX-2.5 was
-[measured earlier today](2026-09-16-what-guidance-was-not-for.md) to animate well and stage
-badly. Asked for a giant mecha and a giant cat it produced one subject with the other's
-features absorbed into it — "cat" became two pointed ears on the mecha's helmet — and asked
-for five beats it held one moment. Both are decisions about what is in the frame, so the plan
-was to make the frame with an image model and hand it to the video model as `--image`
-conditioning. The user named this workflow from memory of how such clips are normally made,
-and it is the right one.
+이미지 모델이 상자에 온 이유 하나다. LTX-2.5가 [오늘 측정](2026-09-16-what-guidance-was-not-for.md)에 움직이기는 잘하고 stages는 못해서다. 거대 메카와 거대 고양이를 시키니 한 피사체에 상대 특징을 흡수했다 — "cat"이 메카 헬멧의 뾰족 귀 둘 — 다섯 비트를 시키니 한 모멘트를 쥐었다. 둘 다 프레임 안의 무엇에 대한 결정이라서, 프레임을 이미지 모델에 짓고 비디오 모델에 `--image` 컨디셔닝으로 넘기는 안이었다. 사용자가 평소 클립 만드는 기억에서 지은 워크플로고, 맞는 것이다.
 
-What came out of the first round is better than the plan: **the failure is not LTX's.**
+첫 라운드 산물이 안보다 낫다. **실패가 LTX 것이 아니다.**
 
-## Two models, one prompt, four seeds each
+## 모델 둘, 프롬프트 하나, 시드 넷씩
 
-Both models are turbo distillations whose own cards specify `guidance_scale=0.0` — like LTX's
-distilled pipeline they have no CFG, which is the same lesson for the third time today: the
-prompt is the only lever. Same prompt, same seeds 23–26, same 1536×1024 (LTX's default video
-geometry, so a chosen frame needs no resize), both at bf16.
+둘 다 turbo 증류라 자체 카드가 `guidance_scale=0.0`을 박는다 — LTX distilled 파이프라인처럼 CFG가 없다. 오늘 세 번째 같은 교훈이다. 프롬프트가 유일한 레버다. 같은 프롬프트·시드 23–26·1536×1024(LTX 기본 비디오 지오메트리라 고른 프레임 리사이즈 불필요)·둘 다 bf16.
 
 | | Z-Image-Turbo | Krea-2-Turbo |
 |---|---:|---:|
-| pipeline load | 11.5 s | **7.5 s** |
-| per image, 1536×1024 | **10.3–11.4 s** | 19.9–20.4 s |
-| peak allocated | **23.4 GB** | 39.6 GB |
-| card VRAM peak | **27.8 GB** | 41.4 GB |
-| max die temperature | 85 °C | 89 °C |
-| four images, incl. load | **61 s** | 95 s |
-| steps (card default) | 9 (8 DiT forwards) | 8 |
-| **two separate giants** | **0 of 4** | **4 of 4** |
+| 파이프라인 로드 | 11.5초 | **7.5초** |
+| 장당, 1536×1024 | **10.3–11.4초** | 19.9–20.4초 |
+| 피크 할당 | **23.4 GB** | 39.6 GB |
+| 카드 VRAM 피크 | **27.8 GB** | 41.4 GB |
+| 다이 최고 온도 | 85 °C | 89 °C |
+| 4장 로드 포함 | **61초** | 95초 |
+| 스텝(카드 기본) | 9(DiT forward 8) | 8 |
+| **분리된 거인 둘** | **4 중 0** | **4 중 4** |
 
-The last row is the only one that decides anything, and it inverts the rest. A vision round
-opened all eight frames: Z-Image fused the cat into the mecha in **every seed** — a cat's head
-on an armoured torso, one body, and in one frame no opponent present at all. Four seeds
-agreeing is not seed luck; it is this model's deterministic answer to this prompt, and no
-amount of re-rolling fixes it. Krea-2 separated them in all four, left water and air between
-the two silhouettes, and read photographically rather than as a glossy hard-edged render.
+마지막 행만 뭔가 정하고, 나머지를 뒤집는다. 비전 라운드가 8프레임을 열었다. Z-Image가 매 시드 고양이를 메카에 융합했다 — 장갑 몸통에 고양이 머리, 한 몸. 한 프레임은 상대 자체가 없다. 시드 넷 일치는 시드 운이 아니다. 이 프롬프트에 이 모델의 결정적 답이라서, 다시 굴려도 안 고쳐진다. Krea-2는 넷 전부 분리했다. 두 실루엣 사이 물과 공기를 두고, 광택 하드엣지 렌더가 아니라 사진으로 읽혔다.
 
-So Krea-2 costs 2× the time and 1.7× the memory of Z-Image, and **the cheaper model is not
-cheaper when it cannot do the job.** That is worth stating plainly because the first table
-above, read alone, recommends the wrong model.
+그래서 Krea-2가 Z-Image의 시간 2배·메모리 1.7배가 들고, **일을 못하면 싼 모델이 싸지 않다.** 위 표만 읽으면 틀린 모델을 권해서 뻔히 말한다.
 
-## The finding that outlives this clip
+## 클립을 넘어 사는 발견
 
-Three models were asked to put two giants of the same scale in one frame today. LTX-2.5 (22 B
-video) merged them. Z-Image-Turbo (24 GB transformer) merged them. Krea-2-Turbo (26 GB
-transformer, repo created 2026-06-18) did not.
+오늘 같은 크기 거인 둘 한 프레임에 세 모델이 물렸다. LTX-2.5(22 B 비디오)가 합쳤다. Z-Image-Turbo(24 GB 트랜스포머)가 합쳤다. Krea-2-Turbo(26 GB 트랜스포머, 리포 생성 2026-06-18)가 안 합쳤다.
 
-~~**So "two subjects of comparable size, in contact, in one frame" is a capability boundary
-rather than a prompt bug.**~~ **Struck within the hour, by the round below.** Asked for the
-same impossible scene in a *shonen anime* style instead of photographically, Z-Image separated
-the two bodies in **4 of 4 seeds** — the same model, the same seeds, the same scene, zero
-fusions. So the boundary is not in the model. It is in the **collision between the requested
-style and the requested content**: asked for a photograph of something that cannot be
-photographed, the model reconciled it by making one creature; given a drawn idiom where a
-skyscraper-sized cat is native, it drew two. The correction is recorded below rather than
-edited in, because I published the wrong version first.
+~~**그래서 "비슷한 크기 피사체 둘, 접촉, 한 프레임"은 프롬프트 버그가 아니라 능력 경계다.**~~ **한 시간에 Struck. 아래 라운드에.** 같은 불가능 장면을 사진이 아니라 *소년만화* 스타일에 시키니, Z-Image가 **4 중 4시드** 두 몸을 분리했다 — 같은 모델·시드·장면, 융합 0. 경계가 모델에 있지 않다. **요청 스타일과 요청 내용의 충돌**에 있다. 찍을 수 없는 것의 사진을 시키니 모델이 한 생명체로 화해시켰다. 건물만 한 고양이가 native인 drawn 이디엄을 주니 둘을 그렸다. 정정은 고쳐 넣지 않고 아래 기록한다. 틀린 버전을 먼저 공개해서다.
 
-What survives is the practical half: let an image model settle the frame, and ask the video
-model only to move what is already there.
+남는 것은 실용 절반이다. 프레임은 이미지 모델에 확정짓고, 비디오 모델에는 있는 것을 움직이라고만 시킨다.
 
-It also gives the merge a name to watch for. The signature is consistent across all three
-models: the *smaller-cued* subject does not vanish, it is absorbed as **features on the
-surviving body** — ears on a helmet, a head on a torso, a tail added to a robot. A frame that
-reads as one creature with borrowed parts is the diagnostic, and it means the round needs a
-different model, not a different seed.
+합침에 감시할 이름도 준다. 세 모델 전부 서명이 일관된다. *작게 암시된* 피사체가 안 사라지고 살아남은 몸의 **형태로 흡수**된다 — 헬멧의 귀, 몸통의 머리, 로봇에 붙은 꼬리. 빌린 부속품 단 한 생명체로 읽히는 프레임이 진단이고, 시드가 아니라 모델을 바꿀 자리라는 뜻이다.
 
-## The same model, the same seeds, a different style: no fusions
+## 같은 모델·시드, 다른 스타일: 융합 없음
 
-The user asked to drop photorealism and go for shonen anime — Jujutsu Kaisen, Naruto — because
-the joke is the gap between an adorable cat and total narrative gravity, and photoreal was
-landing as neither. Rerunning the identical pair (same two models, same seeds 23–26, same
-1536×1024) on an anime key-visual prompt produced the correction above:
+사용자가 포토리얼을 버리고 소년만화 — 주술회전, 나루토 — 에 가자고 했다. 사랑스러운 고양이와 총체적 서사 중력의 간극이 joke인데, 포토리얼이 어느 쪽으로도 안 닿아서다. 동일 쌍 재실행(모델 둘·시드 23–26·1536×1024 동일)에 애니 키비주얼 프롬프트가 위 정정을 냈다.
 
 | | Krea-2-Turbo | Z-Image-Turbo |
 |---|---:|---:|
-| per image | 20.1 s (19.8–20.3) | 11.2 s (11.0–11.6) |
-| peak allocated | 39.6 GB | 23.4 GB |
-| **two separate bodies, photoreal prompt** | 4 of 4 | **0 of 4** |
-| **two separate bodies, anime prompt** | 4 of 4 | **4 of 4** |
+| 장당 | 20.1초(19.8–20.3) | 11.2초(11.0–11.6) |
+| 피크 할당 | 39.6 GB | 23.4 GB |
+| **분리 두 몸, 포토리얼 프롬프트** | 4 중 4 | **4 중 0** |
+| **분리 두 몸, 애니 프롬프트** | 4 중 4 | **4 중 4** |
 
-The per-image seconds are identical to the photoreal round on both models, to within the
-spread — so **generation time is a function of geometry and step count, not of content or
-style.** One fewer thing to wonder about when a round is slow.
+장당 초가 포토리얼 라운드와 둘 다 흩어짐 안 동일하다 — **생성 시간은 지오메트리·스텝 수의 함수지 내용·스타일이 아니다.** 라운드가 느릴 때 물을 것 하나 감소.
 
-The fusion is gone, but a difference remains and it is a layout one: Z-Image stacks the two
-subjects on a single vertical axis with the mecha centred behind the cat and occluded from the
-hips down, both facing camera, while Krea-2 puts them side by side at equal height facing each
-other. So the anime style fixed Z-Image's outlines without fixing its staging — which is why
-the chosen frame is still Krea-2's, this time `k03-seed26`. A vision round also found Z-Image's
-cat to be the cutest of the eight by a wide margin, with nothing in the frame opposing it:
-drama as atmosphere rather than stakes, and a chibi cat that sits on the city instead of in it.
+융합이 갔고, 남은 차이는 배치 차이다. Z-Image가 두 피사체를 메카 중심 뒤 고양이 단일 수직축에 쌓고 엉덩이 아래 가린다. 둘 다 정면. Krea-2는 같은 높이 옆에 마주보게 둔다. 애니 스타일이 Z-Image 외곽선은 고치고 stages는 안 고쳤다 — 고른 프레임이 여전히 Krea-2인 이유다. 이번엔 `k03-seed26`. 비전 라운드가 Z-Image 고양이를 8장 중 압도적 가장 귀엽다고도 했다. 맞서는 것 없이. stakes가 아니라 atmosphere의 드라마, 도시 안에 앉지 않고 위에 앉는 chibi 고양이.
 
-The style verdict went the same way for a separate reason. Krea-2 draws bold uniform ink
-outlines, hatched fur, flat fills with hard shadow edges and screentone-style radial lines;
-Z-Image is cleaner but vector-like — airbrush glow, gradient sky, gradient metallic highlights
-— and renders the cat as flat unshaded grey with an orange edge-glow over a painted
-background, so the subject and the plate sit in two different rendering registers. A frame
-whose subject already reads as pasted on is a bad frame 0, because motion will peel it off.
+스타일 판정도 다른 이유로 같은 쪽에 갔다. Krea-2는 굵은 균일 먹선, 빗살 털, 하드 섀도 엣지 평탄 fills와 스크린톤식 방사선을 그린다. Z-Image는 깔끔한 vector풍 — 에어브러시 glow, 그라데이션 하늘·금속 하이라이트 — 고양이를 주황 엣지 glow의 평탄 무음영 회색에 painted 배경 위에 렌더해서, 피사체와 판이 다른 렌더링 레지스터에 산다. 붙인 것처럼 읽히는 피사체의 프레임은 나쁜 프레임 0이다. 움직임이 뜯어서다.
 
-## And the composition survives being animated
+## 합성이 애니메이션에 살아남는다
 
-The chosen frame went to LTX-2.5 as `--image <path> 0 1.0` on the distilled pipeline, with a
-**motion-only** prompt: the text describes what moves and never names the subjects, because
-naming them again invites the model to re-invent them. 121 frames, 126 s, 31 GB peak.
+고른 프레임이 LTX-2.5에 `--image <path> 0 1.0`으로 갔다. distilled 파이프라인, **움직임 전용** 프롬프트. 텍스트가 움직임을 서술하고 피사체를 지목하지 않는다. 다시 지목하면 모델이 다시 발명한다. 121프레임, 126초, 피크 31 GB.
 
-A vision round compared the source still against nine frames of the result:
+비전 라운드가 원본 스틸과 결과 9프레임을 비교했다.
 
-- **Frame 0 is pinned faithfully.** The first sampled frame is the source in every detail that
-  matters — both bodies, their contact point, the traffic signal, the searchlight beams, the
-  fire on the right, the foreground cars, the centre line, the lighting. The only nameable
-  differences are a thicker smoke column and marginally deeper contrast.
-- **Two separate bodies stay identifiable to the last sampled frame.** No merge, no subject
-  leaving frame, no dissolve into spray, no cut. Crops of the two heads at the eighth and
-  ninth samples show fur, ears and whiskers on one and a helmet with an orange visor on the
-  other, with no crossed features in either direction.
-- **The scale references survive too** — the signal grows and slides left as the camera pushes
-  in but is still there at the end, as are the streetlights, the fire and the centre line.
-- **And the prompted straining actually happens.** The cat leans in on both forepaws and from
-  the sixth sample closes its eyes and lowers its head; the mecha tilts back and *loses
-  height*, its head level with the cat's in the source and below the cat's by the last frame;
-  the spray at their feet swells; the camera dollies in slowly.
+- **프레임 0이 충실히 고정된다.** 첫 샘플 프레임이 중요한 디테일 전부 원본이다 — 두 몸, 접점, 신호등, 서치라이트 빔, 오른쪽 불, 전경 차, 중앙선, 조명. 지목할 차이는 굵은 연기 기둥과 약간 깊은 대비뿐이다.
+- **두 분리 몸이 마지막 샘플까지 식별된다.** 합침 없음, 프레임 이탈 피사체 없음, 물보라 용해 없음, 컷 없음. 8·9번째 샘플 두 머리 크롭에 한쪽 털·귀·수염, 다른 쪽 주황 바이저 헬멧.어느 방향 교차 형태도 없음.
+- **스케일 참조도 산다** — 카메가 밀고 들어오며 신호등이 자라 왼쪽에 미끄러지지만 끝에 있다. 가로등·불·중앙선 마찬가지다.
+- **시킨 버티기가 실제로 일어난다.** 고양이가 앞발 둘에 기대고 6번째 샘플부터 눈을 감고 머리를 숙인다. 메카가 뒤로 기울고 *키가 준다*. 원본에 고양이와 같은 눈높이던 머리가 마지막 프레임에 고양이 밑이다. 발밑 물보라가 부푼다. 카메라가 천천히 dolly-in한다.
 
-So the morning's negative result was a scale error, not a property of the mechanism. Four
-small Hangul glyphs given as frame 0 did not carry forward; a composition occupying half the
-frame does. What conditioning cannot preserve is fine detail, and the earlier entry's
-sentence should be read that narrowly.
+아침 negative 결과는 스케일 에러였지 메커니즘 속성이 아니다. 프레임 0의 작은 한글 4글리프는 안 이어졌고, 프레임 절반 차지 합성은 이어진다. 컨디셔닝이 못 보존하는 것은 미세 디테일이다. 앞 기록 문장은 그 좁게 읽는다.
 
-It also fixed a second problem for free. The unconditioned take of this scene spent the last
-four of nine sampled frames on subjectless aftermath — half the clip. The conditioned take
-keeps its subjects to the end.
+두 번째 문제도 공짜에 고쳤다. 이 장면 무조건 테이크가 샘플 9프레임 뒤 넷을 피사체 없는 잔해에 썼다 — 절반 클립. 조건 테이크는 피사체를 끝에 둔다.
 
-One honest defect: from the sixth sample on, **the mecha's own silhouette reorganises** — its
-head sinks below its shoulder plates and the armour layering reshuffles. That is one subject
-deforming rather than two merging, so it is a different failure from the one this entry is
-about, but it is drift that has four times as long to run in a twenty-second clip. That is why
-the next arm doubles the duration rather than quadrupling it: 241 frames at the same
-resolution, which keeps the validated keyframe and separates "does the composition hold" from
-"does the drift compound".
+정직한 결함 하나. 6번째 샘플부터 **메카 자체 실루엣이 재편**된다 — 머리가 숄더 플레이트 밑에 가라앉고 장갑 층이 뒤섞인다. 둘이 합치는 게 아니라 하나가 변형이라 이 기록의 실패와 다른 실패다. 20초 클립에 4배 길게 달릴 표류라서다. 다음 arm이 4배가 아니라 2배에 기간을 건다. 같은 해상도 241프레임. 검증 키프레임을 두고 "합성이 유지되는가"와 "표류가 겹치는가"를 나눈다.
 
-## A conditioning frame lasts the whole clip, so it must not contain a one-frame device
+## 컨디셔닝 프레임이 클립 전체에 가니 1프레임 장치를 담으면 안 된다
 
-This one came from the user's eye, not from an instrument, and it is the most useful thing in
-the entry.
+기기에서가 아니라 사용자 눈에서 왔고, 이 기록 가장 쓸모 있다.
 
-The brief moved from photoreal kaiju to a shonen-anime duel between a house cat and an
-android, and the clips came back static — "the action has no continuity", "too Ghibli when I
-wanted Naruto, moving fast with distortion while it moves". Two of those three were mine to
-fix by vocabulary: my motion prompt literally said "slow heavy motion" twice, carried over
-from the Pacific-Rim brief, and my style block asked for "soft watercolour, gouache, gentle
-painterly linework rather than hard cel outlines" — Ghibli is fluid and never distorts, which
-is the opposite of what was wanted.
+브리프가 포토리얼 괴수에서 집고양이 대 안드로이드의 소년만화 결투로 옮겼고, 클립이 정적에 돌아왔다 — "액션 연속성 없음", "나루토 원하는데 너무 지브리. 움직일 때 일그러지며 빨리". 셋 중 둘이 내 어휘로 고칠 내 몫이었다. 모션 프롬프트가 문자 그대로 "slow heavy motion"을 두 번 말했다. 태평양 림 브리프에서 이어받은 것이다. 스타일 블록이 "hard cel 외곽선 말고 soft watercolour, gouache, gentle painterly 선"을 물었다 — 지브리는 유동적이고 일그러지지 않는다. 원한 것의 반대다.
 
-The third was structural, and the user named it before I saw it: **the impact effects I was
-asking the image model to draw are manga conventions, not animation ones.** In animation a
-smear frame, an impact frame, a radial speed-line burst and a debris ring each exist for a
-single frame and are gone. Combine that with what was measured above — a conditioning frame's
-composition carries through the whole clip — and the consequence is exact:
+세 번째가 구조였고, 사용자가 내가 보기 전에 지목했다. **이미지 모델에 그리라던 임팩트 효과는 애니메이션 규약이 아니라 만화 규약이다.** 애니메이션에 스미어 프레임·임팩트 프레임·방사 스피드선 버스트·파편 링은 각 1프레임 존재하고 간다. 위에 잰 것과 합친다 — 컨디셔닝 프레임 합성이 클립 전체에 이어진다. 결론은 정확하다.
 
-**a device that exists for 1/24 s in animation is held for the clip's entire length when it
-is the conditioning frame.** An impact frame at frame 0 of a 25-frame cut is not a hit, it is
-a frozen manga panel held for a second. A smeared limb is worse: held, it is not speed, it is
-a deformed cat.
+**애니메이션에 1/24초 존재하는 장치가 컨디셔닝 프레임이면 클립 전체 길이에 고정된다.** 25프레임 컷의 프레임 0 임팩트 프레임은 hit이 아니라 1초 고정된 만화 패널이다. 번진 팔다리가 더 나쁘다. 고정되면 속도가 아니라 변형 고양이다.
 
-So the storyboard panels were rewritten to contain none of it — the prompt now says, in the
-shared block, "a single clean readable drawing of a body in a pose, with no motion effects
-drawn into it: no speed lines, no smeared or stretched limbs, no flash shapes, no impact
-stars, no debris rings, no afterimages, no motion blur. Every limb is drawn whole and in
-correct anatomy." The two impact panels became clean drawings of the *moment of contact*: a
-paw pressed into a ceramic forearm with the plating cracking under it, which is a pose that
-can be animated into an impact rather than a picture of one.
+그래서 스토리보드 패널을 다시 써서 없앴다. 프롬프트가 이제 공유 블록에 말한다. "a single clean readable drawing of a body in a pose, with no motion effects drawn into it: no speed lines, no smeared or stretched limbs, no flash shapes, no impact stars, no debris rings, no afterimages, no motion blur. Every limb is drawn whole and in correct anatomy." 임팩트 패널 둘은 *접촉 순간*의 깨끗한 그림이 됐다. 세라믹 전완에 눌린 발바닥, 밑에 갈라지는 도금. 임팩트 사진이 아니라 임팩트로 애니메이트할 포즈다.
 
-The sakuga register stays in the drawing, because ink-weight variation, flat cel shading,
-wide-angle perspective, extreme foreshortening and diagonal composition are properties of a
-drawing and not artefacts of motion. The distortion stays in the motion prompt, where the
-video model can produce it while moving.
+사쿠가 레지스터는 그림에 남는다. 먹선 강약, 평탄 셀 음영, 광각 원근, 극단 단축, 대각 합성은 그림의 속성이지 움직임의 산물이 아니라서다. 일그러짐은 모션 프롬프트에 남는다. 비디오 모델이 움직이며 낼 수 있는 곳이다.
 
-The general form, which applies to any image-conditioned video model: **the conditioning frame
-should hold what is true for the whole shot, and nothing that is true for one frame of it.**
+일반형, 이미지 조건 비디오 모델 무엇에나 적용된다. **컨디셔닝 프레임은 샷 전체에 참인 것을 담고, 그중 1프레임에 참인 것은 담지 않는다.**
 
-## Cut lengths, because four equal clips read wrong
+## 컷 길이. 5초 4개가 틀려 읽혀서
 
-Four five-second cuts came to 20 s and the user's objection was that the uniformity itself was
-the problem. The reference numbers: a TV anime episode runs about 300 cuts over roughly 22
-minutes of content, so the average cut is about 4.4 s; one dataset measures anime shots at
-3.85 s against 4–6 s for live action; and action sequences cut far shorter, with most action
-shots under 2 s. Ghibli pulls the other way and holds a landscape for its own sake.
+5초 컷 넷이 20초가 됐고, 사용자 이의가 균일 자체가 문제였다. 참조 숫자: TV 애니 한 화가 내용 22분쯤에 컷 ~300개. 평균 컷 약 4.4초. 한 데이터셋에 애니 샷 3.85초 대 실사 4–6초. 액션 시퀀스가 훨씬 짧게 자르고, 액션 샷 대개 2초 미만이다. 지브리는 반대로 풍경을 그 자체로 고정한다.
 
-Both traditions the user named are in the shot list rather than averaged into it. LTX only
-allows `num_frames = 8k + 1`, so at 24 fps the available lengths are 25, 49, 73, 97 and 121
-frames — 1.04, 2.04, 3.04, 4.04 and 5.04 s. The eight-cut sequence is 73 / 49 / 25 / 73 / 49 /
-49 / 25 / 121, which is 19.32 s: two runs that accelerate into a one-second impact, and a
-five-second hold at the end where the motion drains out.
+사용자가 지목한 전통 둘을 평균내지 않고 샷 목록에 넣었다. LTX는 `num_frames = 8k + 1`만 된다. 24 fps에 가용 길이 25·49·73·97·121프레임 — 1.04·2.04·3.04·4.04·5.04초. 8컷 시퀀스가 73 / 49 / 25 / 73 / 49 / 49 / 25 / 121, 합 19.32초. 1초 임팩트에 가속하는 런 둘, 끝에 5초 hold 하나. 모션이 거기서 빠진다.
 
-Generation cost is close to linear in frames, measured on the first four-cut chain: 97 frames
-in 103 s, 49 in 71 s, 25 in 58 s, 121 in 125 s. The intercept is the 42 GB transformer load,
-which is why a one-second cut costs more per frame than a five-second one and still costs less
-in absolute terms. Prompt length is matched to cut length for a measured reason rather than a
-stylistic one: given several beats the model picks one moment and spends the frames on it, so
-the one-second impact cut gets a 70-word prompt naming one event and the five-second hold gets
-136 words of settling dust.
+생성 비용이 프레임에 거의 선형이다. 첫 4컷 체인 실측: 97프레임 103초, 49에 71초, 25에 58초, 121에 125초. 절편이 42 GB 트랜스포머 로드라서, 1초 컷이 프레임당 비싸고 절대액은 싸다. 프롬프트 길이를 컷 길이에 맞춘다. 스타일이 아니라 잰 이유다. 비트 몇 개를 주면 모델이 한 모멘트를 골라 프레임을 쓰니, 1초 임팩트 컷에 1사건 70단어 프롬프트, 5초 hold에 가라앉는 먼지 136단어다.
 
-## Method notes
+## 방법 노트
 
-- **Peak VRAM comes from torch's allocator here, not the witness.** The 1 Hz `nvidia-smi`
-  sampling was measured today to miss a sub-second peak, reporting 31,256 and 37,064 MiB for
-  two byte-identical runs of the same take. The witness is still recorded, because it is what
-  says what the *card* did — temperature, power, throttle reasons — but the capacity number
-  comes from `torch.cuda.max_memory_allocated`.
-- **Krea-2's 41.4 GB on a 48 GB card leaves little room.** Its own card shows a 2048×2048
-  example; that is not obviously going to fit here and has not been tried. Unmeasured.
-- **The image environment is separate from LTX's on purpose.** `uv run --with diffusers`
-  inside the LTX project re-resolved torch from 2.13.0+cu132 to 2.14.0+cu130 — a silent change
-  to the environment every video measurement was taken in. A keyframe is an input to a video
-  run, not part of it, so the two get their own resolutions.
-- **The fetcher had two bugs, both found by using it.** It had no authentication, so a gated
-  repo was simply unreachable; and it flattened paths, which is right for GGUF shards and
-  fatal for a diffusers tree — `transformer/config.json`, `text_encoder/config.json` and
-  `vae/config.json` all became one name and overwrote each other, leaving a single 726-byte
-  file. The large shards survived only because their names happen to differ. Both fixed;
-  `KEEP_TREE=1` is now required for anything with a `model_index.json`.
-- An image take holds the GPU like any other, so it runs under the same lease, the same idle
-  check and the same witness as a video take. On a box with three sessions and a peer job at
-  midnight, a 34 GB model loaded outside the lease is how someone else's row gets spoiled.
+- **피크 VRAM은 여기 torch 할당자에서 나온다. 증인이 아니다.** 1 Hz `nvidia-smi` 샘플이 오늘 서브초 피크를 놓친다고 쟀다. 바이트 동일 실행 둘에 31,256과 37,064 MiB를 보고했다. 증인은 계속 기록한다. 카드가 *한 것* — 온도·전력·스로틀 사유 — 을 말해서다. 용량 숫자는 `torch.cuda.max_memory_allocated`에서 온다.
+- **48 GB 카드의 Krea-2 41.4 GB는 자리가 빠듯하다.** 자체 카드에 2048×2048 예제가 있다. 여기 들지는 안 봐도 모르고 안 만져봤다. 미측정.
+- **이미지 환경은 일부러 LTX와 분리한다.** LTX 프로젝트 안 `uv run --with diffusers`가 torch를 2.13.0+cu132에서 2.14.0+cu130에 다시 풀었다 — 모든 비디오 측정이 선 환경의 조용한 변경이다. 키프레임은 비디오 실행의 입력이지 일부가 아니라서, 둘은 각각 해결한다.
+- **fetcher에 버그 둘, 쓰며 찾았다.** 인증이 없어서 gated 리포가 그냥 닿지 않았다. 경로를 평탄화해서 GGUF 샤드에는 맞고 diffusers 트리에 치명적이다 — `transformer/config.json`, `text_encoder/config.json`, `vae/config.json`이 한 이름이 돼 서로 덮고 726바이트 파일 하나가 남았다. 큰 샤드는 이름이 달라서 살았다. 둘 다 고쳤다. `model_index.json` 있는 것은 이제 `KEEP_TREE=1` 필수다.
+- 이미지 테이크가 다른 테이크처럼 GPU를 쥐니, 같은 임대·idle 체크·증인에 돈다. 세션 셋·자정 peer 작업 상자에, 임대 밖 34 GB 모델 로드가 남의 행을 버리는 경위다.

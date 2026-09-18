@@ -1,183 +1,105 @@
-# Three regimes on one card, and a fan that arrives three minutes late
+# 한 카드 세 체제, 3분 늦는 팬
 
-*2026-09-16, 12:10–14:25.* The first diffusion work on this machine. The
-[queue in the README](../README.md#queued) opened with one question — is a
-denoise step compute-bound or bandwidth-bound? — and said that until it was
-measured, "which GPU" had no evidence behind it. It is measured now, and the
-answer is not one regime but three, all of them inside a single 136-second run.
+*2026-09-16, 12:10–14:25.* 이 기계 첫 디퓨전 작업. README 큐가 질문 하나로 열었다 — denoise 스텝이 연산-bound인가 대역폭-bound인가. 그거 재기 전까지 "어느 GPU"에 증거가 없었다. 이제 쟀다. 답이 한 체제가 아니라 셋이다. 136초 실행 하나 안에 전부 있다.
 
-The model is **LTX-2.5**, a 22 B DiT published around 2026-09-01, which is the
-same shape of choice as the two Qwen models from this morning: new enough that
-nobody has run it on hardware like this. It generates video **and synchronised
-audio in one pass**, which no other open-weight model does, and it ships an
-official Python inference package rather than requiring a ComfyUI install.
+모델이 **LTX-2.5** 22 B DiT다. 2026-09-01쯤 공개. 오늘 아침 Qwen 둘과 같은 모양의 선택이다. 하드웨어에 아직 안 돌린 새 것. 비디오 **겸 동기 오디오를 한 패스에** 낸다. 오픈 가중에 다른 것이 없고, 공식 파이썬 추론 패키지를 내놓아서 ComfyUI 설치가 필요 없다.
 
-## Getting it here
+## 가져오기
 
-`uv sync --extra natten` took 50 seconds and produced torch 2.13.0+cu132 and
-natten 0.21.7 against driver 615.71.09. That was the easy half.
+`uv sync --extra natten`이 50초에 torch 2.13.0+cu132·natten 0.21.7을 냈다. 드라이버 615.71.09 상대. 쉬운 절반이었다.
 
-The weights are gated (`gated: auto`), and the account's token is not on the
-list: `/raw/main/model_index.json` returns 403. Accepting a licence is the
-machine owner's act, not this session's, so the download went to a mirror — and
-mirrors are exactly where a model file stops being the model file. The rule
-used was the one already in [`tools/fetch-gguf.sh`](../tools/fetch-gguf.sh):
-**a file appears at its final path only when its byte count matches what the
-API said.** Here the sizes came from the *official* repo's API, which answers
-`?blobs=true` without auth even while refusing the files, and they are written
-into [`tools/ltx/ltx-fetch.sh`](../tools/ltx/ltx-fetch.sh) as constants rather
-than read from the mirror, so a mirror that re-saved a tensor fails instead of
-passing.
+가중치가 gated(`gated: auto`)다. 계정 토큰이 목록에 없다. `/raw/main/model_index.json`이 403을 돌려준다. 라이선스 수락이 기계 주인 행위지 이 세션 것이 아니라서, 다운로드가 미러에 갔다 — 미러가 정확히 모델 파일이 모델 파일 아니게 되는 자리다. 쓴 규칙이 [`tools/fetch-gguf.sh`](../tools/fetch-gguf.sh) 것 그대로다. **파일이 최종 경로에 나타나는 것은 바이트 수가 API 말과 맞을 때뿐이다.** 크기가 *공식* 리포 API에서 왔다. 파일 거부는 하면서 `?blobs=true`에 답해서다. 미러에서 읽지 않고 [`tools/ltx/ltx-fetch.sh`](../tools/ltx/ltx-fetch.sh)에 상수에 썼다. 텐서 다시 저장한 미러가 통과 말고 깨지게.
 
-Three mirrors carry the five files. One matches on all five:
+미러 셋이 파일 다섯을 싣는다. 하나가 다섯 전부 일치한다.
 
-| file | official | `yuvraj108c` | `comfyicu`, `lxxxy6` |
+| 파일 | 공식 | `yuvraj108c` | `comfyicu`, `lxxxy6` |
 |---|---:|---:|---:|
-| distilled transformer bf16 | 42 018 190 584 | same | same |
-| gemma4-12b text encoder | 26 263 858 182 | same | **26 263 860 594** |
-| video VAE | 1 472 223 346 | same | same |
-| audio VAE | 364 866 540 | same | same |
-| spatial upscaler | 995 778 752 | same | same |
+| distilled transformer bf16 | 42,018,190,584 | 동일 | 동일 |
+| gemma4-12b 텍스트 인코더 | 26,263,858,182 | 동일 | **26,263,860,594** |
+| video VAE | 1,472,223,346 | 동일 | 동일 |
+| audio VAE | 364,866,540 | 동일 | 동일 |
+| spatial upscaler | 995,778,752 | 동일 | 동일 |
 
-The text encoder differs by 2 412 bytes on two of the three — a re-save, almost
-certainly harmless, and exactly the difference a size gate is for. 67 GiB came
-down in ten minutes at about 110 MB/s. The sha256 of each accepted file is in
-the fetch log; it could not be cross-checked against upstream, because the
-official repo is the one that will not serve them.
+텍스트 인코더가 둘에 2,412바이트 다르다 — 다시 저장, 거의 확실히 무해. 크기 gate가 정확히 그 차이에 있는 것이다. 67 GiB가 110 MB/s쯤에 10분에 내려왔다. 받은 파일 sha256이 fetch 로그에 있다. 업스트림과 대조 못 했다. 공식 리포가 안 주는 쪽이라서다.
 
-## What fits, and what the capacity limit actually is
+## 드는 것과, 용량 한계 실제 자리
 
-Four arms, 121 frames (5.04 s at 24 fps), seed 42, the same prompt, stage 1 at
-768×512 and stage 2 at 1536×1024. The only thing that moves is where the 42 GB
-transformer lives.
+arm 넷, 121프레임(24 fps에 5.04초), 시드 42, 같은 프롬프트, stage 1 768×512·stage 2 1536×1024. 움직이는 것은 42 GB 트랜스포머 자리뿐이다.
 
-| arm | total | stage 1 | stage 2 | stage-2 VRAM | transformer builds | host RSS |
+| arm | 합계 | stage 1 | stage 2 | stage-2 VRAM | 트랜스포머 빌드 | 호스트 RSS |
 |---|---:|---:|---:|---:|---:|---:|
-| `--offload none` | 136 s | 2.50 s/step | 12.67 s/step | **48 016 MiB** | 9 + 9 s | 42.1 GiB |
-| `--offload cpu` | 157 s | 2.75 | 13.33 | 12 992 | 15 + 15 s | 71.4 GiB |
-| `--offload disk` | **124 s** | 2.62 | 13.00 | 12 928 | **3 + 3 s** | 40.4 GiB |
-| `--offload cpu --max-batch-size 2` | 157 s | 2.75 | 13.33 | 12 992 | 15 + 15 s | 71.4 GiB |
+| `--offload none` | 136초 | 2.50초/스텝 | 12.67초/스텝 | **48,016 MiB** | 9 + 9초 | 42.1 GiB |
+| `--offload cpu` | 157초 | 2.75 | 13.33 | 12,992 | 15 + 15초 | 71.4 GiB |
+| `--offload disk` | **124초** | 2.62 | 13.00 | 12,928 | **3 + 3초** | 40.4 GiB |
+| `--offload cpu --max-batch-size 2` | 157초 | 2.75 | 13.33 | 12,992 | 15 + 15초 | 71.4 GiB |
 
-Every arm produced a byte-identical 1 472 940-byte file, so these are four
-routes to the same frames.
+arm 전부 바이트 동일 1,472,940바이트 파일을 냈다. 같은 프레임행 루트 넷이다.
 
-**The fastest arm is the one that streams from disk**, which is not what the
-flag names suggest. It loses 2.6 % on the denoise and wins it back four times
-over on model building: the pipeline constructs the transformer once per stage,
-and `disk` mmaps the file in 3 seconds where `cpu` copies 42 GB into a host
-buffer in 15. On a 251 GB box the file is in page cache either way, so this arm
-is measuring the cache and not the drive — the cold number would be different
-and was not taken. The 6-second builds are also the answer to a cost this run
-exposes: 18 to 30 seconds of a 124-to-157-second run is spent *rebuilding the
-same transformer for the second stage*, and the official optimisation notes
-address it by telling the reader to comment out a library call
-(`# utils.cleanup_memory()`), not with a flag.
+**가장 빠른 arm이 디스크 스트리밍**이다. 플래그 이름 뜻과 다르다. denoise 2.6% 지고 모델 빌드 4배에 되찾는다. 파이프라인이 스테이지마다 트랜스포머를 짓는데, `disk`가 파일 mmap 3초에 `cpu`가 42 GB 호스트 버퍼 복사 15초다. 251 GB 상자에 파일이 어느 쪽도 페이지 캐시라서, 이 arm이 재는 것은 캐지지 드라이브가 아니다 — cold 숫자는 다르고 안 잡았다. 6초 빌드가 이 실행 드러내는 비용의 답이기도 하다. 124–157초 실행의 18–30초를 *같은 트랜스포머 2스테이지용* 다시 짓는 데 쓴다. 공식 최적화 노트가 라이브러리 호출 주석(`# utils.cleanup_memory()`)에 말하지 플래그에 안 말한다.
 
-`--max-batch-size 2` changed nothing at all, which is correct and worth one
-line: it bounds items per forward pass, and a single generation has one.
+`--max-batch-size 2`가 전혀 안 바뀌었다. 맞고 한 줄 값어치 있다. forward당 항목 수를 묶는데, 단일 생성이 하나다.
 
-**The capacity limit is not the transformer.** Per-stage peaks say where the
-VRAM goes:
+**용량 한계가 트랜스포머가 아니다.** 스테이지별 피크가 VRAM 행선지를 말한다.
 
-| stage | `none` | `cpu` |
+| 스테이지 | `none` | `cpu` |
 |---|---:|---:|
-| denoise 768×512 | 42 812 MiB | 7 796 MiB |
-| denoise 1536×1024 | **48 016** | 12 992 |
-| video + audio decode | 36 936 | 36 968 |
+| denoise 768×512 | 42,812 MiB | 7,796 MiB |
+| denoise 1536×1024 | **48,016** | 12,992 |
+| video + audio 디코드 | 36,936 | 36,968 |
 
-Resident, stage 2 peaks at 48 016 of the card's 49 140 MiB — 1.1 GiB spare, so
-five seconds at this resolution is the ceiling for that arm and the next frame
-count needs streaming. But streaming drops the denoise peak 3.7× and leaves the
-**decode stage at 37 GB whichever arm runs**, so that stage is the real floor.
-It is also the single largest window, 40 of 136 seconds at 95–98 % utilisation.
-A card smaller than 37 GB does not fail here — `AUTO_TILING` tiles to fit — it
-tiles harder and takes longer, and that cost was not measured.
+상주에 stage 2 피크가 카드 49,140 중 48,016 MiB — 1.1 GiB 남는다. 이 해상도 5초가 그 arm 상한이라서, 다음 프레임 수는 스트리밍이다. 스트리밍이 denoise 피크 3.7배에 내리고 **디코드 스테이지를 어느 arm에도 37 GB**에 남기니, 그 스테이지가 진짜 하한이다. 단일 최대 창이기도 하다. 95–98% 사용률에 136초 중 40초. 37 GB 미만 카드가 여기서 깨지지 않는다 — `AUTO_TILING`이 맞게 타일을 깐다. 더 세게 깔고 더 오래 걸린다. 그 값은 안 쟀다.
 
-## The instrument: lock one clock, not the power cap
+## 계기: 전력 캡이 아니라 클럭 하나를 잠근다
 
-The queue proposed a power sweep, reasoning from the LLM result that 47 % less
-power costs 15 % of the rate. That instrument does not work on this workload.
-At the default 300 W an LTX-2.5 denoise runs with **`SwPowerCap` and
-`SwThermal` both active** at 87–88 °C, so lowering the cap moves two things and
-the slope means nothing.
+큐가 전력 스위프를 제안했다. LLM 결과 추론이다. 전력 47% 적게 속도의 15%. 그 계기가 이 workload에 안 먹는다. 기본 300 W에 LTX-2.5 denoise가 **`SwPowerCap`·`SwThermal` 둘 active**에 87–88 °C에 돈다. 캡을 낮추면 둘을 움직이고 기울기가 뜻없다.
 
-Locking a clock moves one thing, and the A6000 offers two orthogonal locks: 127
-graphics states and memory states at 405, 810, 5001, 7601 and 8001 MHz.
-[`tools/gpu-clock-lock.sh`](../tools/gpu-clock-lock.sh) owns them, the way
-[`configs/gpu-order.env`](../configs/gpu-order.env) owns device order, and
-resets on every exit path including a signal — a card left at 5001 MHz would
-poison every measurement taken afterwards by any of the three sessions sharing
-this box.
+클럭 잠금은 하나를 움직인다. A6000이 직교 잠금 둘을 낸다. 그래픽 상태 127개, 메모리 상태 405·810·5001·7601·8001 MHz. [`tools/gpu-clock-lock.sh`](../tools/gpu-clock-lock.sh)이 소유한다. [`configs/gpu-order.env`](../configs/gpu-order.env)이 장치 순서 소유하는 길에. 시그널 포함 모든 종료 경로에 리셋 — 5001 MHz에 남긴 카드가 뒤 이 상자 공유 세션 셋의 모든 측정을 오염시킨다.
 
-Two details that would each have produced a wrong table:
+각자 틀린 표 냈을 디테일 둘.
 
-- **8001 MHz is a boost state the card does not hold.** Under load the achieved
-  memory clock is 7601, so a row labelled 8001 would have duplicated the
-  default row under a different name. The top of the memory axis is 7601.
-- **A lock is a request, and `nvidia-smi` accepts `-lmc` at idle and returns
-  success while nothing reports the lock back.** The only proof is the achieved
-  clock under load, so the wrapper keeps its own witness, samples only while
-  utilisation is above 50 % (the idle memory clock is 405 MHz and would drag
-  every mean toward it), and checks **both** axes against their request. An
-  unchecked memory axis would have read 7601 in every row and plotted as
-  "bandwidth does not matter" — the answer being tested. Verified before use at
-  gr=900 mem=810: achieved 900 and 810 over 203 busy samples.
+- **8001 MHz가 카드가 안 잡는 부스트 상태다.** 부하 달성 메모리 클럭이 7601이라서, 8001 라벨 행이 다른 이름 기본 행을 복제했을 것이다. 메모리 축 꼭대기가 7601이다.
+- **잠금은 요청이고, `nvidia-smi`가 idle `-lmc`에 성공을 돌려주고 되읽는 것이 없다.** 증거가 부하 달성 클럭뿐이라서, 래퍼가 자기 증인을 둔다. 사용률 50% 초과 샘플만(idle 메모리 클럭 405 MHz가 모든 평균을 끌어서). 양 축을 요청에 대조한다. 안 본 메모리 축이 매 행 7601에 읽히고 "대역폭이 matter 아니다"에 찍혔을 것이다 — 시험하는 답이다. gr=900 mem=810에 사용 전 검증했다. 달성 900·810, busy 샘플 203.
 
-The metric is stage-2 seconds per step. Wall time is not the metric when 43 %
-of it is VAE decode and model building.
+지표가 stage-2 스텝당 초다. wall time이 지표가 아니다. 43%가 VAE 디코드·모델 빌드라서다.
 
-## Three regimes
+## 세 체제
 
-Graphics axis, memory at 7601, `--offload none` so PCIe is not in the loop:
+그래픽 축, 메모리 7601, `--offload none`이라 PCIe가 고리 밖에 있다.
 
-| requested | achieved | stage 2 | stage 1 | power | temp |
+| 요청 | 달성 | stage 2 | stage 1 | 전력 | 온도 |
 |---:|---:|---:|---:|---:|---:|
-| 1500 | 1498 | 12.67 s/step | 2.62 | 268 W | 86 °C |
+| 1500 | 1498 | 12.67초/스텝 | 2.62 | 268 W | 86 °C |
 | 1200 | 1200 | 15.33 | 3.12 | 205 W | 81 °C |
 | 900 | 900 | 19.67 | 3.88 | 175 W | 79 °C |
 | 600 | 600 | 28.33 | 5.38 | 144 W | 77 °C |
 
-1500 is the top of this axis deliberately: the unlocked run achieved 1530 MHz
-in the stage-2 window, so a higher lock would be overridden and two rows would
-sit at the same achieved clock under different labels.
+1500이 이 축 꼭대기 deliberate다. 잠금 해제 실행이 stage-2 창에 1530 MHz를 달성해서, 높은 잠금이 무시되고 두 행이 다른 라벨 같은 달성 클럭에 앉았을 것이다.
 
-Memory axis, graphics pinned at 1200 so the power cap cannot make the achieved
-graphics clock a function of the memory one:
+메모리 축, 그래픽 1200에 고정이라 전력 캡이 달성 그래픽 클럭을 메모리 함수에 못 만든다.
 
-| achieved mem | stage 2 | decode window |
+| 달성 mem | stage 2 | 디코드 창 |
 |---:|---:|---:|
-| 7601 | 15.33 s/step | 42 s |
-| 5001 | 16.67 | 59 s |
-| 810 | **53.67** | **465 s** |
+| 7601 | 15.33초/스텝 | 42초 |
+| 5001 | 16.67 | 59초 |
+| 810 | **53.67** | **465초** |
 
-As elasticities — the exponent *e* in rate ∝ clock<sup>*e*</sup>:
+탄성으로 — 속도 ∝ 클럭<sup>*e*</sup>의 지수 *e*:
 
-| | graphics clock | memory clock |
+| | 그래픽 클럭 | 메모리 클럭 |
 |---|---:|---:|
-| **denoise, 1536×1024** | **0.860 / 0.864 / 0.880** | 0.200 at −34 %, 0.559 at −89 % |
-| **video + audio decode** | ~0.10, flat within noise | **0.812 → 1.074** |
-| **Qwen3.6-35B decode** | 0.416 / 0.491 / 0.583 | 0.512 → 0.828 |
+| **denoise, 1536×1024** | **0.860 / 0.864 / 0.880** | −34%에 0.200, −89%에 0.559 |
+| **video + audio 디코드** | ~0.10, 노이즈 안 평탄 | **0.812 → 1.074** |
+| **Qwen3.6-35B 디코드** | 0.416 / 0.491 / 0.583 | 0.512 → 0.828 |
 
-The denoise is compute-bound, and cleanly so: three graphics-axis points give
-0.860, 0.864 and 0.880, which is a power law and not a coincidence. Cutting
-memory bandwidth by a third costs 0.200 — nearly nothing. There is a knee, not
-an absence: at 810 MHz, 78 GB/s, bandwidth finally binds and the exponent rises
-to 0.559. Across any memory clock the card will actually run, the denoise does
-not care about bandwidth.
+denoise가 연산-bound다. 깨끗하게. 그래픽 축 세 점 0.860·0.864·0.880이 우연이 아니라 거듭제곱이다. 메모리 대역폭 3분의 1 잘라 값이 0.200 — 거의 없다. 무릎이지 부재가 아니다. 810 MHz·78 GB/s에 대역폭이 마침내 묶고 지수가 0.559에 오른다. 카드가 실제 돌 메모리 클럭 어디에도 denoise가 대역폭 care 안 한다.
 
-The decode stage is the opposite, in the same run, on the same card. Its
-graphics-axis numbers are 41, 42, 49 and 45 seconds — non-monotonic, flat inside
-the noise — while the memory axis is nearly linear. That window mixes the video
-VAE, the audio VAE, the vocoder and a CPU-side mp4 encode, so its attribution
-was held open until the data closed it: **a window dominated by CPU work cannot
-respond to a GPU memory clock with an exponent of 1.07.** It is GPU-memory-bound.
+디코드 스테이지가 같은 실행·같은 카드 반대다. 그래픽 축 숫자 41·42·49·45초 — 비단조, 노이즈 안 평탄 — 메모리 축이 거의 선형이다. 그 창이 video VAE·audio VAE·vocoder·CPU쪽 mp4 인코드를 섞어서 귀속을 데이터 닫힐 때까지 열어뒀다. **CPU 일 지배 창이 GPU 메모리 클럭에 지수 1.07로 답할 수 없다.** GPU-메모리-bound다.
 
-## The LLM row, and a ceiling that turns out to be half core
+## LLM 행, 코어 절반 상한
 
-The same locks on the workload this box serves: Qwen3.6-35B-A3B at UD-Q4_K_XL,
-resident on the A6000 alone, no draft, no `-ot`.
+같은 잠금을 상자 서빙 workload에. Qwen3.6-35B-A3B UD-Q4_K_XL, A6000 단독 상주, draft 없음, `-ot` 없음.
 
-| lock | decode | derived read |
+| 잠금 | 디코드 | 도출 읽기 |
 |---|---:|---:|
 | gr 1500, mem 7601 | 124 tok/s | 341 GB/s |
 | gr 1200 | 113 | 311 |
@@ -186,73 +108,43 @@ resident on the A6000 alone, no draft, no `-ot`.
 | gr 1200, mem 5001 | 91.2 | 251 |
 | gr 1200, mem 810 | 17.7 | 49 |
 
-This closes a question left open on 2026-09-15, where
-[the same model on the same card](2026-09-15-a-model-that-fits-one-card.md) hit
-a flat ~390 GB/s — half of the card's 768 — with the power cap and the expert
-gather both ruled out. The answer is that it is **co-limited**: 0.42–0.58 on the
-graphics axis and 0.51–0.83 on the memory axis, two exponents that sum to about
-one. It was never a pure DRAM wall, and about half of that ceiling sits on the
-core side. A card with more bandwidth and the same core throughput would return
-only part of the difference.
+2026-09-15 열린 질문을 닫는다. [같은 모델 같은 카드](2026-09-15-a-model-that-fits-one-card.md)가 카드 768 절반 평탄 ~390 GB/s에 닿았다. 전력 캡·expert gather 둘 탈락한 채로. 답이 **공동 제한**이다. 그래픽 축 0.42–0.58, 메모리 축 0.51–0.83. 둘 합쳐 약 1. 순수 DRAM 벽이 아니었고, 그 상한 절반쯤 코어 쪽에 앉는다. 대역폭 넓고 코어 처리량 같은 카드가 차이 일부만 돌려준다.
 
-That is also the correction to a recommendation made in conversation earlier the
-same afternoon. Asked whether a faster card would help, this session said that
-if the LLM were bandwidth-bound then 1008 against 768 GB/s was merely 1.31× and
-not worth an unofficial card. The measurement says the LLM benefits from both
-axes. Projecting an Ada card with about 2.1× dense bf16 and 1.31× bandwidth —
-and this is a **projection, not a measurement**, since elasticities taken by
-moving one card's clocks do not carry across architectures:
+같은 오후 대화 권고의 정정이기도 하다. 빠른 카드가 돕는가 물어서, 이 세션이 LLM이 대역폭-bound면 768 대 1008 GB/s가 1.31배에 불과해 비공식 카드 값어치 없다고 말했다. 측정이 LLM이 양 축에 이득이라 말한다. dense bf16 약 2.1배·대역폭 1.31배 Ada 카드에 투영 — **측정이 아니라 투영**이다. 한 카드 클럭 움직여 잡은 탄성이 아키텍처 너머 안 이어져서.
 
-| | from | multiplier |
+| | 출발 | 배율 |
 |---|---|---:|
-| LTX denoise | 2.1<sup>0.87</sup> | 1.9× |
-| LTX decode stage | 1.31<sup>1.0</sup> | 1.31× |
-| LTX end to end | with 32 s of fixed cost | **1.45×** |
-| Qwen decode | 2.1<sup>0.45</sup> × 1.31<sup>0.51</sup> | **1.61×** |
+| LTX denoise | 2.1<sup>0.87</sup> | 1.9배 |
+| LTX 디코드 스테이지 | 1.31<sup>1.0</sup> | 1.31배 |
+| LTX 종단 | 고정비 32초에 | **1.45배** |
+| Qwen 디코드 | 2.1<sup>0.45</sup> × 1.31<sup>0.51</sup> | **1.61배** |
 
-The LLM gains more than the whole diffusion run does, because a third of that
-run is bandwidth-bound and a fifth is fixed cost.
+디퓨전 실행 전체보다 LLM이 더 얻는다. 실행 3분의 1이 대역폭-bound, 5분의 1이 고정비라서다.
 
-## The fan arrives three minutes late
+## 3분 늦는 팬
 
-The README has been describing this machine's thermal ceiling as "86–87 °C with
-`SW Thermal Slowdown` on ~100 % of the time, so any workload with a 100 % duty
-cycle is throttled before it starts." Adding `fan.speed` to the witness showed
-what that sentence was missing: at 86–87 °C the A6000's blower is at **58–64 %**.
+README가 이 기계 열 상한을 "86–87 °C에 `SW Thermal Slowdown` ~100% 시간, 100% 듀티 workload가 시작 전에 스로틀"이라 서술해 왔다. 증인에 `fan.speed`를 더하니 그 문장이 빠뜨린 것이 나왔다. 86–87 °C에 A6000 블로워가 **58–64%**다.
 
-~~The card was clipping clocks to reach its own 84 °C target while keeping 36–40 %
-of its fan in reserve for acoustics.~~ **Struck the same afternoon, an hour after
-this entry was first pushed.** The 58–64 % is real but it is not a property of the
-temperature; it is a property of *how long the load had been running*. Every take
-above is about 137 seconds, and the card's fan curve has a much slower time
-constant than that. A 241-frame run gave it four minutes:
+~~카드가 자체 84 °C 목표에 닿으려고 클럭을 깎으면서 팬 36–40%를 음향용 예비에 뒀다.~~ **같은 오후 첫 푸시 한 시간에 Struck.** 58–64%는 진짜지만 온도 속성이 아니다. *부하 지속 시간* 속성이다. 위 모든 테이크가 137초쯤이고, 카드 팬 커브 시상수가 그보다 훨씬 느리다. 241프레임 실행이 4분을 줬다.
 
-| into the load | temp | fan | draw |
+| 부하 경과 | 온도 | 팬 | draw |
 |---:|---:|---:|---:|
-| 20 s | 65 °C | 30 % | 298 W |
-| 40 s | 78 °C | 46 % | 297 W |
-| 80 s | 87 °C | 60 % | 296 W |
-| 100 s | **89 °C** | 72 % | 296 W |
-| 200 s | 88 °C | 83 % | 289 W |
-| 221 s | 87 °C | 97 % | 297 W |
-| 241 s | 86 °C | **100 %** | 296 W |
-| 254 s | 80 °C | 100 % | — |
+| 20초 | 65 °C | 30% | 298 W |
+| 40초 | 78 °C | 46% | 297 W |
+| 80초 | 87 °C | 60% | 296 W |
+| 100초 | **89 °C** | 72% | 296 W |
+| 200초 | 88 °C | 83% | 289 W |
+| 221초 | 87 °C | 97% | 296 W |
+| 241초 | 86 °C | **100%** | 296 W |
+| 254초 | 80 °C | 100% | — |
 
-So the card reaches 100 % **on its own, after about 3.7 minutes**, and once there it
-converges toward its 84 °C target while still drawing 296 W. Nothing is being held
-back. What actually happens is an **overshoot**: for the first three and a half
-minutes of any load the fan is behind, and the die sits up to 5 °C *above* the
-target it is aiming for, peaking at 89 °C while the blower is still at 72–76 %.
+카드가 **저절로 100%에, 약 3.7분**에 닿는다. 거기 296 W에 84 °C 목표에 수렴한다. 묶는 것 없다. 일어나는 것은 **오버슈트**다. 모든 부하 첫 3분 반에 팬이 뒤처지고, 다이가 겨냥 목표 위 최대 5 °C에 앉는다. 블로워 72–76%에 89 °C 피크.
 
-That correction matters more than it sounds, because it moves where the gain is.
+그 정정이 소리보다 중요한 것은 얻는 자리가 옮겨서다.
 
-`nvidia-smi` on this driver has no fan option at all and `nvidia-settings` wants
-an X display this box does not run, which is how "nothing on this machine can
-curve a fan" — true of the six empty `CHA_FAN` headers — became a fact about the
-whole machine. NVML exposes `nvmlDeviceSetFanSpeed_v2` headless.
-[`tools/gpu-fan.py`](../tools/gpu-fan.py) drives it.
+이 드라이버 `nvidia-smi`에 팬 옵션 전혀 없고 `nvidia-settings`가 이 상자 안 도는 X 디스플레이를 원한다. "이 기계 곡선 팬 못 한다" — 빈 `CHA_FAN` 헤더 여섯에 맞는 말 — 가 기계 전체 사실이 된 경위다. NVML이 `nvmlDeviceSetFanSpeed_v2`를 headless에 내놓는다. [`tools/gpu-fan.py`](../tools/gpu-fan.py)가 몬다.
 
-The card's own thresholds explain the rest:
+카드 자체 임계가 나머지 설명한다.
 
 ```
 GPU Target Temperature Specification : 84 C
@@ -261,124 +153,46 @@ GPU Max Operating Temp               : 93 C
 GPU Shutdown Temp                    : 98 C
 ```
 
-87 °C is nowhere near the 95 °C slowdown. The card was clipping clocks to reach
-its own **84 °C target**, four degrees below where it sat, while keeping 36–40 %
-of its fan in reserve for acoustics. Two matched pairs:
+87 °C가 95 °C slowdown 근처 어디에도 없다. 카드가 자체 **84 °C 목표**에 닿으려고 클럭을 깎았다. 앉은 곳 4도 아래. 팬 36–40%를 음향 예비에 두면서. matched 쌍 둘.
 
-| | stage 2 | stage-2 clock | stage-2 temp | fan | total |
+| | stage 2 | stage-2 클럭 | stage-2 온도 | 팬 | 합계 |
 |---|---:|---:|---:|---:|---:|
-| gr locked 1500, card's curve | 13.00 s/step | 1498 | 86 °C | 58 % | 137 s |
-| gr locked 1500, fan 100 % | 13.00 | 1500 | **71 °C** | 100 % | 137 s |
-| unlocked, card's curve | 12.67 | 1530 | 87 °C | 58 % | 136 s |
-| unlocked, fan 100 % | 12.33 | **1598** | **72 °C** | 100 % | 133 s |
+| gr 잠금 1500, 카드 커브 | 13.00초/스텝 | 1498 | 86 °C | 58% | 137초 |
+| gr 잠금 1500, 팬 100% | 13.00 | 1500 | **71 °C** | 100% | 137초 |
+| 잠금 해제, 카드 커브 | 12.67 | 1530 | 87 °C | 58% | 136초 |
+| 잠금 해제, 팬 100% | 12.33 | **1598** | **72 °C** | 100% | 133초 |
 
-**Sixteen degrees, and 2.7 % of the rate.** The clock does rise once the thermal
-clip is gone — 1530 to 1598 in stage 2, 1606 to 1712 in the decode window — but
-draw is already 289 W against a 300 W cap, so the power limit binds where the
-temperature used to. That is why both throttle reasons were on all morning:
-relieving one reveals the other.
+**16도, 속도의 2.7%.** 열 클립 없어지면 클럭이 오른다 — stage 2 1530→1598, 디코드 창 1606→1712 — draw가 이미 300 W 캡 상대 289 W라 전력 제한이 온도 있던 자리에 묶는다. 아침 스로틀 사유 둘 on 이유다. 하나 풀면 다른 것이 나타난다.
 
-Those two pairs are matched — same 137-second take, same 55 °C start — so the 16 °C
-between them is real. But with the ramp above in hand, **16 °C is what forcing the
-fan is worth to a job that ends inside the overshoot**, not what this card can run
-cooler by. Every take in this entry is 124 to 157 seconds, which is to say every
-take in this entry ran entirely inside the first three and a half minutes, and so
-does every take elsewhere in this repo. A four-hour render queue is a different
-matter: the card gets to 100 % by itself in the first four minutes and spends the
-remaining hours at its 84 °C target either way.
+두 쌍이 matched다 — 같은 137초 테이크, 같은 55 °C 시작. 사이 16 °C가 진짜다. 위 램프에 들고 **16 °C가 강제 팬이 오버슈트 안에 끝나는 일에 값하는 것**이지, 이 카드가 더 차갑게 돌 수 있는 것이 아니다. 이 기록 모든 테이크가 124–157초라서, 이 기록 모든 테이크가 첫 3분 반 안에 전부 돌았고, 이 리포의 다른 테이크도 마찬가지다. 4시간 렌더 큐가 다른 문제다. 카드가 첫 4분에 저절로 100%에 가고 남은 시간을 84 °C 목표 어느 쪽에도 보낸다.
 
-Which is the argument for a curve rather than a one-off `--speed 100`:
-[`tools/gpu-fan-curve.py`](../tools/gpu-fan-curve.py) exists to delete the
-overshoot, by being at 90 % when the card's own logic is still at 46 %. It is worth
-one warning in its own docstring and one here — **it changes every thermal number
-taken afterwards**, exactly like a clock lock, so a matched pair means stopping it.
+일회 `--speed 100`이 아니라 커브의 논거가 그것이다. [`tools/gpu-fan-curve.py`](../tools/gpu-fan-curve.py)가 오버슈트를 지우려고 있다. 카드 자체 로직 46%에 있을 때 90%에 있어서다. 자기 docstring 경고 하나·여기 하나 값어치 있다 — **뒤에 잡은 모든 열 숫자를 바꾼다.** 클럭 잠금 정확히 같다. matched 쌍이 멈춘다는 뜻이다.
 
-What is still true: the chassis fans are wired to the PSU, all six `CHA_FAN`
-headers read `Disabled`, and the BMC sees `CPU_FAN` 2200 RPM, `SOC_FAN` 2800 and
-`CHIPSET_FAN` 2700 but nothing at all from the case. They spin at a fixed speed
-and **a failed one would be invisible**, detectable only as a GPU temperature
-that drifted. The BMC's per-slot sensors do work and identified the physical
-layout for free: with only the A6000 loaded, `PCIE05` read 60 °C against the
-card's 60 °C die and `PCIE01` read 48 °C against the 3090's 48 °C, so the 3090
-is in slot 1 and the A6000 in slot 5, far enough apart that neither blocks the
-other's intake.
+여전히 맞는 것. 섀시 팬이 PSU에 물렸다. `CHA_FAN` 헤더 여섯 전부 `Disabled`를 읽는다. BMC가 `CPU_FAN` 2200 RPM·`SOC_FAN` 2800·`CHIPSET_FAN` 2700을 보는데 케이스 것은 전혀 안 보인다. 고정 속도에 돈다. **고장 나면 안 보인다.** 흘러가는 GPU 온도에만 검출된다. BMC 슬롯별 센서가 돕고 물리 배치를 공짜에 밝혔다. A6000만 로드에 `PCIE05`가 60 °C에 카드 다이 60 °C 상대, `PCIE01`이 48 °C에 3090의 48 °C 상대라서, 3090이 슬롯 1·A6000이 슬롯 5다.어느 쪽도 상대 흡기를 안 막는 간격이다.
 
-## The model cannot write Hangul
+## 모델이 한글을 못 쓴다
 
-Asked for a cat writing 주4일제 on rice paper with a brush, with the characters
-spelled in the prompt and described as "the Korean word for a four-day work
-week", the model produced brush-like strokes that are not characters. That is
-the expected failure — composed syllable blocks are much harder than short Latin
-words — and it is recorded because the negative result changes the next
-question. The model cannot write Hangul; whether it can *keep* Hangul it was
-given is a different question, answerable with the `--image PATH FRAME_IDX
-STRENGTH` conditioning path and a frame whose glyphs come from a font rather
-than a sampler. [`tools/ltx/ink-overlay.py`](../tools/ltx/ink-overlay.py) makes
-that frame. The experiment is not run here.
+붓에 한지에 주4일제 쓰는 고양이를 시켰다. 프롬프트에 글자 철자, "4일 근무제의 한국어 단어" 설명에. 모델이 글자 아닌 붓질 strokes를 냈다. 예상 실패다 — 합성 음절 블록이 짧은 라틴 단어보다 훨씬 어렵다. negative 결과가 다음 질문을 바꿔서 기록한다. 모델이 한글을 못 *쓴다*. 준 한글을 *지키는지*는 다른 질문이다. `--image PATH FRAME_IDX STRENGTH` 컨디셔닝 경로에 답 있다. 글리프가 샘플러가 아니라 폰트에서 온 프레임으로. [`tools/ltx/ink-overlay.py`](../tools/ltx/ink-overlay.py)가 그 프레임을 만든다. 실험은 여기 안 돌렸다.
 
-Also unmeasured and worth stating: the distilled pipeline is 8 steps then 3, and
-a five-second clip asked to contain four beats (write, pause, tear, blur)
-delivered one. Narrative density is a budget like any other.
+안 쟀고 말할 가치 있다. 증류 파이프라인이 8스텝 이어서 3이다. 5초 클립이 4비트(쓰기·멈춤·찢기·블러) 담으라는 주문에 하나를 냈다. 서사 밀도가 다른 예산 같은 예산이다.
 
-## Three method errors, all mine
+## 내 방법 에러 셋
 
-**A fan claim from a load too short to see the curve.** Written up, pushed, and
-struck within the hour — the section above carries both the claim and the ramp that
-refuted it. The mechanism is the one this repo keeps meeting: a quantity read once,
-in a window too narrow to contain the behaviour, and then described as a property of
-the system. It is the same shape as reading a throttle flag once, and as the
-unmatched lazy-mode pair from this morning.
+**커브 볼 창 짧은 부하에 낸 팬 주장.** 쓰고 푸시하고 한 시간 안에 struck — 위 절이 주장과 반박 램프 둘을 싣는다. 메커니즘이 이 리포 계속 만나는 것이다. 한 번 읽은 양을 거동을 담기 좁은 창에, 시스템 속성이라 서술한다. 스로틀 플래그 한 번 읽기와 같은 모양이다. 아침 unmatched lazy-mode 쌍과 같은 모양이다.
 
-**An awk that compared numbers as strings.** The first summary reported a peak of
-8 022 MiB for a run whose real peak was 48 016, because `"8022" > "42812"` is
-true lexicographically. The wrong number was reported to the user before the raw
-samples were read. Every max in that runner now coerces with `+0`, and the
-reason the run survived at all is that the witness is a **file**: `dmon.csv` was
-still there, so every take from before the fix is still readable.
-[`tools/ltx/ltx-summarise.py`](../tools/ltx/ltx-summarise.py) recomputes from it.
-The same class bit twice — `/usr/bin/time`'s fields shifted by one because the
-log is stamped, so `$6` was `(kbytes):` instead of the number.
+**숫자를 문자열 비교한 awk.** 첫 요약이 실제 피크 48,016 MiB 실행에 피크 8,022 MiB를 보고했다. `"8022" > "42812"`가 사전순 맞는 까닭이다. raw 샘플 읽기 전에 틀린 숫자를 사용자에게 보고했다. 그 러너 모든 max가 이제 `+0` 강제한다. 실행이 살아남은 이유는 증인이 **파일**이라서다. `dmon.csv`가 있었다. 고치기 전 모든 테이크가 아직 읽힌다. [`tools/ltx/ltx-summarise.py`](../tools/ltx/ltx-summarise.py)가 거기서 다시 계산한다. 같은 부류가 두 번 물었다 — 스탬프 찍는 로그에 `/usr/bin/time` 필드가 하나 밀려서 `$6`이 숫자가 아니라 `(kbytes):`였다.
 
-**Overwriting a runner while it was running.** `bash` reads a script
-incrementally. An `scp` of a fixed `ltx-take.sh` landed during the third arm,
-which resumed inside a statement and died at line 88 with
-`syntax error near unexpected token ')'`. The arm's generation had already
-finished, so the data survived; what did not was the exit path, so the lease
-stayed in the file under a dead pid and the **fourth arm refused itself** on a
-lease nobody held. The repo already carries this lesson for chain scripts and it
-was re-learned one level down. Chains now run a snapshot of every runner they
-call, so a push mid-chain reaches only the next chain.
+**돌고 있는 러너를 덮어썼다.** `bash`가 스크립트 증분 읽는다. 고친 `ltx-take.sh`의 `scp`가 세 번째 arm 중에 떨어졌다. 문장 안에서 재개하고 88줄 `syntax error near unexpected token ')'`에 죽었다. 그 arm 생성이 끝나 있었다. 데이터가 살았다. 안 산 것이 종료 경로라서, 임대가 죽은 pid 밑 파일에 남고 **네 번째 arm이 주 없는 임대에 스스로 거부**됐다. 리포가 chain 스크립트에 이미 싣는 교훈인데 한 단계 아래에 다시 배웠다. chain이 이제 부르는 러너 전부를 스냅샷에 돌린다. 중간 푸시가 다음 chain에만 닿게.
 
-**A sweep tool that had been capping the wrong card.**
-[`tools/ik/gpu-power-sweep.sh`](../tools/ik/gpu-power-sweep.sh) addressed the
-board with `nvidia-smi -i 0`, which is bus order. The A6000 moved to bus 61 this
-morning, so `-i 0` had become the 3090 — default limit 420 W — while every
-comment in the file still said A6000. It would have swept a card that was never
-capped and reported "not power bound", which is the one answer that tool exists
-to rule out. Found before use, fixed to address the A6000 by UUID from
-`gpu-order.env`. This is the same failure class as the CUDA0 flip closed this
-morning, surviving in the one script nobody re-read.
+**잘못된 카드를 묶던 스위프 도구.** [`tools/ik/gpu-power-sweep.sh`](../tools/ik/gpu-power-sweep.sh)이 보드를 `nvidia-smi -i 0`에 지목했다. 버스 순서다. A6000이 아침에 버스 61에 옮겨서 `-i 0`이 3090 — 기본 제한 420 W — 이 됐다. 파일 모든 주석이 아직 A6000이라 말했다. 묶지 않은 카드를 스위프하고 "전력 bound 아님"을 보고했을 것이다. 그 도구가 배제하려고 있는 정확히 그 답이다. 사용 전 발견. `gpu-order.env`의 A6000 UUID 지목에 고쳤다. 아침 닫은 CUDA0 뒤집기와 같은 실패 부류다. 안 다시 읽은 스크립트 하나에 살아남았다.
 
-## What this settles and what it opens
+## 정해지는 것과 열리는 것
 
-Settled: a denoise step on this card is compute-bound, its decode stage is
-bandwidth-bound, and the served LLM is co-limited. The three exponents are the
-evidence the "which GPU" question was waiting for, and they say a faster core
-buys the denoise, a wider bus buys the decode, and the LLM takes both.
+정해짐: 이 카드 denoise 스텝이 연산-bound, 디코드 스테이지가 대역폭-bound, 서빙 LLM이 공동 제한이다. 세 지수가 "어느 GPU" 질문이 기다리던 증거다. 빠른 코어가 denoise를 사고, 넓은 버스가 디코드를 사고, LLM이 둘을 가져간다.
 
-Open, and now sharper:
+열림, 이제 날카롭게.
 
-- **The cold-disk number.** `--offload disk` was the fastest arm at 124 s with
-  the file in page cache. On a machine with less RAM than the model, it is a
-  different measurement.
-- **How long a clip fits**, properly: the decode stage wants 37 GB at 121
-  frames, `AUTO_TILING` adapts, and the cost of tiling harder is unmeasured.
-- **What the fan curve is worth on a long job**, now that it is written. Its
-  value is measured only against the overshoot: 16 °C on a 137-second take. The
-  steady state at 100 % fan and 296 W looks like the card's 84 °C target, reached
-  either way, so the honest test is a render of an hour with the daemon on and
-  off — which nothing here has run.
-- **FP8 is unavailable on Ampere at all**, and LTX-2.5 ships an `nvfp4`
-  transformer of 18 721 732 720 bytes and an int8 one of 21 504 034 224 that
-  this hardware cannot use. The bf16 file is 42 GB. That gap is a hardware
-  argument, not a software one.
+- **cold-디스크 숫자.** `--offload disk`가 페이지 캐시 파일에 124초 가장 빨랐다. 모델보다 RAM 적은 기계에 다른 측정이다.
+- **드는 클립 길이**, 제대로. 디코드 스테이지가 121프레임에 37 GB를 원한다. `AUTO_TILING`이 맞춘다. 세게 까는 값 미측정.
+- **긴 일의 팬 커브 값**, 이제 썼으니. 오버슈트 상대에만 측정된다. 137초 테이크 16 °C. 100% 팬·296 W steady state가 카드 84 °C 목표처럼 보인다.어느 쪽 길에도 닿는다. 정직한 시험이 데몬 on/off 1시간 렌더인데, 여기 안 돌렸다.
+- **Ampere에 FP8이 전혀 없다.** LTX-2.5가 18,721,732,720바이트 `nvfp4` 트랜스포머와 21,504,034,224 int8 하나를 내놓는데 이 하드웨어가 못 쓴다. bf16 파일이 42 GB다. 그 간격이 소프트웨어가 아니라 하드웨어 논거다.
