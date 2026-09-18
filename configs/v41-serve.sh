@@ -68,10 +68,25 @@ D=${D:-/models/DeepSeek-V4.1-Flash-DSpark/DeepSeek-V4.1-Flash-Fp8-128x742M-MXFP4
 
 . /home/user/gpu-order.env   # CUDA0 = A6000 by UUID (2026-09-16, slot move flipped PCI order); configs/gpu-order.env
 
+# C and NP are the serving defaults unless a measuring round overrides them, and unset they
+# reproduce this file as it ran before 2026-09-18 byte for byte. They exist because the batch
+# translation asks a different question of this placement than an interactive session does:
+# 140 independent requests in a queue care about aggregate throughput, not about one stream's
+# latency, and the only concurrency number this box has on this model is second-hand
+# (log/2026-09-14-air-cooler-swap.md: three concurrent decodes at 21 tok/s each against 28 for
+# one). -c divides between slots, so -np 3 at -c 16384 gives each request 5461 tokens, which
+# most parts of this repo do not fit in; measuring it needs both knobs at once.
+C=${C:-16384}
+NP=${NP:-}
+# PORT and EXTRA exist so that a measuring round does not need a second copy of the serving
+# line. There were two copies until 2026-09-18 -- this file and the one pasted into the batch
+# runner -- and a copy is a placement that drifts silently from the one the log describes.
+PORT=${PORT:-8001}
+EXTRA=${EXTRA:-}
 exec "$B" -m "$M" --alias DeepSeek-V4.1-Flash \
-  -c 16384 -ngl 99 -t 32 -b 2048 -ub 512 \
+  -c "$C" ${NP:+-np "$NP"} -ngl 99 -t 32 -b 2048 -ub 512 \
   --lazy-mode auto \
   -ot "blk\.[0-3]\.ffn_.*_exps=CUDA0,blk\.6\.ffn_down_exps=CUDA0,blk\.[4-5]\.ffn_.*_exps=CUDA1,blk\.6\.ffn_(gate|up)_exps=CUDA1,exps=CPU" \
   -md "$D" --spec-type draft-dspark --spec-draft-n-max 3 -otd "output_norm=CUDA0" \
-  --jinja \
-  --host 127.0.0.1 --port 8001
+  --jinja $EXTRA \
+  --host 127.0.0.1 --port "$PORT"
