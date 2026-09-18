@@ -4,7 +4,17 @@
 unusable since 00:01:51, when the RTX 3090 fell off the bus with Xid 79
 during another session's DDP run and the driver logged Xid 154 — "recovery
 action changed from 0x0 (None) to 0x2 (OS Reboot)" — for **both** cards; a
-`torch.cuda` init failed on the A6000 as well. The reboot was the user's
+`torch.cuda` init failed on the A6000 as well.
+~~Both cards were affected.~~ **Corrected 2026-09-18** by reading the driver
+source at the installed tag: Xid 154 is driven by a flag on the *system* object,
+not on a GPU, and every card in the box logs its own copy, so the A6000's line is
+not a statement about the A6000. Its failing `torch.cuda` init fits the same
+shape — UVM's fatal state is one module-wide atomic (`uvm_global.h:299`,
+commented "the driver should refuse to do anything other than try and clean up"),
+checked on the channel paths for every GPU — but that is the likely mechanism
+rather than one traced to this failure.
+[The source trace](2026-09-18-b-the-fault-reproduced.md)
+The reboot was the user's
 call and it was taken into BIOS setup rather than straight back to the
 desktop, because by then the fabric had a suspect.
 
