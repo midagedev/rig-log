@@ -117,6 +117,7 @@
 | 2026-09-18 | [24 GB 카드가 같은 슬롯에 돌아오다](log/2026-09-18-the-3090-goes-back-in.md) | 재장착 검사와 양 카드 상태 복귀 |
 | 2026-09-18 | [DDP 버스 이탈을 133초에 재현](log/2026-09-18-b-the-fault-reproduced.md) | 드라이버 소스로 Xid 79·154에 대한 기존 주장 **셋을 정정**했다 |
 | 2026-09-18 | [이 기계가 자기 로그를 번역하다](log/2026-09-18-c-a-local-model-translates-the-log.md) | 구조 게이트를 통과한 번역에도 천 단어당 **4.7건**의 의미 변경이 남는다 |
+| 2026-09-19 | [Rust로 쓴 첫 커널, 두 모델에 같은 스펙](log/2026-09-19-a-first-rust-kernel-two-arms.md) | cuda-oxide Q3_K gemv가 3090에서 ggml mmvq의 **0.40배**(134 대 333 GB/s), 오차는 1e-7. 같은 스펙에 muse가 GLM보다 2.1배 빠른 커널을 절반 시간에 |
 
 ## Upstream
 
