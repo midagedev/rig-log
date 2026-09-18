@@ -1,0 +1,50 @@
+[
+  {
+    "streams": 1,
+    "wall_s": 169.95,
+    "total_tokens": 2394,
+    "answered": 1,
+    "aggregate_tok_s": 14.1,
+    "per_stream_tok_s": [
+      27.6
+    ],
+    "ttft_s": [
+      83.139
+    ],
+    "errors": []
+  },
+  {
+    "streams": 2,
+    "wall_s": 370.21,
+    "total_tokens": 10257,
+    "answered": 2,
+    "aggregate_tok_s": 27.7,
+    "per_stream_tok_s": [
+      23.3,
+      15.6
+    ],
+    "ttft_s": [
+      18.037,
+      25.966
+    ],
+    "errors": []
+  },
+  {
+    "streams": 3,
+    "wall_s": 258.84,
+    "total_tokens": 6580,
+    "answered": 3,
+    "aggregate_tok_s": 25.4,
+    "per_stream_tok_s": [
+      12.8,
+      9.5,
+      12.0
+    ],
+    "ttft_s": [
+      69.271,
+      30.313,
+      68.872
+    ],
+    "errors": []
+  }
+]

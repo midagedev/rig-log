@@ -1,0 +1,52 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>translation ladder</title><style>
+:root{--bg:#0d1117;--panel:#161b22;--line:#30363d;--ink:#e6edf3;--dim:#8b949e;
+ --good:#3fb950;--bad:#f85149;--accent:#58a6ff;--ref:#a371f7}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);
+ font:22px/1.45 -apple-system,"Apple SD Gothic Neo","Segoe UI",Roboto,"Noto Sans KR",sans-serif;
+ width:1200px;height:1500px;padding:24px 30px;display:flex;flex-direction:column;gap:11px}
+h1{font-size:54px;font-weight:700;letter-spacing:-.025em;line-height:1.18}
+h1 span{color:var(--accent)}
+.sub{color:var(--dim);font-size:21px;line-height:1.45}
+.sub b{color:#c9d1d9;font-weight:600}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:13px 18px}
+.panel h2{font-size:17px;font-weight:700;color:var(--dim);text-transform:uppercase;
+ letter-spacing:.12em;margin-bottom:9px}
+table{border-collapse:collapse;width:100%;font-size:31px}
+th+th,td+td{padding-left:22px}
+th{text-align:right;color:var(--dim);font-weight:600;font-size:18px;padding:0 0 10px;
+ border-bottom:1px solid var(--line);letter-spacing:.04em;line-height:1.35}
+th:first-child,td:first-child{text-align:left}
+td{padding:9px 0;border-bottom:1px solid #21262d;text-align:right;white-space:nowrap;
+ font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+td.name,td[colspan]{white-space:normal}
+tr:last-child td{border-bottom:none}
+td.name{font-weight:600}
+td.name small{color:var(--dim);font-weight:400;font-size:19px;margin-left:9px}
+td.name em{color:#d29922;font-style:normal;font-size:18px;display:block;margin-top:2px}
+sup.dag{color:#8b949e;font-size:19px;font-weight:400}
+td.partial{font-size:24px;font-weight:600;color:#8b949e}
+.win td{color:var(--good)} .win td.name{color:var(--ink)}
+.ref td{color:var(--ref)} .ref td.name{color:var(--ink)}
+.dead td{color:var(--dim)} .dead td.name{color:#8b949e}
+.big{font-size:36px;font-weight:700}
+.ex{border-top:1px solid #21262d;padding:11px 0 3px}
+.ex:first-of-type{border-top:none;padding-top:4px}
+.ex .en{font-size:26px;margin-bottom:5px}
+.ex .en b{color:var(--accent);font-weight:700}
+.ex .why{color:var(--dim);font-size:19px;margin-bottom:9px}
+.r{display:grid;grid-template-columns:240px 1fr;gap:18px;align-items:baseline;padding:5px 0}
+.r .who{font-size:18px;color:var(--dim);text-align:right}
+.r .ko{font-size:27px}
+.r .ko b{font-weight:700}
+.r .back{display:block;font-size:19px;color:var(--dim);margin-top:4px}
+.r .back b{color:#c9d1d9}
+.ok .ko b{color:var(--good)} .ok .who::after{content:" ✓";color:var(--good)}
+.no .ko b{color:var(--bad)}  .no .who::after{content:" ✗";color:var(--bad)}
+.foot{color:var(--dim);font-size:16px;line-height:1.5;border-top:1px solid var(--line);
+ padding-top:10px;margin-top:auto}
+.foot b{color:#c9d1d9;font-weight:600}
+.tag{float:right;background:#1f2937;border:1px solid var(--line);border-radius:6px;
+ padding:4px 11px;font-size:16px;color:var(--dim);margin-left:12px}
+text{font-family:-apple-system,"Apple SD Gothic Neo","Segoe UI",Roboto,sans-serif}
+</style></head><body><h1>Speed against accuracy.<br><span>Circle area is the file on disk.</span></h1><p class="sub">One 1 711-word engineering document, English&nbsp;→&nbsp;Korean, sent whole at <code>temperature 0</code>. One workstation: RTX A6000 48&nbsp;GB + RTX 3090 24&nbsp;GB, 251&nbsp;GB RAM, 64 threads. Measured 2026-09-18.</p><div class="panel" style="flex:1;display:flex;align-items:center"><svg width="1104" height="980" viewBox="0 0 1104 980"><rect x="76" y="26" width="1006" height="892" fill="#0d1117" stroke="#30363d" rx="7"/><line x1="76" y1="616.3" x2="1082" y2="616.3" stroke="#21262d"/><text x="67" y="620.3" fill="#8b949e" font-size="20" text-anchor="end">2</text><line x1="76" y1="365.1" x2="1082" y2="365.1" stroke="#21262d"/><text x="67" y="369.1" fill="#8b949e" font-size="20" text-anchor="end">4</text><line x1="76" y1="113.9" x2="1082" y2="113.9" stroke="#21262d"/><text x="67" y="117.9" fill="#8b949e" font-size="20" text-anchor="end">6</text><text x="76.0" y="937" fill="#8b949e" font-size="20" text-anchor="middle">0</text><text x="290.6" y="937" fill="#8b949e" font-size="20" text-anchor="middle">50</text><text x="505.2" y="937" fill="#8b949e" font-size="20" text-anchor="middle">100</text><text x="719.9" y="937" fill="#8b949e" font-size="20" text-anchor="middle">150</text><text x="934.5" y="937" fill="#8b949e" font-size="20" text-anchor="middle">200</text><text x="579" y="974" fill="#8b949e" font-size="21" text-anchor="middle">decode tok/s  →  faster</text><text x="14" y="472" fill="#8b949e" font-size="21" text-anchor="middle" transform="rotate(-90 14 472)">meaning changed / 1k words</text><text x="88" y="45" fill="#f85149" font-size="20">▲ worse</text><text x="88" y="908" fill="#3fb950" font-size="20">▼ better</text><line x1="76" y1="794.1" x2="1082" y2="794.1" stroke="#a371f7" stroke-width="1.5" stroke-dasharray="7 5"/><text x="1073" y="786.1" fill="#a371f7" font-size="21" text-anchor="end">Claude Opus 5 — hosted, no rate on this machine</text><circle cx="157.1" cy="206.9" r="30.0" fill="#58a6ff" fill-opacity="0.22" stroke="#58a6ff" stroke-width="2"/><text x="197.1" y="214.9" fill="#e6edf3" font-size="23" text-anchor="start">K-EXAONE 236B</text><circle cx="157.6" cy="720.7" r="25.8" fill="#3fb950" fill-opacity="0.22" stroke="#3fb950" stroke-width="2"/><text x="193.4" y="674.7" fill="#e6edf3" font-size="23" text-anchor="start">DeepSeek-V4.1-Flash</text><circle cx="399.9" cy="280.3" r="20.4" fill="#58a6ff" fill-opacity="0.22" stroke="#58a6ff" stroke-width="2"/><text x="430.3" y="288.3" fill="#e6edf3" font-size="23" text-anchor="start">gpt-oss-120b</text><circle cx="216.2" cy="720.7" r="19.2" fill="#58a6ff" fill-opacity="0.22" stroke="#58a6ff" stroke-width="2"/><text x="245.4" y="782.7" fill="#e6edf3" font-size="23" text-anchor="start">Solar Open 100B</text><circle cx="373.7" cy="353.7" r="17.3" fill="#58a6ff" fill-opacity="0.22" stroke="#58a6ff" stroke-width="2"/><text x="401.1" y="361.7" fill="#e6edf3" font-size="23" text-anchor="start">Qwen3-Coder-Next</text><circle cx="297.3" cy="133.4" r="15.3" fill="#58a6ff" fill-opacity="0.22" stroke="#58a6ff" stroke-width="2"/><text x="322.6" y="141.5" fill="#e6edf3" font-size="23" text-anchor="start">Qwen3.6-35B Q6</text><circle cx="168.1" cy="573.9" r="15.1" fill="#58a6ff" fill-opacity="0.22" stroke="#58a6ff" stroke-width="2"/><text x="193.2" y="554.9" fill="#e6edf3" font-size="23" text-anchor="start">Gemma 4 31B</text><circle cx="537.9" cy="280.3" r="14.1" fill="#58a6ff" fill-opacity="0.22" stroke="#58a6ff" stroke-width="2"/><text x="513.8" y="261.3" fill="#e6edf3" font-size="23" text-anchor="end">Qwen3.6-35B Q4</text><circle cx="475.0" cy="353.7" r="12.8" fill="#58a6ff" fill-opacity="0.22" stroke="#58a6ff" stroke-width="2"/><text x="452.2" y="334.7" fill="#e6edf3" font-size="23" text-anchor="end">gpt-oss-20b</text></svg></div><p class="foot"><span class="tag">github.com/midagedev/rig-log</span>† not scored on the ladder's instrument. Solar Open 2 was read over all 33 blocks against Opus, V4.1 and Gemma 4 with the labels shuffled, and scored 1 meaning change — but so did V4.1 and Gemma 4 in that same sitting, which found 2 where the ladder's sitting found 7, so the sitting is the less sensitive one and its counts do not belong in this column. What it does say is that the three are tied. GLM was never read this way at all, and its column is identifiable by its broken characters.</p></body></html>

@@ -1,0 +1,52 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>translation ladder</title><style>
+:root{--bg:#0d1117;--panel:#161b22;--line:#30363d;--ink:#e6edf3;--dim:#8b949e;
+ --good:#3fb950;--bad:#f85149;--accent:#58a6ff;--ref:#a371f7}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);
+ font:22px/1.45 -apple-system,"Apple SD Gothic Neo","Segoe UI",Roboto,"Noto Sans KR",sans-serif;
+ width:1200px;height:1500px;padding:24px 30px;display:flex;flex-direction:column;gap:11px}
+h1{font-size:54px;font-weight:700;letter-spacing:-.025em;line-height:1.18}
+h1 span{color:var(--accent)}
+.sub{color:var(--dim);font-size:21px;line-height:1.45}
+.sub b{color:#c9d1d9;font-weight:600}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:13px 18px}
+.panel h2{font-size:17px;font-weight:700;color:var(--dim);text-transform:uppercase;
+ letter-spacing:.12em;margin-bottom:9px}
+table{border-collapse:collapse;width:100%;font-size:31px}
+th+th,td+td{padding-left:22px}
+th{text-align:right;color:var(--dim);font-weight:600;font-size:18px;padding:0 0 10px;
+ border-bottom:1px solid var(--line);letter-spacing:.04em;line-height:1.35}
+th:first-child,td:first-child{text-align:left}
+td{padding:9px 0;border-bottom:1px solid #21262d;text-align:right;white-space:nowrap;
+ font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+td.name,td[colspan]{white-space:normal}
+tr:last-child td{border-bottom:none}
+td.name{font-weight:600}
+td.name small{color:var(--dim);font-weight:400;font-size:19px;margin-left:9px}
+td.name em{color:#d29922;font-style:normal;font-size:18px;display:block;margin-top:2px}
+sup.dag{color:#8b949e;font-size:19px;font-weight:400}
+td.partial{font-size:24px;font-weight:600;color:#8b949e}
+.win td{color:var(--good)} .win td.name{color:var(--ink)}
+.ref td{color:var(--ref)} .ref td.name{color:var(--ink)}
+.dead td{color:var(--dim)} .dead td.name{color:#8b949e}
+.big{font-size:36px;font-weight:700}
+.ex{border-top:1px solid #21262d;padding:11px 0 3px}
+.ex:first-of-type{border-top:none;padding-top:4px}
+.ex .en{font-size:26px;margin-bottom:5px}
+.ex .en b{color:var(--accent);font-weight:700}
+.ex .why{color:var(--dim);font-size:19px;margin-bottom:9px}
+.r{display:grid;grid-template-columns:240px 1fr;gap:18px;align-items:baseline;padding:5px 0}
+.r .who{font-size:18px;color:var(--dim);text-align:right}
+.r .ko{font-size:27px}
+.r .ko b{font-weight:700}
+.r .back{display:block;font-size:19px;color:var(--dim);margin-top:4px}
+.r .back b{color:#c9d1d9}
+.ok .ko b{color:var(--good)} .ok .who::after{content:" ✓";color:var(--good)}
+.no .ko b{color:var(--bad)}  .no .who::after{content:" ✗";color:var(--bad)}
+.foot{color:var(--dim);font-size:16px;line-height:1.5;border-top:1px solid var(--line);
+ padding-top:10px;margin-top:auto}
+.foot b{color:#c9d1d9;font-weight:600}
+.tag{float:right;background:#1f2937;border:1px solid var(--line);border-radius:6px;
+ padding:4px 11px;font-size:16px;color:var(--dim);margin-left:12px}
+text{font-family:-apple-system,"Apple SD Gothic Neo","Segoe UI",Roboto,sans-serif}
+</style></head><body><h1>What no script can see<br><span>Every Korean line below reads perfectly.</span></h1><p class="sub">One 1 711-word engineering document, English&nbsp;→&nbsp;Korean, sent whole at <code>temperature 0</code>. One workstation: RTX A6000 48&nbsp;GB + RTX 3090 24&nbsp;GB, 251&nbsp;GB RAM, 64 threads. Measured 2026-09-18.</p><div class="panel" style="flex:1"><div class="ex"><div class="en">EN &nbsp;the exit handler removed the shared <b>busy</b> flag</div><div class="why">the fastest model in the table, on a word it had already used correctly twice</div><div class="r ok"><div class="who">DeepSeek-V4.1-Flash</div><div class="ko">공유 <b>busy</b> 플래그를 제거했고<span class="back">→ busy 그대로</span></div></div><div class="r no"><div class="who">Qwen3.6-35B Q4</div><div class="ko">공유 <b>바비</b> 플래그를 제거했고<span class="back">→ busy가 <b>‘바비’(Barbie)</b>가 됐다</span></div></div></div><div class="ex"><div class="en">EN &nbsp;This is not a compliance failure to be fixed by <b>a sterner sentence</b></div><div class="why">“sentence” has two meanings and only one of them is here</div><div class="r ok"><div class="who">DeepSeek-V4.1-Flash</div><div class="ko">더 엄한 <b>문장</b>으로 고칠 준수 실패가 아니다<span class="back">→ sentence를 <b>문장</b>으로 읽었다</span></div></div><div class="r no"><div class="who">Qwen3-Coder-Next</div><div class="ko">엄격한 <b>처벌</b>로 해결할 수 있는 준수 실패가 아니다<span class="back">→ sentence를 <b>형벌</b>로 읽었다</span></div></div></div><div class="ex"><div class="en">EN &nbsp;the training job saw both cards <b>at 1 MiB</b> under a held lease</div><div class="why">an exact reading turns into an inequality — and the log is about exact readings</div><div class="r ok"><div class="who">DeepSeek-V4.1-Flash</div><div class="ko">두 카드가 임대가 잡힌 상태에서 <b>1 MiB임을</b> 보고<span class="back">→ at을 <b>정확히 그 값</b>으로</span></div></div><div class="r no"><div class="who">Qwen3.6-35B Q6</div><div class="ko">두 카드가 모두 <b>1 MiB 미만</b>임을 보고<span class="back">→ at이 <b>미만</b>이 됐다</span></div></div></div><div class="ex"><div class="en">EN &nbsp;so <b>the reader</b> is the layer that has to tell “held” from “abandoned”</div><div class="why">eight of the nine got this one the same way, and wrong</div><div class="r ok"><div class="who">Claude Opus 5</div><div class="ko">가려야 하는 층은 <b>읽는 쪽</b>이다<span class="back">→ reader를 <b>읽는 쪽</b>으로</span></div></div><div class="r no"><div class="who">나머지 여덟 전부</div><div class="ko">구분해야 하는 계층은 <b>리더</b>다<span class="back">→ reader가 <b>리드(lead)</b>가 됐다 — 사람 역할 이름과 겹친다</span></div></div></div><div class="ex"><div class="en">EN &nbsp;one <b>500</b> on one prompt stopped a <b>twenty</b>-prompt arm at <b>eleven</b></div><div class="why">the structure gate passes this: 500, 20 and 11 all survive, rearranged</div><div class="r ok"><div class="who">Solar Open 2 250B</div><div class="ko">한 프롬프트에서 난 <b>500</b> 하나가 프롬프트 <b>20개</b>짜리 갈래를 <b>11개</b>에서 멈춰 세웠다<span class="back">→ 한 번의 오류가 <b>열한 번째</b>에서 멈췄다</span></div></div><div class="r no"><div class="who">Solar Open 100B</div><div class="ko">20개 프롬프트 중 <b>11개에서 500 오류가</b> 한 프롬프트를 멈추었다<span class="back">→ 오류가 <b>열한 건</b>이 됐다</span></div></div></div></div><p class="foot"><span class="tag">github.com/midagedev/rig-log</span><b>Structure</b> is a script: numbers, links, inline code, code fences, table shape and block count must survive byte-identical; it fails on six deliberate manglings before it is trusted. <b>Glossary</b> is a script too — the share of agreed terms that came out in the agreed Korean word. <b>Meaning changed</b> cannot be a script, so every version was read interleaved, one source paragraph at a time, with the model names hidden: one reader, one document per model, ±2, so models within 2 of each other are tied. Rates are the server's own accounting, not a toktape card, and fenced code blocks are held back from the request rather than protected by an instruction.</p></body></html>

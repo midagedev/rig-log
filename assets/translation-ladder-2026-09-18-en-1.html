@@ -1,0 +1,52 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>translation ladder</title><style>
+:root{--bg:#0d1117;--panel:#161b22;--line:#30363d;--ink:#e6edf3;--dim:#8b949e;
+ --good:#3fb950;--bad:#f85149;--accent:#58a6ff;--ref:#a371f7}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);
+ font:22px/1.45 -apple-system,"Apple SD Gothic Neo","Segoe UI",Roboto,"Noto Sans KR",sans-serif;
+ width:1200px;height:1500px;padding:24px 30px;display:flex;flex-direction:column;gap:11px}
+h1{font-size:54px;font-weight:700;letter-spacing:-.025em;line-height:1.18}
+h1 span{color:var(--accent)}
+.sub{color:var(--dim);font-size:21px;line-height:1.45}
+.sub b{color:#c9d1d9;font-weight:600}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:13px 18px}
+.panel h2{font-size:17px;font-weight:700;color:var(--dim);text-transform:uppercase;
+ letter-spacing:.12em;margin-bottom:9px}
+table{border-collapse:collapse;width:100%;font-size:31px}
+th+th,td+td{padding-left:22px}
+th{text-align:right;color:var(--dim);font-weight:600;font-size:18px;padding:0 0 10px;
+ border-bottom:1px solid var(--line);letter-spacing:.04em;line-height:1.35}
+th:first-child,td:first-child{text-align:left}
+td{padding:9px 0;border-bottom:1px solid #21262d;text-align:right;white-space:nowrap;
+ font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+td.name,td[colspan]{white-space:normal}
+tr:last-child td{border-bottom:none}
+td.name{font-weight:600}
+td.name small{color:var(--dim);font-weight:400;font-size:19px;margin-left:9px}
+td.name em{color:#d29922;font-style:normal;font-size:18px;display:block;margin-top:2px}
+sup.dag{color:#8b949e;font-size:19px;font-weight:400}
+td.partial{font-size:24px;font-weight:600;color:#8b949e}
+.win td{color:var(--good)} .win td.name{color:var(--ink)}
+.ref td{color:var(--ref)} .ref td.name{color:var(--ink)}
+.dead td{color:var(--dim)} .dead td.name{color:#8b949e}
+.big{font-size:36px;font-weight:700}
+.ex{border-top:1px solid #21262d;padding:11px 0 3px}
+.ex:first-of-type{border-top:none;padding-top:4px}
+.ex .en{font-size:26px;margin-bottom:5px}
+.ex .en b{color:var(--accent);font-weight:700}
+.ex .why{color:var(--dim);font-size:19px;margin-bottom:9px}
+.r{display:grid;grid-template-columns:240px 1fr;gap:18px;align-items:baseline;padding:5px 0}
+.r .who{font-size:18px;color:var(--dim);text-align:right}
+.r .ko{font-size:27px}
+.r .ko b{font-weight:700}
+.r .back{display:block;font-size:19px;color:var(--dim);margin-top:4px}
+.r .back b{color:#c9d1d9}
+.ok .ko b{color:var(--good)} .ok .who::after{content:" ✓";color:var(--good)}
+.no .ko b{color:var(--bad)}  .no .who::after{content:" ✗";color:var(--bad)}
+.foot{color:var(--dim);font-size:16px;line-height:1.5;border-top:1px solid var(--line);
+ padding-top:10px;margin-top:auto}
+.foot b{color:#c9d1d9;font-weight:600}
+.tag{float:right;background:#1f2937;border:1px solid var(--line);border-radius:6px;
+ padding:4px 11px;font-size:16px;color:var(--dim);margin-left:12px}
+text{font-family:-apple-system,"Apple SD Gothic Neo","Segoe UI",Roboto,sans-serif}
+</style></head><body><h1>11 local models translate the same page.<br><span>The fastest is 4× wronger. The most accurate takes 11× longer.</span></h1><p class="sub">One 1 711-word engineering document, English&nbsp;→&nbsp;Korean, sent whole at <code>temperature 0</code>. One workstation: RTX A6000 48&nbsp;GB + RTX 3090 24&nbsp;GB, 251&nbsp;GB RAM, 64 threads. Measured 2026-09-18. <b>This page × 78 is the whole repo, 134k words — a multiplication, not a measurement.</b></p><div class="panel" style="flex:1"><h2>every rung</h2><table><thead><tr><th>model</th><th>this<br>page</th><th>tok/s</th><th>structure</th><th>glossary</th><th>meaning<br>changed /1k</th></tr></thead><tbody><tr class="ref"><td class="name">Claude Opus 5<small>not this machine</small></td><td class="big">—</td><td>—</td><td><span style="color:#3fb950">clean</span></td><td>100%</td><td class="big">0.6</td></tr><tr class="win"><td class="name">DeepSeek-V4.1-Flash<small>100 GB · both cards + RAM + NVMe</small></td><td class="big">181 s</td><td>28</td><td><span style="color:#3fb950">clean</span></td><td>100%</td><td class="big">1.2</td></tr><tr><td class="name">Solar Open 100B<small>55.5 GB · both cards</small></td><td class="big">31 s</td><td>79</td><td><span style="color:#f85149">2 FAIL</span></td><td>80%</td><td class="big">1.2</td></tr><tr><td class="name">Gemma 4 31B<small>27.5 GB · A6000</small></td><td class="big">76 s</td><td>44</td><td><span style="color:#3fb950">clean</span></td><td>100%</td><td class="big">2.3</td></tr><tr><td class="name">Qwen3-Coder-Next<small>42.7 GB · both cards</small></td><td class="big">32 s</td><td>124</td><td><span style="color:#3fb950">clean</span></td><td>90%</td><td class="big">4.1</td></tr><tr><td class="name">gpt-oss-20b<small>12.1 GB · 3090</small></td><td class="big">16 s</td><td>204</td><td><span style="color:#f85149">1 FAIL</span></td><td>90%</td><td class="big">4.1</td></tr><tr><td class="name">Qwen3.6-35B Q4<small>20.8 GB · 3090</small></td><td class="big">22 s</td><td>147</td><td><span style="color:#f85149">2 FAIL</span></td><td>89%</td><td class="big">4.7</td></tr><tr><td class="name">gpt-oss-120b<small>63.4 GB · both cards</small></td><td class="big">25 s</td><td>133</td><td><span style="color:#f85149">1 FAIL</span></td><td>90%</td><td class="big">4.7</td></tr><tr><td class="name">K-EXAONE 236B<small>128 GB · both cards + RAM</small></td><td class="big">150 s</td><td>19</td><td><span style="color:#f85149">1 FAIL</span></td><td>90%</td><td class="big">5.3</td></tr><tr><td class="name">Qwen3.6-35B Q6<small>29.3 GB · A6000</small></td><td class="big">24 s</td><td>129</td><td><span style="color:#3fb950">clean</span></td><td>80%</td><td class="big">5.8</td></tr><tr><td class="name">Solar Open 2 250B<small>127 GB · both cards + RAM</small><em>draft rope → “초안 로프”, an English verb left inflected (“costing했다”)</em></td><td class="big">93 s</td><td>31</td><td><span style="color:#3fb950">clean</span></td><td>100%</td><td class="partial">—<sup class="dag">†</sup></td></tr><tr><td class="name">GLM-5.3-Flash exl3<small>154 GB · both cards + RAM, exl3-serve</small><em>18 U+FFFD, 2 Han, final table left in English</em></td><td class="big">177 s</td><td>27</td><td><span style="color:#3fb950">clean</span></td><td>94%</td><td class="partial">—<sup class="dag">†</sup></td></tr></tbody></table></div><p class="foot"><span class="tag">github.com/midagedev/rig-log</span><b>Structure</b> is a script: numbers, links, inline code, code fences, table shape and block count must survive byte-identical; it fails on six deliberate manglings before it is trusted. <b>Glossary</b> is a script too — the share of agreed terms that came out in the agreed Korean word. <b>Meaning changed</b> cannot be a script, so every version was read interleaved, one source paragraph at a time, with the model names hidden: one reader, one document per model, ±2, so models within 2 of each other are tied. Rates are the server's own accounting, not a toktape card, and fenced code blocks are held back from the request rather than protected by an instruction. † not scored on the ladder's instrument. Solar Open 2 was read over all 33 blocks against Opus, V4.1 and Gemma 4 with the labels shuffled, and scored 1 meaning change — but so did V4.1 and Gemma 4 in that same sitting, which found 2 where the ladder's sitting found 7, so the sitting is the less sensitive one and its counts do not belong in this column. What it does say is that the three are tied. GLM was never read this way at all, and its column is identifiable by its broken characters.</p></body></html>

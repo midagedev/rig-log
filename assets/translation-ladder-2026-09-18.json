@@ -1,0 +1,336 @@
+{
+ "source": "docs/quiet-machine.md",
+ "source_words": 1711,
+ "instrument": "interleaved blind read, four columns, labels shuffled (tools/align-translations.py)",
+ "calibration": "the same qwen36-q6 output scored 8 meaning changes read alone and 10 read interleaved, so every row is the interleaved instrument; DeepSeek-V4.1 was put unlabelled into both blind sittings and scored 2 in each, which is the reader's own repeatability; V4.1 was in all three blind sittings unlabelled and scored 2 in every one",
+ "rows": [
+  {
+   "tag": "qwen36-q4",
+   "name": "Qwen3.6-35B-A3B UD-Q4_K_XL",
+   "gb": 20.8,
+   "where": "3090",
+   "prefill": 3070.0,
+   "decode": 146.8,
+   "ratio": 0.968,
+   "wall": 21.5,
+   "load_s": 20,
+   "gate_fail": 2,
+   "glossary": 89,
+   "meaning": 8,
+   "terminology": 7,
+   "short": "Qwen3.6-35B Q4"
+  },
+  {
+   "tag": "qwen36-q6",
+   "name": "Qwen3.6-35B-A3B UD-Q6_K",
+   "gb": 29.3,
+   "where": "A6000",
+   "prefill": 2741.2,
+   "decode": 128.7,
+   "ratio": 0.955,
+   "wall": 24.2,
+   "load_s": 26,
+   "gate_fail": 0,
+   "glossary": 80,
+   "meaning": 10,
+   "terminology": 7,
+   "short": "Qwen3.6-35B Q6"
+  },
+  {
+   "tag": "coder-next",
+   "name": "Qwen3-Coder-Next IQ4_XS",
+   "gb": 42.7,
+   "where": "both cards",
+   "prefill": 2515.3,
+   "decode": 123.7,
+   "ratio": 1.211,
+   "wall": 32.0,
+   "load_s": 5,
+   "gate_fail": 0,
+   "glossary": 90,
+   "meaning": 7,
+   "terminology": 6,
+   "note": "served through /completions; llama-server answers every chat completion with HTTP 500",
+   "short": "Qwen3-Coder-Next"
+  },
+  {
+   "tag": "v41",
+   "name": "DeepSeek-V4.1-Flash Q3_K_M",
+   "gb": 100,
+   "where": "both cards + RAM + NVMe",
+   "prefill": 56.8,
+   "decode": 28.1,
+   "ratio": 1.165,
+   "wall": 181.3,
+   "load_s": 172,
+   "gate_fail": 0,
+   "glossary": 100,
+   "meaning": 2,
+   "terminology": 4,
+   "short": "DeepSeek-V4.1-Flash"
+  },
+  {
+   "tag": "gemma4-q6",
+   "name": "Gemma 4 31B-it UD-Q6_K_XL",
+   "short": "Gemma 4 31B",
+   "gb": 27.5,
+   "where": "A6000",
+   "prefill": 924.5,
+   "decode": 44.3,
+   "ratio": 1.014,
+   "wall": 76.1,
+   "load_s": 26,
+   "gate_fail": 0,
+   "glossary": 100,
+   "meaning": 4,
+   "terminology": 3
+  },
+  {
+   "tag": "kexaone-user",
+   "name": "K-EXAONE-236B-A23B IQ4_XS",
+   "short": "K-EXAONE 236B",
+   "gb": 128,
+   "where": "both cards + RAM",
+   "prefill": 115.2,
+   "decode": 18.9,
+   "ratio": 0.862,
+   "wall": 150.4,
+   "load_s": 79,
+   "gate_fail": 1,
+   "glossary": 90,
+   "meaning": 9,
+   "terminology": 6,
+   "note": "instruction in the user turn; as a system message this model rewrote the document instead of translating it (7 FAIL)"
+  },
+  {
+   "tag": "opus",
+   "name": "Claude Opus 5 (hosted)",
+   "short": "Claude Opus 5",
+   "gb": 0,
+   "where": "not this machine",
+   "prefill": null,
+   "decode": null,
+   "ratio": null,
+   "wall": null,
+   "load_s": null,
+   "gate_fail": 0,
+   "glossary": 100,
+   "meaning": 1,
+   "terminology": 3,
+   "reference": true,
+   "note": "same system prompt and same masked document, byte-identical via --dump-request. No time is reported: the only wall this session can measure is a subagent round -- start-up, two tool round trips, generation, one write, 227 s on 2026-09-18 -- and next to llama.cpp's own decode timings that would read as this model being slower than every local one, which is a fact about the harness and not about the model. Quality only. Read blind against V4.1 and Gemma 4 by a reader who is also Opus: the one row here whose scorer shares a family with the model"
+  },
+  {
+   "tag": "gptoss-20b",
+   "name": "gpt-oss-20b MXFP4",
+   "short": "gpt-oss-20b",
+   "gb": 12.1,
+   "where": "3090",
+   "prefill": 4977.6,
+   "decode": 203.8,
+   "ratio": 1.008,
+   "wall": 15.8,
+   "load_s": 5,
+   "gate_fail": 1,
+   "glossary": 90,
+   "meaning": 7,
+   "terminology": 5,
+   "note": "reasoning model: thinking cannot be switched off, only turned down (--reasoning-effort low), so this row's tokens and time include whatever analysis remained"
+  },
+  {
+   "tag": "gptoss-120b",
+   "name": "gpt-oss-120b MXFP4",
+   "short": "gpt-oss-120b",
+   "gb": 63.4,
+   "where": "both cards",
+   "prefill": 1978.7,
+   "decode": 132.6,
+   "ratio": 1.019,
+   "wall": 25.1,
+   "load_s": 38,
+   "gate_fail": 1,
+   "glossary": 90,
+   "meaning": 8,
+   "terminology": 4,
+   "note": "same reasoning caveat as gpt-oss-20b; the native MXFP4 release, not a requantization"
+  },
+  {
+   "tag": "glm53",
+   "name": "GLM-5.3-Flash exl3 4.05bpw",
+   "short": "GLM-5.3-Flash exl3",
+   "gb": 154,
+   "where": "both cards + RAM, exl3-serve",
+   "prefill": 151.8,
+   "decode": 26.6,
+   "ratio": 1.327,
+   "wall": 177.0,
+   "load_s": 178,
+   "gate_fail": 0,
+   "glossary": 94,
+   "meaning": null,
+   "terminology": null,
+   "note": "Three attempts through TabbyAPI produced no translation at all before the tapes in assets/ were read: summary.server.kind on every GLM take here is `exllamav3`, not tabbyAPI, and ~/tabbyAPI-config.yml says in its own first line that it exists for the #454 check. The rate above is from exl3-serve with the recorded arguments. Their -cs 8192 came from a short-prompt streaming demo; at 3 129 prompt tokens it capped generation at 4 096 and cut the answer, and -cs 16384 never became healthy at -gs 44,21 in 26 minutes, so the run stands as the truncated one. The structure gate passed it at 1 FAIL: table shape and block count survive when a table is left untranslated, which is a hole in that gate worth naming",
+   "defect": "18 U+FFFD, 2 Han, final table left in English",
+   "defect_ko": "U+FFFD 18개, 한자 2자, 마지막 표는 영어로 남음",
+   "read": "partial"
+  },
+  {
+   "tag": "solar100",
+   "name": "Solar Open 100B IQ4_XS",
+   "short": "Solar Open 100B",
+   "gb": 55.5,
+   "where": "both cards",
+   "prefill": 1521.5,
+   "decode": 79.2,
+   "ratio": 0.775,
+   "wall": 31.3,
+   "load_s": 7,
+   "gate_fail": 2,
+   "glossary": 80,
+   "meaning": 2,
+   "terminology": 8,
+   "note": "fabricated a four-line code block into a fence it was never shown"
+  },
+  {
+   "tag": "solar2",
+   "name": "Solar Open 2 250B-A15B IQ4_XS",
+   "short": "Solar Open 2 250B",
+   "gb": 127,
+   "where": "both cards + RAM",
+   "prefill": 176.5,
+   "decode": 30.9,
+   "ratio": 0.807,
+   "wall": 93.2,
+   "load_s": 43,
+   "gate_fail": 0,
+   "glossary": 100,
+   "meaning": null,
+   "terminology": 0,
+   "read": "partial",
+   "note": "runs through a community patch; solar_open2 is not in upstream llama.cpp",
+   "second_sitting": {
+    "solar2": 1,
+    "v41": 1,
+    "gemma4": 1,
+    "opus": 0,
+    "blocks": 33
+   },
+   "defect": "draft rope → “초안 로프”, an English verb left inflected (“costing했다”)",
+   "defect_ko": "draft rope를 “초안 로프”로, 영어 동사를 그대로 (“costing했다”)"
+  }
+ ],
+ "examples": [
+  {
+   "en": "the exit handler removed the shared <b>busy</b> flag",
+   "why": "the fastest model in the table, on a word it had already used correctly twice",
+   "renderings": [
+    {
+     "who": "DeepSeek-V4.1-Flash",
+     "ko": "공유 <b>busy</b> 플래그를 제거했고",
+     "back": "busy 그대로",
+     "ok": true,
+     "back_en": "the shared busy flag"
+    },
+    {
+     "who": "Qwen3.6-35B Q4",
+     "ko": "공유 <b>바비</b> 플래그를 제거했고",
+     "back": "busy가 <b>‘바비’(Barbie)</b>가 됐다",
+     "ok": false,
+     "back_en": "the shared <b>Barbie</b> flag"
+    }
+   ],
+   "why_ko": "표에서 가장 빠른 모델이, 같은 단어를 이미 두 번 제대로 쓰고 난 뒤에",
+   "why_en": "the fastest model in the table, on a word it had already used correctly twice"
+  },
+  {
+   "en": "This is not a compliance failure to be fixed by <b>a sterner sentence</b>",
+   "why": "“sentence” has two meanings and only one of them is here",
+   "renderings": [
+    {
+     "who": "DeepSeek-V4.1-Flash",
+     "ko": "더 엄한 <b>문장</b>으로 고칠 준수 실패가 아니다",
+     "back": "sentence를 <b>문장</b>으로 읽었다",
+     "ok": true,
+     "back_en": "…by a sterner sentence of prose"
+    },
+    {
+     "who": "Qwen3-Coder-Next",
+     "ko": "엄격한 <b>처벌</b>로 해결할 수 있는 준수 실패가 아니다",
+     "back": "sentence를 <b>형벌</b>로 읽었다",
+     "ok": false,
+     "back_en": "…by a harsher <b>punishment</b>"
+    }
+   ],
+   "why_ko": "sentence에는 뜻이 둘 있고, 여기 있는 건 그중 하나뿐이다",
+   "why_en": "“sentence” has two meanings and only one of them is here"
+  },
+  {
+   "en": "the training job saw both cards <b>at 1 MiB</b> under a held lease",
+   "why": "an exact reading turns into an inequality — and the log is about exact readings",
+   "renderings": [
+    {
+     "who": "DeepSeek-V4.1-Flash",
+     "ko": "두 카드가 임대가 잡힌 상태에서 <b>1 MiB임을</b> 보고",
+     "back": "at을 <b>정확히 그 값</b>으로",
+     "ok": true,
+     "back_en": "…both cards <b>at</b> 1 MiB"
+    },
+    {
+     "who": "Qwen3.6-35B Q6",
+     "ko": "두 카드가 모두 <b>1 MiB 미만</b>임을 보고",
+     "back": "at이 <b>미만</b>이 됐다",
+     "ok": false,
+     "back_en": "…both cards <b>below</b> 1 MiB"
+    }
+   ],
+   "why_ko": "정확한 측정값이 부등호가 됐다 — 이 로그는 정확한 측정값에 관한 글이다",
+   "why_en": "an exact reading turns into an inequality — and the log is about exact readings"
+  },
+  {
+   "en": "so <b>the reader</b> is the layer that has to tell “held” from “abandoned”",
+   "why": "eight of the nine got this one the same way, and wrong",
+   "why_ko": "아홉 중 여덟이 똑같이, 똑같은 방향으로 틀렸다 — 이 레포에서 리드는 사람 역할 이름이다",
+   "renderings": [
+    {
+     "who": "Claude Opus 5",
+     "ko": "가려야 하는 층은 <b>읽는 쪽</b>이다",
+     "back": "reader를 <b>읽는 쪽</b>으로",
+     "back_en": "the one who reads",
+     "ok": true
+    },
+    {
+     "who": "나머지 여덟 전부",
+     "ko": "구분해야 하는 계층은 <b>리더</b>다",
+     "back": "reader가 <b>리드(lead)</b>가 됐다 — 사람 역할 이름과 겹친다",
+     "back_en": "the reader became the lead",
+     "ok": false
+    }
+   ]
+  },
+  {
+   "en": "one <b>500</b> on one prompt stopped a <b>twenty</b>-prompt arm at <b>eleven</b>",
+   "why": "the structure gate passes this: 500, 20 and 11 all survive, rearranged",
+   "why_en": "the structure gate passes this: 500, 20 and 11 all survive, rearranged",
+   "why_ko": "구조 게이트는 이걸 통과시킨다 — 500도 20도 11도 살아남았고, 자리만 바뀌었다",
+   "renderings": [
+    {
+     "who": "Solar Open 2 250B",
+     "ok": true,
+     "ko": "한 프롬프트에서 난 <b>500</b> 하나가 프롬프트 <b>20개</b>짜리 갈래를 <b>11개</b>에서 멈춰 세웠다",
+     "back": "한 번의 오류가 <b>열한 번째</b>에서 멈췄다",
+     "back_en": "<b>one</b> error stopped it at the <b>eleventh</b>"
+    },
+    {
+     "who": "Solar Open 100B",
+     "ok": false,
+     "ko": "20개 프롬프트 중 <b>11개에서 500 오류가</b> 한 프롬프트를 멈추었다",
+     "back": "오류가 <b>열한 건</b>이 됐다",
+     "back_en": "<b>eleven</b> errors, not one"
+    }
+   ]
+  }
+ ],
+ "repo_words": 133869,
+ "read_note": "† not scored on the ladder's instrument. Solar Open 2 was read over all 33 blocks against Opus, V4.1 and Gemma 4 with the labels shuffled, and scored 1 meaning change — but so did V4.1 and Gemma 4 in that same sitting, which found 2 where the ladder's sitting found 7, so the sitting is the less sensitive one and its counts do not belong in this column. What it does say is that the three are tied. GLM was never read this way at all, and its column is identifiable by its broken characters.",
+ "read_note_ko": "† 사다리의 계측으로 재지 않았다. Solar Open 2는 33블록 전부를 Opus·V4.1·Gemma 4와 라벨 가린 채 읽어 의미 오류 1건이 나왔는데, 같은 자리에서 V4.1도 Gemma 4도 1건이었다 — 사다리 판정이 7건을 찾은 자리에서 이 판정은 2건을 찾았으니, 덜 예민한 자이고 그 숫자는 이 열에 들어갈 수 없다. 대신 말해 주는 것은 셋이 동률이라는 사실이다. GLM은 이런 식으로 읽힌 적이 아예 없고, 깨진 문자 때문에 열이 식별된다."
+}
