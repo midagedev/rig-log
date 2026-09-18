@@ -1,0 +1,78 @@
+# Both GPUs' fan curves, run as machine state rather than per take.
+#
+# One unit, one daemon, two curves (user instruction 2026-09-18: "하나로 통합하자"). The two
+# cards do not share a target, so the curve is given per card by UUID; a card this file does
+# not name would abort the daemon rather than inherit somebody else's curve.
+#
+# Why it exists, measured 2026-09-18 in one 10-minute gpu_burn on both cards at once:
+#
+#   card                  max die   mean fan   mean SM    thermally slowed
+#   RTX 3090, managed      77 C      88.5 %    1574 MHz   --
+#   RTX A6000, own curve   88 C      66.4 %    1396 MHz   500 s of 600 = 83 % of the run
+#
+# The 300 W card ran 11 C hotter than the 418 W card and answered with 22 points less fan.
+# That is not a quirk of this load: the same shape was measured on an LTX-2.5 denoise on
+# 2026-09-16, where forcing 100 % was worth 16 C for 2.7 % of the rate. Both cards' own
+# controllers treat their thermal target as a place to sit; these curves treat it as a line
+# not to reach, and top out at it -- 75 C for the 3090, 80 C for the A6000, each measured as
+# where that card settles under a full-power load.
+#
+# THIS CHANGES EVERY THERMAL NUMBER TAKEN ON EITHER CARD FROM ITS INSTALL DATE ON. There is a
+# dated row in docs/machine-changes.md. For a matched pair against anything recorded before
+# it, `systemctl stop gpu-fan` first and say so in the entry -- and do not run
+# tools/with-fan-curve.sh against a managed card while this unit is up, or two daemons command
+# the same fan.
+#
+# The floor is 30 % on both cards, which is not a preference: measured 2026-09-18, NVML accepts
+# a manual 0 on each of them, reports it set, and the fan holds 30 % for as long as anything
+# but the card owns it. Zero RPM exists only under the card's own control
+# (gpu-fan-curve.py --auto-below), and the user's call was that a fan turning slowly at idle is
+# not worth that mode switch. So this runs in exactly one state, manual, always.
+#
+# The SIGKILL hole and how it is closed: a daemon killed with SIGKILL cannot restore the fans.
+# ExecStopPost runs whether the main process exited cleanly or was killed -- verified by SIGKILL
+# on 2026-09-17, which restored both channels and restarted five seconds later -- and
+# Restart=always brings the policy back after it.
+#
+# The hole that belt was quietly carrying, found 2026-09-18 06:01 by a peer session polling
+# through a stop: ExecStart ran the daemon under `uv run`, so systemd's main pid was uv and the
+# daemon's own SIGTERM handler never fired -- its "restored N cards" line is absent from the
+# journal of every stop before this. systemd waited out the full 90 s TimeoutStopSec, SIGKILLed
+# both processes and the unit ended `failed`. For those ninety seconds the fan stayed in
+# policy=manual at its last commanded 32 % while a 296 W job took the die from 60 C to 79 C,
+# because **the card's own curve cannot intervene while manual is held**. A dead controller
+# holding a manual fan is worse than no controller at all.
+#
+# Three changes, each closing a different part of it:
+#   - ExecStart is the venv's python directly, so the main pid IS the daemon and SIGTERM
+#     reaches it. Stop is now graceful and immediate instead of a 90-second timeout.
+#   - TimeoutStopSec=10, so even a wedged daemon reaches ExecStopPost in seconds.
+#   - Type=notify with WatchdogSec=30, because Restart=always does not cover a daemon that
+#     HANGS rather than exits -- nothing fires, no log line, and the fan stays frozen at a stale
+#     percent indefinitely. With the watchdog systemd kills and restarts it, and ExecStopPost
+#     hands the fans back on the way through, bounding the stale window to about forty seconds.
+# Verify with tools/gpu-fan-stop-check.sh, which is the FAIL-first for all three.
+#
+# Install: cp to /etc/systemd/system/, systemctl daemon-reload, enable --now.
+
+[Unit]
+Description=GPU fan curves, both cards (NVML, headless — no X on this box)
+After=nvidia-persistenced.service
+Wants=nvidia-persistenced.service
+
+[Service]
+Type=notify
+NotifyAccess=main
+WatchdogSec=30
+TimeoutStopSec=10
+Environment=GF3090=GPU-307fa0f6-daae-24e5-6fd3-cd50620de6b1
+Environment=A6000=GPU-8c129fa6-7382-35a5-2464-9ff01d99fcd4
+Environment=C3090=50:30,58:45,65:65,70:85,75:100
+Environment=CA6000=50:30,62:45,70:65,75:85,80:100
+ExecStart=/home/user/.venv-gpufan/bin/python /home/user/gpu-fan-curve.py --curve ${GF3090}=${C3090} --curve ${A6000}=${CA6000} --floor 30 --deadband 4 --interval 5
+ExecStopPost=/usr/local/bin/uv run --with nvidia-ml-py python /home/user/gpu-fan.py --all-auto
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
