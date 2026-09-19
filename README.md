@@ -117,7 +117,7 @@
 | 2026-09-18 | [24 GB 카드가 같은 슬롯에 돌아오다](log/2026-09-18-the-3090-goes-back-in.md) | 재장착 검사와 양 카드 상태 복귀 |
 | 2026-09-18 | [DDP 버스 이탈을 133초에 재현](log/2026-09-18-b-the-fault-reproduced.md) | 드라이버 소스로 Xid 79·154에 대한 기존 주장 **셋을 정정**했다 |
 | 2026-09-18 | [이 기계가 자기 로그를 번역하다](log/2026-09-18-c-a-local-model-translates-the-log.md) | 구조 게이트를 통과한 번역에도 천 단어당 **4.7건**의 의미 변경이 남는다 |
-| 2026-09-19 | [Rust로 쓴 첫 커널, 두 모델에 같은 스펙](log/2026-09-19-a-first-rust-kernel-two-arms.md) | cuda-oxide Q3_K gemv가 3090에서 ggml mmvq의 **1.86배**(620 대 333 GB/s, M=8은 1.20배). 세 라운드 여섯 팔, 하루: 0.40 → 1.05 → 두 팔의 직교 레버를 합쳐 1.86 |
+| 2026-09-19 | [Rust로 쓴 첫 커널, 두 모델에 같은 스펙](log/2026-09-19-a-first-rust-kernel-two-arms.md) | cuda-oxide Q3_K gemv가 3090에서 ggml mmvq의 **1.86배**(620 대 333 GB/s, M=8은 1.20배). 네 라운드 열 팔, 하루: 0.40 → 1.05 → 두 팔의 직교 레버를 합쳐 1.86; 4라운드는 CPU AVX2 gemv(ggml의 1.1배 이상, 147.7 GB/s '천장' 정정)와 cuda-oxide ICE 원인 두 줄 |
 
 ## Upstream
 
