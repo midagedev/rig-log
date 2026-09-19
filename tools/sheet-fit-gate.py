@@ -14,11 +14,16 @@ PROBE = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--probe=
 # see the sheet's bottom edge, so a grid row whose content overflows into the next row passed
 # (2026-09-19, the share card: the main columns ran 30 px into the method lines).
 STACK = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--stack=")), None)
+# --size=WxH : the card's own capture geometry. The placement sheet is 16/9 at 1248x702; the
+# card-news sheets are square, and a gate that only knows one shape refuses the others.
+SIZE = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--size=")), "1248x702")
+SW, SH = (int(v) for v in SIZE.lower().split("x"))
+args = [a for a in args if not a.startswith("--size")]
 args = [a for a in args if not a.startswith("--stack")]
 SRC = pathlib.Path(args[0] if args else "assets/placement-sheet.html").resolve()
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 probe = """
-<style>.sheet{width:1248px!important;max-width:none!important;height:702px!important;aspect-ratio:auto!important}</style>
+<style>.sheet{width:SHEET_Wpx!important;max-width:none!important;height:SHEET_Hpx!important;aspect-ratio:auto!important}</style>
 <script>
 addEventListener('load', () => setTimeout(() => {
   const sheet = document.querySelector('.sheet');
@@ -52,12 +57,13 @@ DEFAULT = ['.maplbl', '.legend', '.legend div:last-child', '.obs div:last-child'
 sels = PROBE.split(",") if PROBE else DEFAULT
 probe = probe.replace("SELECTORS", repr(sels))
 probe = probe.replace("STACKSEL", repr(STACK.split(",") if STACK else []))
+probe = probe.replace("SHEET_W", str(SW)).replace("SHEET_H", str(SH))
 html = SRC.read_text()
 with tempfile.TemporaryDirectory() as td:
     t = pathlib.Path(td) / "probe.html"
     t.write_text(html + probe)
     out = subprocess.run([CHROME, "--headless", "--disable-gpu", "--hide-scrollbars",
-                          "--force-device-scale-factor=2", "--window-size=1280,750",
+                          "--force-device-scale-factor=2", "--window-size=%d,%d" % (SW + 32, SH + 48),
                           "--virtual-time-budget=8000", "--dump-dom", t.as_uri()],
                          capture_output=True, text=True).stdout
 m = re.search(r"<title>FITGATE ([^<]*)</title>", out)
@@ -75,8 +81,8 @@ for part in parts:
         print(f"{'-'*26} {f[1]:>8} {f[2]:>22}"); continue
     if f[0] == "GEOMETRY":
         print(f"{'geometry':26} {f[1]}")
-        if not f[1].startswith("sheet 1248x702"):
-            bad.append("gate measured the wrong geometry (%s); the committed shot is 1248x702 at dpr 2" % f[1])
+        if not f[1].startswith("sheet %dx%d" % (SW, SH)):
+            bad.append("gate measured the wrong geometry (%s); this sheet is %dx%d at dpr 2" % (f[1], SW, SH))
         continue
     if f[0] == "STACK":
         gap = float(f[2]); st = "ok" if gap >= 0 else "OVERLAP"
