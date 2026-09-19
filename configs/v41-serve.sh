@@ -83,10 +83,20 @@ NP=${NP:-}
 # runner -- and a copy is a placement that drifts silently from the one the log describes.
 PORT=${PORT:-8001}
 EXTRA=${EXTRA:-}
+# NMAX is the DSpark draft depth and DRAFT=0 removes the draft entirely. Both exist for the
+# same reason EXTRA does: a measuring round that sweeps the draft must not carry its own copy
+# of this line. WKS-36 sweeps NMAX to find out whether a k-token verification pass costs the
+# same as a one-token pass (it should; measured it does not).
+NMAX=${NMAX:-3}
+DRAFT=${DRAFT:-1}
+draft_args=()
+if [ "$DRAFT" != 0 ]; then
+  draft_args=(-md "$D" --spec-type draft-dspark --spec-draft-n-max "$NMAX" -otd "output_norm=CUDA0")
+fi
 exec "$B" -m "$M" --alias DeepSeek-V4.1-Flash \
   -c "$C" ${NP:+-np "$NP"} -ngl 99 -t 32 -b 2048 -ub 512 \
   --lazy-mode auto \
   -ot "blk\.[0-3]\.ffn_.*_exps=CUDA0,blk\.6\.ffn_down_exps=CUDA0,blk\.[4-5]\.ffn_.*_exps=CUDA1,blk\.6\.ffn_(gate|up)_exps=CUDA1,exps=CPU" \
-  -md "$D" --spec-type draft-dspark --spec-draft-n-max 3 -otd "output_norm=CUDA0" \
+  "${draft_args[@]}" \
   --jinja $EXTRA \
   --host 127.0.0.1 --port "$PORT"
