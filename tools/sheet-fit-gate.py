@@ -6,7 +6,11 @@ the legend off the page). This answers it with getBoundingClientRect instead, so
 edit gets the answer in a second and vision is spent on what only eyes can judge.
 """
 import re, subprocess, sys, tempfile, pathlib
-SRC = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else "assets/placement-sheet.html").resolve()
+# --probe sel,sel,... swaps the placement sheet's selector list for another page's (2026-09-19,
+# the share card). The geometry, Chrome flags and the three-state verdict stay the same.
+args = [a for a in sys.argv[1:] if not a.startswith("--probe")]
+PROBE = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--probe=")), None)
+SRC = pathlib.Path(args[0] if args else "assets/placement-sheet.html").resolve()
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 probe = """
 <style>.sheet{width:1248px!important;max-width:none!important;height:702px!important;aspect-ratio:auto!important}</style>
@@ -17,8 +21,7 @@ addEventListener('load', () => setTimeout(() => {
   const cs = getComputedStyle(sheet);
   const padB = parseFloat(cs.paddingBottom);
   const rows = [];
-  for (const sel of ['.maplbl', '.legend', '.legend div:last-child', '.obs div:last-child',
-                     'table tr:last-child', '.setup', '.map', '.nvme']) {
+  for (const sel of SELECTORS) {
     const e = document.querySelector(sel);
     if (!e) { rows.push(sel + '\\tMISSING'); continue; }
     const r = e.getBoundingClientRect();
@@ -27,11 +30,15 @@ addEventListener('load', () => setTimeout(() => {
   rows.push('SHEET_BOTTOM\\t' + b.bottom.toFixed(1) + '\\tpadding ' + padB.toFixed(1));
   rows.push('GEOMETRY\\tsheet ' + b.width.toFixed(0) + 'x' + b.height.toFixed(0)
             + '  viewport ' + innerWidth + 'x' + innerHeight + '  dpr ' + devicePixelRatio);
-  rows.push('SETUP_LINES\\t' + Math.round(document.querySelector('.setup').getBoundingClientRect().height));
+  const su = document.querySelector('.setup'); if (su) rows.push('SETUP_LINES\\t' + Math.round(su.getBoundingClientRect().height));
   document.title = 'FITGATE ' + rows.join(' | ');
 }, 2500));
 </script>
 """
+DEFAULT = ['.maplbl', '.legend', '.legend div:last-child', '.obs div:last-child',
+           'table tr:last-child', '.setup', '.map', '.nvme']
+sels = PROBE.split(",") if PROBE else DEFAULT
+probe = probe.replace("SELECTORS", repr(sels))
 html = SRC.read_text()
 with tempfile.TemporaryDirectory() as td:
     t = pathlib.Path(td) / "probe.html"
