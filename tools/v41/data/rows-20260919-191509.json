@@ -1,0 +1,114 @@
+[
+ {
+  "shape": "agent",
+  "arm": "on",
+  "prompt_n": 17522,
+  "prompt_ms": 55267.9,
+  "prompt_per_second": 317.04,
+  "wall_s": 55.33,
+  "n_chunks": 0,
+  "min_chunk": null,
+  "median_chunk": null,
+  "chunks": [],
+  "w_start": {
+   "t": "2026-09-19T19:16:09+09:00",
+   "io_avg10": 3.29,
+   "load1": 1.06,
+   "lease": "3387449 delim-prefill-ab 20260919-191509 2026-09-19T19:15:09+09:00 ",
+   "other_llama": 1,
+   "page_cache_kb": 254258652
+  },
+  "w_end": {
+   "t": "2026-09-19T19:17:05+09:00",
+   "io_avg10": 0.01,
+   "load1": 1.23,
+   "lease": "3387449 delim-prefill-ab 20260919-191509 2026-09-19T19:15:09+09:00 ",
+   "other_llama": 1,
+   "page_cache_kb": 254264112
+  }
+ },
+ {
+  "shape": "agent",
+  "arm": "off",
+  "prompt_n": 17522,
+  "prompt_ms": 53764.7,
+  "prompt_per_second": 325.9,
+  "wall_s": 53.77,
+  "n_chunks": 0,
+  "min_chunk": null,
+  "median_chunk": null,
+  "chunks": [],
+  "w_start": {
+   "t": "2026-09-19T19:17:05+09:00",
+   "io_avg10": 0.01,
+   "load1": 1.23,
+   "lease": "3387449 delim-prefill-ab 20260919-191509 2026-09-19T19:15:09+09:00 ",
+   "other_llama": 1,
+   "page_cache_kb": 254264112
+  },
+  "w_end": {
+   "t": "2026-09-19T19:17:59+09:00",
+   "io_avg10": 0.0,
+   "load1": 1.37,
+   "lease": "3387449 delim-prefill-ab 20260919-191509 2026-09-19T19:15:09+09:00 ",
+   "other_llama": 1,
+   "page_cache_kb": 254264272
+  }
+ },
+ {
+  "shape": "many",
+  "arm": "on",
+  "prompt_n": 48160,
+  "prompt_ms": 155361.7,
+  "prompt_per_second": 309.99,
+  "wall_s": 156.29,
+  "n_chunks": 0,
+  "min_chunk": null,
+  "median_chunk": null,
+  "chunks": [],
+  "w_start": {
+   "t": "2026-09-19T19:18:00+09:00",
+   "io_avg10": 0.0,
+   "load1": 1.37,
+   "lease": "3387449 delim-prefill-ab 20260919-191509 2026-09-19T19:15:09+09:00 ",
+   "other_llama": 1,
+   "page_cache_kb": 254264280
+  },
+  "w_end": {
+   "t": "2026-09-19T19:20:36+09:00",
+   "io_avg10": 0.0,
+   "load1": 1.54,
+   "lease": "3387449 delim-prefill-ab 20260919-191509 2026-09-19T19:15:09+09:00 ",
+   "other_llama": 1,
+   "page_cache_kb": 254568296
+  }
+ },
+ {
+  "shape": "many",
+  "arm": "off",
+  "prompt_n": 48160,
+  "prompt_ms": 135186.1,
+  "prompt_per_second": 356.25,
+  "wall_s": 135.21,
+  "n_chunks": 0,
+  "min_chunk": null,
+  "median_chunk": null,
+  "chunks": [],
+  "w_start": {
+   "t": "2026-09-19T19:20:36+09:00",
+   "io_avg10": 0.0,
+   "load1": 1.54,
+   "lease": "3387449 delim-prefill-ab 20260919-191509 2026-09-19T19:15:09+09:00 ",
+   "other_llama": 1,
+   "page_cache_kb": 254568296
+  },
+  "w_end": {
+   "t": "2026-09-19T19:22:51+09:00",
+   "io_avg10": 0.0,
+   "load1": 1.32,
+   "lease": "3387449 delim-prefill-ab 20260919-191509 2026-09-19T19:15:09+09:00 ",
+   "other_llama": 1,
+   "page_cache_kb": 254569292
+  }
+ }
+]
