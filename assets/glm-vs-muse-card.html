@@ -1,0 +1,92 @@
+<title>GLM vs muse A/B Card</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600&display=swap">
+<style>
+  :root{
+    --ink:#12303f; --ink-2:#41677c; --ink-3:#89a6b5;
+    --paper:#e2e8eb; --paper-2:#f0f4f6; --rule:#c4d2d9;
+    --glm:#12566f; --muse:#bd6a34; --mark:#9a3b26;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--paper);color:var(--ink);
+    font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+    margin:0;padding-block:24px;padding-left:16px;padding-right:16px;display:flex;justify-content:center}
+  .sheet{width:100%;max-width:1280px;aspect-ratio:16/9;container-type:size;
+    background:var(--paper-2);border:1px solid var(--ink-2);padding:3.6cqh 3.4cqw;
+    display:grid;grid-template-rows:auto 1fr auto auto;gap:2.2cqh}
+  .head{border-bottom:1px solid var(--ink);padding-bottom:1.8cqh}
+  .meta{display:flex;justify-content:space-between;font-size:2.5cqh;letter-spacing:0.1em;
+    text-transform:uppercase;color:var(--ink-2)}
+  h1{font-family:"IBM Plex Sans Condensed",Arial Narrow,sans-serif;font-weight:600;margin:1.6cqh 0 0;
+    font-size:5.6cqh;line-height:1.04;letter-spacing:-0.005em;text-wrap:balance}
+  h1 em{font-style:normal;color:var(--glm)}
+  h1 b{font-weight:600;color:var(--muse)}
+  .q{margin:1.2cqh 0 0;font-size:2.95cqh;line-height:1.38;color:var(--ink-2)}
+  main{display:grid;grid-template-columns:1.25fr 1fr;gap:3.4cqw;min-height:0}
+  .lbl{font-size:2.5cqh;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-2);
+    margin:0 0 1.4cqh;padding-bottom:0.9cqh;border-bottom:1px solid var(--rule)}
+  table{width:100%;border-collapse:collapse;font-size:2.8cqh}
+  td,th{padding:0.5cqh 0;border-bottom:1px solid var(--rule);vertical-align:baseline;text-align:left}
+  th{font-weight:500;color:var(--ink-2);font-size:2.5cqh;letter-spacing:0.06em;text-transform:uppercase}
+  td:first-child{white-space:nowrap;color:var(--ink-2)}
+  td:not(:first-child),th:not(:first-child){text-align:right;font-variant-numeric:tabular-nums;
+    white-space:nowrap;padding-left:1.1cqw}
+  tr:last-child td{border-bottom:0}
+  th.g,td.g{color:var(--glm)} th.m,td.m{color:var(--muse)}
+  td.w{font-weight:600}
+  td:last-child{font-weight:600;color:var(--ink)}
+  .cost{display:grid;gap:1cqh;font-size:2.7cqh}
+  .cbar{display:grid;grid-template-columns:7cqw 1fr 10cqw;align-items:center;gap:0.9cqw}
+  .cbar .k{color:var(--ink-2)}
+  .cbar .b{height:3cqh;border:1px solid rgba(18,48,63,.35)}
+  .cbar.g .b{background:var(--glm)} .cbar.m .b{background:var(--muse)}
+  .cbar .v{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}
+  .cap{font-size:2.4cqh;color:var(--ink-2);margin:0.2cqh 0 0.8cqh}
+  .method{margin:0;display:grid;grid-template-columns:1fr 1fr 1fr;gap:2.6cqw;font-size:2.5cqh;
+    line-height:1.36;color:var(--ink-2);border-top:1px solid var(--rule);padding-top:1.4cqh}
+  .method div{display:grid;grid-template-columns:2.4cqw 1fr;gap:0.6cqw}
+  .method b{color:var(--ink);font-weight:600}
+  .foot{border-top:1px solid var(--rule);padding-top:1.5cqh;display:flex;flex-wrap:nowrap;
+    justify-content:space-between;gap:2.4cqw;align-items:baseline;
+    font-size:2.6cqh;color:var(--ink-2);line-height:1.35}
+  .foot span:last-child{white-space:nowrap;flex:none}
+</style>
+<div class="sheet">
+  <div class="head">
+    <div class="meta"><span>Delegation A/B · one day · 2026-09-19</span><span>github.com/midagedev/outsource</span></div>
+    <h1>Same spec, two coding models, five tasks: <em>glm-5.3</em> went deeper, <b>muse</b> got there first</h1>
+    <p class="q">Byte-identical specs, isolated worktrees, every gate re-run by the lead. Four rounds: a CUDA kernel, a CPU kernel, a compiler bug hunt.</p>
+  </div>
+  <main>
+    <section>
+      <p class="lbl">Result per round</p>
+      <table>
+        <tr><th>round</th><th class="g">glm-5.3</th><th class="m">muse-1.3</th><th>kept</th></tr>
+        <tr><td>R1 f32 lanes</td><td class="g">0.19×</td><td class="m w">0.40×</td><td>muse</td></tr>
+        <tr><td>R2 q8_1 + dp4a</td><td class="g w">1.05×</td><td class="m">0.91×</td><td>glm</td></tr>
+        <tr><td>R3 levers</td><td class="g">1.14×</td><td class="m w">1.57×</td><td>both</td></tr>
+        <tr><td>R4 CPU, M=1</td><td class="g w">1.11×</td><td class="m w">1.11×</td><td>glm</td></tr>
+        <tr><td>R4 CPU, M=8</td><td class="g w">0.87×</td><td class="m">0.57×</td><td>glm</td></tr>
+        <tr><td>R4 ICE hunt</td><td class="g w">14 variants</td><td class="m">same cause</td><td>glm</td></tr>
+      </table>
+    </section>
+    <section>
+      <p class="lbl">Cost of those five tasks</p>
+      <div class="cost">
+        <div class="cbar g"><span class="k">glm</span><div class="b" style="width:100%"></div><span class="v">1.64 M</span></div>
+        <div class="cbar m"><span class="k">muse</span><div class="b" style="width:37.5%"></div><span class="v">0.62 M</span></div>
+      </div>
+      <p class="cap">tokens, output + reasoning on both sides</p>
+      <div class="cost">
+        <div class="cbar g"><span class="k">glm</span><div class="b" style="width:100%"></div><span class="v">147 min</span></div>
+        <div class="cbar m"><span class="k">muse</span><div class="b" style="width:66.7%"></div><span class="v">98 min</span></div>
+      </div>
+      <p class="cap">wall time · model turns 831 vs 380</p>
+    </section>
+  </main>
+  <div class="method">
+    <div><i>1</i><span><b>muse cleared every gate; glm won the rows outside it.</b> R4: same 1.11× at M=1, then 0.87× vs 0.57× at M=8.</span></div>
+    <div><i>2</i><span><b>Effort labels are not a control.</b> The <i>max</i> rounds spent fewer tokens than the <i>high</i> ones — task size sets the bill.</span></div>
+    <div><i>3</i><span><b>R3 kept both</b> — orthogonal levers, combined 1.86× of ggml. muse corrected 3 wrong spec premises, glm 1.</span></div>
+    </div>
+  <div class="foot"><span>One project, five tasks, ten arms. A ratio is a row to compare the next round against, not a verdict.</span><span>adoption 3:1 glm</span></div>
+</div>

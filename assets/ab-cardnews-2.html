@@ -1,0 +1,80 @@
+<title>GLM vs muse, 2/2</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
+<style>
+  :root{
+    --ink:#12303f; --ink-2:#41677c; --ink-3:#89a6b5;
+    --paper:#e2e8eb; --paper-2:#f0f4f6; --rule:#c4d2d9;
+    --glm:#12566f; --muse:#bd6a34; --mark:#9a3b26;
+  }
+  *{box-sizing:border-box}
+  /* 한국어는 어절 단위로 끊는다 — 판정 2026-09-19: 조사가 어절 중간에서 갈렸다
+     ("라운드보 / 다", "내지 못 / 했다"). URL·긴 영문 토큰은 여전히 쪼갤 수 있게 둔다. */
+  h1,.q,.kicker,.learn,.cap,.foot,td,th{word-break:keep-all;overflow-wrap:break-word}
+  body{background:var(--paper);color:var(--ink);
+    font-family:"IBM Plex Sans KR","IBM Plex Mono",ui-monospace,sans-serif;
+    margin:0;padding:24px 16px;display:flex;justify-content:center}
+  .sheet{width:100%;max-width:1200px;aspect-ratio:1/1;container-type:size;
+    background:var(--paper-2);border:1px solid var(--ink-2);padding:4.2cqh 4.6cqw;
+    display:grid;gap:2.4cqh}
+  .meta{display:flex;justify-content:space-between;font-size:2.5cqh;letter-spacing:0.08em;
+    color:var(--ink-2);font-weight:500}
+  h1{font-weight:700;margin:1.6cqh 0 0;font-size:5.8cqh;line-height:1.2;
+    letter-spacing:-0.02em;text-wrap:balance}
+  h1 em{font-style:normal;color:var(--glm)}
+  h1 b{font-weight:700;color:var(--muse)}
+  .head{border-bottom:2px solid var(--ink);padding-bottom:2.2cqh}
+  .q{margin:1.8cqh 0 0;font-size:3.1cqh;line-height:1.52;color:var(--ink-2)}
+  .num{font-family:"IBM Plex Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+  table{width:100%;border-collapse:collapse;font-size:3.5cqh}
+  td,th{padding:1.55cqh 0;border-bottom:1px solid var(--rule);text-align:left;vertical-align:baseline}
+  th{font-weight:500;color:var(--ink-2);font-size:2.6cqh;letter-spacing:0.06em;padding-bottom:1.2cqh}
+  td:first-child{white-space:nowrap;color:var(--ink-2);font-size:3.2cqh}
+  td:not(:first-child),th:not(:first-child){text-align:right;white-space:nowrap;padding-left:2cqw;
+    font-family:"IBM Plex Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+  tr:last-child td{border-bottom:0}
+  th.g,td.g{color:var(--glm)} th.m,td.m{color:var(--muse)}
+  td.w{font-weight:700}
+  td:last-child{font-weight:700;color:var(--ink);font-family:"IBM Plex Sans KR",sans-serif}
+  .kicker{border-top:2px solid var(--ink);padding-top:2.8cqh;font-size:3.9cqh;line-height:1.42;
+    font-weight:600;letter-spacing:-0.01em}
+  .kicker em{font-style:normal;color:var(--glm)} .kicker b{color:var(--muse);font-weight:600}
+  .foot{font-size:2.5cqh;color:var(--ink-2);display:flex;justify-content:space-between;
+    gap:2cqw;align-items:baseline}
+  .foot span:last-child{white-space:nowrap;flex:none}
+
+  .sheet{grid-template-rows:auto auto auto 1fr auto}
+  .cost{display:grid;gap:1.4cqh}
+  .cbar{display:grid;grid-template-columns:11cqw 1fr 20cqw;align-items:center;gap:1.6cqw;font-size:3.2cqh}
+  .cbar .k{color:var(--ink-2)}
+  .cbar:nth-child(3){margin-top:2.8cqh}   /* 두 쌍(토큰 · 시간) 사이만 벌린다 */
+  .cbar .b{height:4cqh;border:1px solid rgba(18,48,63,.35)}
+  .cbar.g .b{background:var(--glm)} .cbar.m .b{background:var(--muse)}
+  .cbar .v{text-align:right;font-weight:700;font-family:"IBM Plex Mono",monospace;
+    font-variant-numeric:tabular-nums;white-space:nowrap}
+  .cap{font-size:2.5cqh;color:var(--ink-2);margin:0.9cqh 0 0}
+  .learn{display:grid;gap:1.9cqh;font-size:2.95cqh;line-height:1.44;color:var(--ink-2)}
+  .learn div{display:grid;grid-template-columns:4.5cqw 1fr;gap:1.4cqw}
+  .learn i{font-style:normal;color:var(--mark);font-weight:700;
+    font-family:"IBM Plex Mono",monospace}
+  .learn b{color:var(--ink);font-weight:600}
+</style>
+<div class="sheet">
+  <div class="head">
+    <div class="meta"><span>위임 A/B · 2026-09-19</span><span>2 / 2</span></div>
+    <h1>그 다섯 과제에 든 값</h1>
+  </div>
+  <div class="cost">
+    <div class="cbar g"><span class="k">glm</span><div class="b" style="width:100%"></div><span class="v">164만 토큰</span></div>
+    <div class="cbar m"><span class="k">muse</span><div class="b" style="width:37.5%"></div><span class="v">62만 토큰</span></div>
+    <div class="cbar g"><span class="k">glm</span><div class="b" style="width:100%"></div><span class="v">147분</span></div>
+    <div class="cbar m"><span class="k">muse</span><div class="b" style="width:66.7%"></div><span class="v">98분</span></div>
+  </div>
+  <p class="cap">토큰은 양쪽 다 출력 + 추론 합산 · 모델 턴 831 대 380</p>
+  <div class="learn">
+    <div><i>1</i><span><b>두 팔이 다 넘는 게이트는 비교가 아니다.</b> 4라운드 CPU는 게이트가 덮지 않은 행에서 갈렸다. M=8, SMT, 작은 형상.</span></div>
+    <div><i>2</i><span><b>effort 라벨은 통제 변수가 아니다.</b> max로 돌린 라운드가 high로 돌린 라운드보다 토큰을 적게 썼다. 값을 정하는 건 과제 크기다.</span></div>
+    <div><i>3</i><span><b>레버가 직교하면 고르지 말고 합친다.</b> 3라운드는 어느 한 팔도 1.86배를 내지 못했다. 둘을 합쳐서 나왔다.</span></div>
+    <div><i>4</i><span><b>틀린 전제를 짚은 쪽은 muse가 셋, glm이 하나.</b> 컴파일러 버그는 둘이 서로 안 보고 같은 두 줄을 찍었다.</span></div>
+  </div>
+  <div class="foot"><span>전문 · github.com/midagedev/outsource</span><span>기록 · rig-log</span></div>
+</div>
