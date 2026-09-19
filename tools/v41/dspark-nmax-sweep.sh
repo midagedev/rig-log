@@ -3,7 +3,7 @@
 #
 # It should. That is the whole reason speculative decoding wins on a bandwidth-bound decode:
 # k tokens read the same expert weights once. Our numbers say it does not — a ~4-token pass
-# costs 1.69x a one-token pass (mulle docs/roofline.md), which is the same fact as our own
+# costs 1.69x a one-token pass (bloomery docs/roofline.md), which is the same fact as our own
 # measurement that ik's MoE decode is slower at batch 2 than batch 1.
 #
 # The 1.69x has two possible owners and this sweep separates them:
