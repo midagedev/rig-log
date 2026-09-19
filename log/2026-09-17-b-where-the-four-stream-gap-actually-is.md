@@ -97,4 +97,16 @@ llama_decode_internal: qwen3next mixed-sequence batch contains repeated seq_id v
 
 ## 상태
 
+**2026-09-19 추가** — 이 기록의 열린 질문("2행 expert matmul이 1행보다 느린 이유")이 좁혀졌다.
+[WKS-36](2026-09-19-verification-does-not-amortise.md)이 V4.1-Flash의 k토큰 검증 패스를 재서
+`ms/패스 = 드래프트 10.32 + 50.21 + 17.28·k`를 얻었고, 기울기 17.28 ms가 라우팅 expert의
+바이트 몫(34.56%)과 0.13%p 안에서 같았다. 즉 **바이트 합집합 산술은 맞고, 그 배치에서는
+초과분이 0이다.** 이 기록의 결론도 그대로 옳다 — 합집합만으로는 배치 2가 *느려질* 수 없다
+(라우팅 몫이 1이어도 한계는 평탄인 1.0이지 0.77이 아니다). 달라진 것은 두 측정의 배치다.
+WKS-36은 라우팅 바이트의 82%가 호스트에 있고, 위 batched-bench 표는 `-ngl 99`로 전부 GPU다.
+가설: 초과분은 MoE 일반이 아니라 **CUDA `MUL_MAT_ID`** 에 산다. 호스트 `mul_mat_id`는 행을
+expert별로 묶어(`matrix_row_counts`) 합집합만큼만 읽고 그 예측이 맞았다. 판가름은 싸다 —
+위 명령을 `-ot exps=CPU`로 한 번 더 돌려 배치 2의 골이 사라지는지 본다. 미제출 재현자는
+그 뒤에 "CUDA `MUL_MAT_ID`가 2행에서 무너진다"로 좁혀 내는 것이 맞다. 아직 안 쟀다.
+
 측정·판정: ik는 MoE 디코드 동시성 이득 0, dense 정상 스케일. mistral.rs는 같은 MoE 모델에 스케일. CUDA 그래프·fused-MoE 경로 둘 다 개입에 탈락. Qwen3Next 프리필 벼랑은 명명된 자리·찍힌 경고·열린 업스트림 고침. 열림: 2행 expert matmul이 1행보다 느린 이유. per-op 타이밍 필요. 미제출: 디코드 발견. 재현자는 `llama-batched-bench -npp 238 -ntg 256 -npl 1,2,4,8` DeepSeek-V2-Lite Q3_K_M에 dense 모델 같은 하네스 대조.
