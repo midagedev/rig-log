@@ -10,6 +10,11 @@ import re, subprocess, sys, tempfile, pathlib
 # the share card). The geometry, Chrome flags and the three-state verdict stay the same.
 args = [a for a in sys.argv[1:] if not a.startswith("--probe")]
 PROBE = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--probe=")), None)
+# --stack=sel,sel,... : elements that must sit strictly one below the other. The fit rows only
+# see the sheet's bottom edge, so a grid row whose content overflows into the next row passed
+# (2026-09-19, the share card: the main columns ran 30 px into the method lines).
+STACK = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--stack=")), None)
+args = [a for a in args if not a.startswith("--stack")]
 SRC = pathlib.Path(args[0] if args else "assets/placement-sheet.html").resolve()
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 probe = """
@@ -27,6 +32,13 @@ addEventListener('load', () => setTimeout(() => {
     const r = e.getBoundingClientRect();
     rows.push(sel + '\\t' + r.bottom.toFixed(1) + '\\t' + (b.bottom - padB - r.bottom).toFixed(1));
   }
+  const st = STACKSEL; for (let k = 1; k < st.length; k++) {
+    const a = document.querySelector(st[k-1]), b = document.querySelector(st[k]);
+    if (!a || !b) continue;
+    let ab = a.getBoundingClientRect().bottom;             // content bottom, not the grid row's box
+    for (const d of a.querySelectorAll('*')) ab = Math.max(ab, d.getBoundingClientRect().bottom);
+    rows.push('STACK\\t' + st[k-1] + ' > ' + st[k] + '\\t' + (b.getBoundingClientRect().top - ab).toFixed(1));
+  }
   rows.push('SHEET_BOTTOM\\t' + b.bottom.toFixed(1) + '\\tpadding ' + padB.toFixed(1));
   rows.push('GEOMETRY\\tsheet ' + b.width.toFixed(0) + 'x' + b.height.toFixed(0)
             + '  viewport ' + innerWidth + 'x' + innerHeight + '  dpr ' + devicePixelRatio);
@@ -39,6 +51,7 @@ DEFAULT = ['.maplbl', '.legend', '.legend div:last-child', '.obs div:last-child'
            'table tr:last-child', '.setup', '.map', '.nvme']
 sels = PROBE.split(",") if PROBE else DEFAULT
 probe = probe.replace("SELECTORS", repr(sels))
+probe = probe.replace("STACKSEL", repr(STACK.split(",") if STACK else []))
 html = SRC.read_text()
 with tempfile.TemporaryDirectory() as td:
     t = pathlib.Path(td) / "probe.html"
@@ -64,6 +77,11 @@ for part in parts:
         print(f"{'geometry':26} {f[1]}")
         if not f[1].startswith("sheet 1248x702"):
             bad.append("gate measured the wrong geometry (%s); the committed shot is 1248x702 at dpr 2" % f[1])
+        continue
+    if f[0] == "STACK":
+        gap = float(f[2]); st = "ok" if gap >= 0 else "OVERLAP"
+        print(f"{f[1]:26} {'gap':>8} {f[2]:>22}   {st}")
+        if gap < 0: bad.append(f"{f[1]} overlap by {-gap:.1f} px")
         continue
     if f[0] == "SETUP_LINES":
         print(f"{'.setup height':26} {f[1]+' px':>8}"); continue
