@@ -49,7 +49,11 @@ set -eu
 # Since 2026-09-14 12:45 the build carries 75a0eb4f1, the fused lightning indexer for V4.1: the unfused indexer
 # materialized a [positions x tokens x 32 heads] fp32 score twice, which capped the context at 16k; with the fused
 # op 64k loads at this placement and 256k at four expert layers (WKS-12). Outputs are byte-identical, decode unchanged.
-B=${B:-$HOME/llama.cpp-v41-merged/build/bin/llama-server}
+# The build and gpu-order.env live under the serving user's home, not the caller's: a
+# measuring round run as root resolved $HOME to /root and missed the binary entirely
+# (2026-09-19). One base for both, overridable, so the two lines cannot drift apart again.
+IKHOME=${IKHOME:-/home/user}
+B=${B:-$IKHOME/llama.cpp-v41-merged/build/bin/llama-server}
 # engramQ8-tokembdBF16-attnQ8: the Q3_K_M upload with its engram tensors grafted from the Q8_0 build
 # (log/2026-09-13-engram-q8-repack.md), its token embedding kept in bf16, which the DSpark
 # draft borrows (41 -> 45 % acceptance at block 5, 55 -> 60 % at block 3, for 1.3 GB of RAM),
@@ -66,7 +70,7 @@ M=${M:-/models/DeepSeek-V4.1-Flash-Q3_K_M-engramQ8-tokembdBF16-attnQ8/DeepSeek-V
 # disabled in this server, so the block size is set here.
 D=${D:-/models/DeepSeek-V4.1-Flash-DSpark/DeepSeek-V4.1-Flash-Fp8-128x742M-MXFP4_MOE.tl37.gguf}
 
-. /home/user/gpu-order.env   # CUDA0 = A6000 by UUID (2026-09-16, slot move flipped PCI order); configs/gpu-order.env
+. "$IKHOME/gpu-order.env"   # CUDA0 = A6000 by UUID (2026-09-16, slot move flipped PCI order); configs/gpu-order.env
 
 # C and NP are the serving defaults unless a measuring round overrides them, and unset they
 # reproduce this file as it ran before 2026-09-18 byte for byte. They exist because the batch
