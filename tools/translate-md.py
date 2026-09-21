@@ -203,13 +203,17 @@ def main():
                         "'{\"template_vars\": {\"enable_thinking\": false}}'")
     p.add_argument("--raw-chatml", action="store_true",
                    help="build a ChatML prompt here and post it to /completions, instead of "
-                        "sending messages to /v1/chat/completions. Measured 2026-09-18: "
-                        "llama-server answers every chat completion from Qwen3-Coder-Next with "
-                        "HTTP 500, \"the model produced output that does not match the expected "
-                        "peg-native format\" -- the model writes a perfectly good answer and the "
-                        "server throws it away parsing it against that model's tool-call grammar. "
-                        "Neither --reasoning-format none nor --chat-template chatml takes the "
-                        "parser out of the path. This does, at the cost of the prompt being "
+                        "sending messages to /v1/chat/completions. A workaround for a server "
+                        "bug that is fixed upstream: on 2026-09-18 llama-server answered these "
+                        "requests with HTTP 500, \"the model produced output that does not match "
+                        "the expected peg-native format\". Root cause, measured 2026-09-21: the "
+                        "PEG parser throws away a COMPLETE generation that contains invalid "
+                        "UTF-8, which this model emits about once per 6400 Korean characters -- "
+                        "it is content-dependent, not a property of the model or of tool-call "
+                        "grammar, and the tool-call path itself never failed. Fixed by "
+                        "ggml-org/llama.cpp#29161 (merged 2026-09-20, 3d82ef62), which writes "
+                        "U+FFFD instead of throwing. Prefer a build at or after that commit; "
+                        "this flag remains for older servers, at the cost of the prompt being "
                         "built here rather than by the template in the GGUF: say so in the row")
     p.add_argument("--mask-fences", action="store_true",
                    help="hold the fenced blocks back and put them in afterwards, instead of "

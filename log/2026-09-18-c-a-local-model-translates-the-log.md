@@ -164,7 +164,9 @@ Solar Open 2 250B 첫 행이 가능한 가장 나쁜 배치에서 나왔다. `-c
 
 ## 모델들 탓 아닌 실패 둘
 
-**llama-server가 Qwen3-Coder-Next에는 평범한 채팅 완성을 아예 안 내준다.** 매 요청이 `HTTP 500`, *"the model produced output that does not match the expected peg-native format"*이다. 답 자체는 서버 로그에 멀쩡히 있다. 서버가 그것을 그 모델의 tool-call 문법으로 파싱하려다 버린다. `--reasoning-format none`도 `--chat-template chatml`도 파서를 경로에서 빼지 못한다. 그 행은 클라이언트가 ChatML 프롬프트를 직접 지어 `/completions`에 붙이는 방식으로 받아냈고, 프롬프트 경로가 다르다는 것을 표에 표시해 두었다. **보고할 만하다.** tool call로 안 파싱된다는 이유로 유효한 산문 답을 버리는 서버는 남도 밟을 버그이고, 명령 하나짜리 재현자가 있다.
+**llama-server가 Qwen3-Coder-Next에는 평범한 채팅 완성을 아예 안 내준다.** 매 요청이 `HTTP 500`, *"the model produced output that does not match the expected peg-native format"*이다. 답 자체는 서버 로그에 멀쩡히 있다. ~~서버가 그것을 그 모델의 tool-call 문법으로 파싱하려다 버린다.~~ `--reasoning-format none`도 `--chat-template chatml`도 파서를 경로에서 빼지 못한다. 그 행은 클라이언트가 ChatML 프롬프트를 직접 지어 `/completions`에 붙이는 방식으로 받아냈고, 프롬프트 경로가 다르다는 것을 표에 표시해 두었다. ~~**보고할 만하다.**~~
+
+> **2026-09-21 정정, 원인 확정.** tool call 문법 때문이 아니다 — 이 빌드도, ik도, mainline도 이 모델의 tool call은 전부 올바르게 파싱한다(같은 날 세 빌드 × 세 요청으로 확인). 버려지는 것은 **유효하지 않은 UTF-8이 섞인 완성된 답**이다. 이 모델은 한국어 6,400자당 한 번꼴로 3바이트 음절의 마지막 바이트를 빠뜨리고, PEG 파서는 완성된 생성에 그것이 있으면 예외를 던져 답 전체를 버린다. `max_tokens 1000`이면 그 바이트 앞에서 멈춰 200이 나오는 것이 같은 이야기다. 업스트림이 [#29161](https://github.com/ggml-org/llama.cpp/pull/29161)(2026-09-20 머지, `3d82ef62`, 이슈 [#27543](https://github.com/ggml-org/llama.cpp/issues/27543) 닫음)에서 나쁜 바이트 열을 U+FFFD 하나로 바꾸는 쪽으로 고쳤다. 그 커밋으로 지은 빌드에서 같은 요청이 3/3 HTTP 200이고, 리드가 따로 돌린 확인도 6,423자에 U+FFFD 한 개로 같다. **보고할 것은 없다 — 옮겨 갈 빌드가 있을 뿐이다.** 다만 ik는 같은 요청에 3/3 500이고 그쪽 기제는 아직 고립하지 못했다.
 
 **러너가 자기가 번역하던 문서에 적힌 사건을 실시간으로 재현했다.** 10:08, V4.1 라운드가 3분 28초짜리 로드를 끝내고 듣고 있는 동안 `translate-round.sh`의 새 사본이 그 위에 떨어졌다. bash는 스크립트를 조금씩 읽어 가므로, 아직 닿지 않은 줄에서 `unexpected EOF while looking for matching quote`로 죽었다. 그런데 `docs/quiet-machine.md`가 바로 그 실패를 "peer가 밤중에 지른 stale 임대" 아래에 문서화하고 있다. 처방 — 자기 전용 사본에서 exec — 은 이제 러너의 첫 여덟 줄이다. 습관으로는 부족했고, 스크립트 안에 있어야 했다.
 
@@ -184,4 +186,4 @@ Solar Open 2 250B 첫 행이 가능한 가장 나쁜 배치에서 나왔다. `-c
 |---|---|
 | 도구 | [`translate-md.py`](../tools/translate-md.py), [`translate-round.sh`](../tools/translate-round.sh), [`check-translation.py`](../tools/check-translation.py), [`check-glossary.py`](../tools/check-glossary.py), [`align-translations.py`](../tools/align-translations.py), [`translation-card.py`](../tools/translation-card.py) |
 | gate | 구조 FAIL-first 손상 여섯, 용어는 플래그가 아니라 할. 각자 첫 접촉에 자기 결함 하나씩 찾았고 둘 다 위에 기록 |
-| 열림 | 생성 뒤 용어 검사, 자기 출력 2패스, Coder-Next 500의 업스트림 보고 |
+| 열림 | 생성 뒤 용어 검사, 자기 출력 2패스, ~~Coder-Next 500의 업스트림 보고~~(2026-09-21 닫음 — 업스트림 #29161이 이미 고쳤다), ik의 같은 실패 기제 고립 |

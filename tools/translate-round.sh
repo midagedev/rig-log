@@ -79,14 +79,18 @@ case "$TAG" in
           -c 32768 -ngl 99 -fa on -t 16 -b 2048 -ub 512 -ctk q8_0 -ctv q8_0
           --jinja --chat-template-kwargs '{"enable_thinking": false}') ;;
   # Qwen3-Coder-Next IQ4_XS, one 42.7 GB file. Both cards visible rather than the A6000
-  # alone: 42.7 GB of weights plus a KV cache plus compute buffers on a 48 GB card is one
-  # OOM away, and llama.cpp splits across the two by free VRAM on its own.
+  # alone: 42.7 GB of weights plus a KV cache plus compute buffers on a 48 GB card looked
+  # one OOM away. Measured false on 2026-09-21 (round WORKER): the model loads on the A6000
+  # alone at -c 131072 with an f16 KV cache and 4.9 GB spare, so this arm no longer takes
+  # the 3090, which another track needs.
   coder-next)
-    DEV=$A6000_UUID,$GF3090_UUID
-    # --reasoning-format none because with the parser in the path this server answered
-    # HTTP 500, "the model produced output that does not match the expected peg-native
-    # format" (measured 2026-09-18): the answer existed, and llama-server threw it away
-    # parsing it against this model's tool-call grammar.
+    DEV=$A6000_UUID
+    # The HTTP 500 here was never about the tool-call grammar. Measured 2026-09-21: the PEG
+    # parser throws on a complete generation containing invalid UTF-8 -- this model emits one
+    # truncated Korean syllable per ~6400 characters -- and discards the whole answer.
+    # Upstream ggml-org/llama.cpp#29161 (merged 2026-09-20, 3d82ef62) replaces the bad run
+    # with U+FFFD instead; a build at or after that commit answers this request. The two
+    # --reasoning flags below are inert against it and are kept only as the 09-18 record.
     ARGS=(-m /models/Qwen3-Coder-Next/Qwen3-Coder-Next-IQ4_XS.gguf
           -c 16384 -ngl 99 -fa on -t 16 -b 2048 -ub 512 -ctk q8_0 -ctv q8_0
           --jinja --reasoning-format none --reasoning off) ;;
@@ -94,7 +98,7 @@ case "$TAG" in
   # The model's own template makes the server parse every answer against this model's
   # tool-call grammar, and prose does not match it.
   coder-next-chatml)
-    DEV=$A6000_UUID,$GF3090_UUID
+    DEV=$A6000_UUID
     ARGS=(-m /models/Qwen3-Coder-Next/Qwen3-Coder-Next-IQ4_XS.gguf
           -c 16384 -ngl 99 -fa on -t 16 -b 2048 -ub 512 -ctk q8_0 -ctv q8_0
           --chat-template chatml --reasoning-format none) ;;
