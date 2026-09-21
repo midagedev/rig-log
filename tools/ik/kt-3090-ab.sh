@@ -53,7 +53,7 @@ for r in $(seq "$ROUNDS"); do
   done
 done
 [ ${#sums[@]} -gt 0 ] && printf '%s\n' "${sums[@]}" | awk -F'|' '{s[$1]+=$2; n[$1]++; if(!($1 in lo)||$2<lo[$1])lo[$1]=$2; if($2>hi[$1])hi[$1]=$2} END{for(k in s) printf "mean %-34s %.2f tok/s (n=%d, %.2f–%.2f)\n", k, s[k]/n[k], n[k], lo[k], hi[k]}' | sort
-witness post-speed
+[ "$ROUNDS" -gt 0 ] && witness post-speed
 if [ -n "${KT_PPL:-}" ]; then
   [ -f "$KT_PPL" ] || { echo "missing $KT_PPL" >&2; exit 2; }
   for f in "${files[@]}"; do
