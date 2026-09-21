@@ -27,6 +27,12 @@ llama-cli … -ub 1 -b 1 --no-warmup
 
 The GGUF asks for 6 experts, so the second answer is the wrong one.
 
+To be clear about the blast radius up front: this needs a **single-token batch**. At the
+default `n_batch` the prompt goes in as one decode and nothing widens, so a default
+`llama-cli` run and `llama-server` are unaffected — the exposure is `-b 1` callers and
+raw-API harnesses that step a prompt one `llama_decode` at a time, which is how I hit it.
+"Who is exposed" below names them, and why the server escapes.
+
 ## Why
 
 The graph builder infers, per graph, whether it is building a warmup graph, and a warmup graph
