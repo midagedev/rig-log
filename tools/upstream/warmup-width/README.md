@@ -53,5 +53,8 @@ mainline `930e2fa5`, DeepSeek-V2-Lite-Chat Q3_K_M(`n_expert` 64, `n_expert_used`
 쪽을 더한다.
 
 같은 조건 ik(`c10fbbcc`)에서는 `warm1_sync` 한 팔이 argmax를 1191 → 245로, 로짓을
-3.65142만큼 옮긴다. 업스트림 서류 초안은 세션 스크래치의 `wwidth-dossier.md`, 기록은
+3.65142만큼 옮긴다.
+
+제출용 초안은 [`ISSUE-DRAFT.md`](ISSUE-DRAFT.md)(**아직 아무 데도 내지 않았다**), 시도한 팔과
+대조 전문을 담은 내부 기록은 [`DOSSIER.md`](DOSSIER.md), 대장은
 [`docs/upstream-contributions.md`](../../../docs/upstream-contributions.md)다.
