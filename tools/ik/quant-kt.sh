@@ -23,7 +23,9 @@ flock -w 3600 9 || { echo "[lease] timed out" >&2; exit 75; }
 run() { # <out> <extra args...>
   local out=$1; shift
   echo "=== $out"
-  "$Q" --imatrix "$IMAT" "$@" $DRY "$F16" "$out" Q3_K_M 32
+  # 로더 눈에 보이는 반쪽 .gguf를 막는다(fetch-gguf.sh와 같은 계약): .part에 쓰고 rc 0일 때만 이름을 준다.
+  "$Q" --imatrix "$IMAT" "$@" $DRY "$F16" "$out.part" Q3_K_M 32 || { echo "quantize failed: $out" >&2; rm -f "$out.part"; exit 1; }
+  [ -n "$DRY" ] || mv "$out.part" "$out"
 }
 run "$SRC/v2lite-q3km-imat.gguf"
 run "$SRC/v2lite-iq3kt-mix.gguf" --custom-q "$KT"

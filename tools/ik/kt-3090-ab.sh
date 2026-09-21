@@ -16,6 +16,9 @@ N=${KT_N:-96}
 ROUNDS=${KT_ROUNDS:-3}
 DEPTHS=${KT_DEPTHS:-0 4096}
 FLAGS=${KT_FLAGS:--mla 3 -fa 1 -fmoe 1}
+# llama-perplexity는 -fmoe를 모른다(거부하고 usage를 찍는다). 그쪽 기본값이 mla 3·fa on·fused-moe on이라
+# 같은 경로다. KT_ROUNDS=0이면 속도를 건너뛰고 perplexity만 돈다.
+PPL_FLAGS=${KT_PPL_FLAGS:--mla 3 -fa 1}
 files=("$@")
 [ ${#files[@]} -gt 0 ] || files=("$SRC/v2lite-q3km-imat.gguf" "$SRC/v2lite-iq3kt-mix.gguf")
 for f in "${files[@]}"; do [ -f "$f" ] || { echo "missing $f" >&2; exit 2; }; done
@@ -49,13 +52,14 @@ for r in $(seq "$ROUNDS"); do
     sums+=("$(basename "$f") d=$dep|$v")
   done
 done
-printf '%s\n' "${sums[@]}" | awk -F'|' '{s[$1]+=$2; n[$1]++; if(!($1 in lo)||$2<lo[$1])lo[$1]=$2; if($2>hi[$1])hi[$1]=$2} END{for(k in s) printf "mean %-34s %.2f tok/s (n=%d, %.2f–%.2f)\n", k, s[k]/n[k], n[k], lo[k], hi[k]}' | sort
+[ ${#sums[@]} -gt 0 ] && printf '%s\n' "${sums[@]}" | awk -F'|' '{s[$1]+=$2; n[$1]++; if(!($1 in lo)||$2<lo[$1])lo[$1]=$2; if($2>hi[$1])hi[$1]=$2} END{for(k in s) printf "mean %-34s %.2f tok/s (n=%d, %.2f–%.2f)\n", k, s[k]/n[k], n[k], lo[k], hi[k]}' | sort
 witness post-speed
 if [ -n "${KT_PPL:-}" ]; then
   [ -f "$KT_PPL" ] || { echo "missing $KT_PPL" >&2; exit 2; }
   for f in "${files[@]}"; do
     echo "=== ppl $(basename "$f")"
-    "$PPLBIN" -m "$f" -f "$KT_PPL" -ngl 99 -c 512 -b 512 $FLAGS 2>&1 | grep -E "Final estimate|^perplexity:|chunks"
+    out=$("$PPLBIN" -m "$f" -f "$KT_PPL" -ngl 99 -c 512 -b 512 $PPL_FLAGS 2>&1)
+    echo "$out" | grep -E "Final estimate" || { echo "ppl $(basename "$f") produced no estimate" >&2; echo "$out" | grep -iE "error|unknown" | head -n 3 >&2; exit 1; }
   done
   witness post-ppl
 fi
