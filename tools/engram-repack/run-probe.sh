@@ -3,7 +3,7 @@
 # (configs/v41-serve.sh), run one probe script against it, stop it by PID.
 # Usage: run-probe.sh <probe.py> <out-prefix> [sample.json] [Q3 Q8 ...]
 # The thermal guard on this machine stops llama-server after ~5 min of
-# 32-thread decode (see log/2026-09-13-engram-q8-repack.md); keep probes short
+# 32-thread decode (see log/2026-09-13.md#engram-q8-repack); keep probes short
 # or let the coolant fall back to ~43 C between variants.
 set -u
 PROBE=${1:?probe script}; OUT=${2:?output prefix}; SAMPLE=${3:-}; shift 3 2>/dev/null || shift $#

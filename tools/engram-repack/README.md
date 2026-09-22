@@ -1,6 +1,6 @@
 # engram-repack
 
-Scripts behind `log/2026-09-13-engram-q8-repack.md`: graft the Q8_0
+Scripts behind `log/2026-09-13.md#engram-q8-repack`: graft the Q8_0
 engram tensors from the uploader's Q8_0 GGUF into the Q3_K_M shards, then
 measure whether it mattered.
 

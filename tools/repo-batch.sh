@@ -7,7 +7,7 @@
 #   MODEL=v41    repo-batch.sh
 #
 # Which model this repo is translated by is a decision, not a default, and the reasoning is in
-# log/2026-09-18-c-a-local-model-translates-the-log.md. The short version: read in one sitting
+# log/2026-09-18.md#c-a-local-model-translates-the-log. The short version: read in one sitting
 # over all 33 blocks with the labels shuffled, Solar Open 2, V4.1 and Gemma 4 all scored one
 # meaning change, so meaning does not separate them; Solar Open 2 is the fastest of the three
 # at 2.0 h against V4.1's 3.9 h and holds glossary at 100 %. What it costs is a dependency on a

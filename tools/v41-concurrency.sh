@@ -4,7 +4,7 @@
 # The batch translation is 140 independent requests in a queue: nothing waits on a stream's
 # latency, so the number that decides how long it takes is aggregate decode across slots. This
 # box has never measured that on V4.1. What it has is one line in an unrelated entry
-# (log/2026-09-14-air-cooler-swap.md: three concurrent 500-token decodes at 21 tok/s each,
+# (log/2026-09-14.md#air-cooler-swap: three concurrent 500-token decodes at 21 tok/s each,
 # against ~28 for one) and a measurement on a *different* MoE model in a *different* engine that
 # says the opposite -- DeepSeek-V2-Lite on ik gives 202 tok/s at batch 1 and **156** at batch 2,
 # slower in total, which is the unfiled finding in docs/upstream-contributions.md. Two streams

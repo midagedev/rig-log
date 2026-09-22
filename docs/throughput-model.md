@@ -50,7 +50,7 @@ Steady state 실측:
 
 위의 토큰당 예산은 패스 하나를 가정한다. 투기 디코딩의 검증 패스는 토큰 k개를 한 번에
 보므로 예산이 어떻게 자라는지가 따로 있고, 그게 이 기계에서 측정됐다([WKS-36
-기록](../log/2026-09-19-verification-does-not-amortise.md)).
+기록](../log/2026-09-19.md#verification-does-not-amortise)).
 
 ```
 ms/패스(k) = 10.32 + 50.21 + 17.28·k          (잔차 ±0.36 ms, 세 점·두 파라미터)

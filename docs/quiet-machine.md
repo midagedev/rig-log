@@ -1,12 +1,12 @@
 <!-- 이 문서는 2026-09-18에 이 기계의 DeepSeek-V4.1-Flash가 영어 원문에서 번역했고,
      리드가 읽고 여섯 군데를 고쳤다. 측정에 쓰인 영어 원문은
      assets/translation-ladder-2026-09-18-source.md 에 그대로 있다.
-     번역이 어떻게 측정됐는지는 log/2026-09-18-c-a-local-model-translates-the-log.md -->
+     번역이 어떻게 측정됐는지는 log/2026-09-18.md#c-a-local-model-translates-the-log -->
 
 # 조용한 머신은 상태가 아니라 프로토콜이다
 
 *한 워크스테이션에서 세 개의 측정 작업이 다섯 번 서로 부딪힌 하루를 보낸 뒤 2026-09-13에 썼다. 그 사건들은
-[`log/2026-09-13-deepseek-v41-on-ik-llama.md`](../log/2026-09-13-deepseek-v41-on-ik-llama.md)에 있다;
+[`log/2026-09-13.md#deepseek-v41-on-ik-llama`](../log/2026-09-13.md#deepseek-v41-on-ik-llama)에 있다;
 이 글은 그 사건들에서 나온 방법이다.*
 
 이 레포의 모든 숫자는 조용한 박스에서 나온 것이어야 한다. 오늘 드러난 것은 "조용함"이 서로 다른 세 스크립트가

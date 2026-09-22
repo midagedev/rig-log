@@ -24,7 +24,7 @@ ik에서 18.7 tok/s(expert 10층 온카드)에 막힌 GLM-5.3-Flash에, 직접 �
 
 남은 후보: `-mcs 185` 위 precomputed profile이 dynamic 대비 mixed 텍스트에 얼마를 더하는가, 그리고 draft depth upstream 제출(선행기술 조사 뒤, 표 첨부).
 
-도구 위치: `tools/exl3/`(벤치·러너 — `tools/exl3/exl3-run.sh`가 원형. 러너는 GPU 임대 파일을 gate로 삼고, 실행 중인 스크립트를 고치지 말고 새 이름에 복사한다), `tools/tabby/`. 서빙 표면 [exl3-serve](https://github.com/midagedev/exl3-serve)는 llama-server 호환 앞단이다. 상세 실행 기록은 [GLM 로그](../log/2026-09-15-glm-5.3-flash-first-run.md).
+도구 위치: `tools/exl3/`(벤치·러너 — `tools/exl3/exl3-run.sh`가 원형. 러너는 GPU 임대 파일을 gate로 삼고, 실행 중인 스크립트를 고치지 말고 새 이름에 복사한다), `tools/tabby/`. 서빙 표면 [exl3-serve](https://github.com/midagedev/exl3-serve)는 llama-server 호환 앞단이다. 상세 실행 기록은 [GLM 로그](../log/2026-09-15.md#glm-5.3-flash-first-run).
 
 ## 라이브 칵핏: 저녁마다 층 옮기는 사람을 위한 화면
 

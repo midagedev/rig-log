@@ -1,5 +1,5 @@
 *위임된 벤치마크 에이전트가 2026-09-13에 작성했으며, 보고한 그대로 게시했고, 실행한 모든 명령어를 포함한다.
-이 문서는 [`log/2026-09-13-deepseek-v41-on-ik-llama.md`](../log/2026-09-13-deepseek-v41-on-ik-llama.md)의 소형 모델 CPU 수치의 출처다.
+이 문서는 [`log/2026-09-13.md#deepseek-v41-on-ik-llama`](../log/2026-09-13.md#deepseek-v41-on-ik-llama)의 소형 모델 CPU 수치의 출처다.
 "리드"는 V4.1 측정을 함께 실행한 세션이며, 오염 섹션은 [`docs/quiet-machine.md`](quiet-machine.md) 뒤에 있는 사건을 다룬다. 내부 오류 하나: 이 에이전트가 404라고 부른 MoE URL은 실제로 401을 반환했다.*
 
 # CPU 커널 벤치: ik_llama.cpp vs 메인라인 llama.cpp, 소형 모델, GPU 없음

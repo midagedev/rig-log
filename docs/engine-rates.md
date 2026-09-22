@@ -38,7 +38,7 @@ ik가 16% 더 빠르다. 이것이 일반적인 서빙 조건이다.
 | 4 | 146 | 279 |
 | 8 | 152 | 324 |
 
-"Rust 엔진이 4개 스트림에서 90% 더 빠르다"는 헤드라인은 이 표에서 나온 것이며 mistral.rs에 대한 진술이 아니다. **ik의 집계는 1개 스트림에서 2개 스트림으로 전혀 움직이지 않는다** — 129에서 130으로, 반면 스트림당 속도는 절반으로 줄어든다 — 따라서 부하 하에서 더 빨라 보이는 엔진은 단순히 배치 처리를 테이블에 남겨두지 않은 엔진이다. 서버가 전혀 없는 `llama-batched-bench`에서 재현했으며, CUDA 그래프나 fused-MoE 경로도 원인이 아니다; 둘 다 개입으로 배제되었다. 배치 2 expert matmul의 원인은 아직 미해결이다. [log/2026-09-17-b](../log/2026-09-17-b-where-the-four-stream-gap-actually-is.md)에서 실측.
+"Rust 엔진이 4개 스트림에서 90% 더 빠르다"는 헤드라인은 이 표에서 나온 것이며 mistral.rs에 대한 진술이 아니다. **ik의 집계는 1개 스트림에서 2개 스트림으로 전혀 움직이지 않는다** — 129에서 130으로, 반면 스트림당 속도는 절반으로 줄어든다 — 따라서 부하 하에서 더 빨라 보이는 엔진은 단순히 배치 처리를 테이블에 남겨두지 않은 엔진이다. 서버가 전혀 없는 `llama-batched-bench`에서 재현했으며, CUDA 그래프나 fused-MoE 경로도 원인이 아니다; 둘 다 개입으로 배제되었다. 배치 2 expert matmul의 원인은 아직 미해결이다. [log/2026-09-17-b](../log/2026-09-17.md#b-where-the-four-stream-gap-actually-is)에서 실측.
 
 ik의 동시 **프리필**은 이 모델에서 별개이고 더 큰 문제다: 혼합 시퀀스 ubatch가 단일 토큰 청킹으로 폴백하여, 2 582 → 119 tok/s가 되며, 이는 4개 및 8개 스트림에서 4.5초 및 12.5초 TTFT다. 이미 오픈 PR [#2418](https://github.com/ikawrakow/ik_llama.cpp/pull/2418)로 수정됨; 우리의 측정은 [해당 코멘트](https://github.com/ikawrakow/ik_llama.cpp/pull/2418#issuecomment-5714136627)에 있다.
 
@@ -51,9 +51,9 @@ ik의 동시 **프리필**은 이 모델에서 별개이고 더 큰 문제다: �
 | 4 | 3.0 GB | 116 | 0.6 |
 | 10 | 7.6 GB | 102 | 0.2 |
 
-두 엔진 모두 오프로드된 expert matmul을 **CPU에서** 실행한다 — 이는 버퍼 타입 이름에서 추론한 것이 아니라 서버 프로세스를 샘플링하여 확인했으며, 엔트리의 첫 번째 버전에서 반대로 기록되었다. ik는 26.7개 코어에 분산하고 양자화된 형태로 라우팅된 256개 expert 중 8개만 읽는다; mistral.rs는 1.3개 코어를 관리하고 순전파마다 256개 전체를 F32로 역양자화하므로 카드는 2%에서 대기한다. 오프로드된 레이어당 토큰당 이는 **442 ms 대비 0.20 ms**이며, 둘 다 오프로드된 레이어 수에 정확히 선형이다. [log/2026-09-17-d](../log/2026-09-17-d-what-offloading-costs-each-engine.md)에서 실측.
+두 엔진 모두 오프로드된 expert matmul을 **CPU에서** 실행한다 — 이는 버퍼 타입 이름에서 추론한 것이 아니라 서버 프로세스를 샘플링하여 확인했으며, 엔트리의 첫 번째 버전에서 반대로 기록되었다. ik는 26.7개 코어에 분산하고 양자화된 형태로 라우팅된 256개 expert 중 8개만 읽는다; mistral.rs는 1.3개 코어를 관리하고 순전파마다 256개 전체를 F32로 역양자화하므로 카드는 2%에서 대기한다. 오프로드된 레이어당 토큰당 이는 **442 ms 대비 0.20 ms**이며, 둘 다 오프로드된 레이어 수에 정확히 선형이다. [log/2026-09-17-d](../log/2026-09-17.md#d-what-offloading-costs-each-engine)에서 실측.
 
-이 행들을 다른 곳에서 읽기 전에 알아야 할 두 가지. mistral.rs는 어떤 레이어든 CPU에 있으면 **PagedAttention을 완전히 비활성화**하며, 이는 그 자체로 7%의 가치가 있고(모든 것이 상주하고 PagedAttention을 수동으로 끈 경우 111.2 → 102.7), VRAM을 페어링 축으로 무용지물로 만든다. 그리고 mistral.rs는 [#2430](https://github.com/EricLBuehler/mistral.rs/pull/2430)까지 이를 전혀 할 수 없었다: 모든 요청이 `moe experts forward / dtype mismatch in matmul, lhs: BF16, rhs: F32`로 실패함 ([log/2026-09-17-c](../log/2026-09-17-c-what-mistral-rs-can-and-cannot-offload.md)).
+이 행들을 다른 곳에서 읽기 전에 알아야 할 두 가지. mistral.rs는 어떤 레이어든 CPU에 있으면 **PagedAttention을 완전히 비활성화**하며, 이는 그 자체로 7%의 가치가 있고(모든 것이 상주하고 PagedAttention을 수동으로 끈 경우 111.2 → 102.7), VRAM을 페어링 축으로 무용지물로 만든다. 그리고 mistral.rs는 [#2430](https://github.com/EricLBuehler/mistral.rs/pull/2430)까지 이를 전혀 할 수 없었다: 모든 요청이 `moe experts forward / dtype mismatch in matmul, lhs: BF16, rhs: F32`로 실패함 ([log/2026-09-17-c](../log/2026-09-17.md#c-what-mistral-rs-can-and-cannot-offload)).
 
 ## 컨트롤 모델
 

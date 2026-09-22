@@ -7,7 +7,7 @@
 # /v1/chat/completions with native tool calling and has no /completions fallback, so a
 # build that answers HTTP 500 — as the merged-mainline build did for Qwen3-Coder-Next on
 # 2026-09-18, "the model produced output that does not match the expected peg-native
-# format" (log/2026-09-18-c-a-local-model-translates-the-log.md) — is disqualified no
+# format" (log/2026-09-18.md#c-a-local-model-translates-the-log) — is disqualified no
 # matter how fast it decodes. This script is the gate, not a benchmark: it records HTTP
 # status and the raw body, never a timing.
 #

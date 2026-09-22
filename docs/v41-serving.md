@@ -21,7 +21,7 @@ Q3_K_M 파일이 mainline에서 약 20 tok/s로 돈다. 더 빠르게 만들 레
 | ik, hyper-connection 수정 후, q 수정 전 | 244.72 ± 12.03 |
 | ik, q 수정 후 | 2.2258 ± 0.0622 |
 
-4청크는 스모크 게이트다. 청크별로는 mainline과 0.02 안에 붙는다 — 1.72/1.73, 1.75/1.76, 1.82/1.84, 2.23/2.24. 전체 테스트셋과 `-ngl` 0 초과, 배치 1은 아직 안 돌렸다. 업스트림: 이슈 [#2438](https://github.com/ikawrakow/ik_llama.cpp/issues/2438), PR [#2455](https://github.com/ikawrakow/ik_llama.cpp/pull/2455) (+794/−108, 13 파일). 베이스가 움직인 뒤라 같은 날 양쪽 엔진을 재측정했다. PPL 2.2355 ± 0.0626 대 참조 브랜치 2.2556, 디코드 20.4–20.7 대 21.2 tok/s. 이틀 된 숫자는 증거가 아니다. 실행 기록은 [log](../log/2026-09-13-deepseek-v41-on-ik-llama.md)에 있다.
+4청크는 스모크 게이트다. 청크별로는 mainline과 0.02 안에 붙는다 — 1.72/1.73, 1.75/1.76, 1.82/1.84, 2.23/2.24. 전체 테스트셋과 `-ngl` 0 초과, 배치 1은 아직 안 돌렸다. 업스트림: 이슈 [#2438](https://github.com/ikawrakow/ik_llama.cpp/issues/2438), PR [#2455](https://github.com/ikawrakow/ik_llama.cpp/pull/2455) (+794/−108, 13 파일). 베이스가 움직인 뒤라 같은 날 양쪽 엔진을 재측정했다. PPL 2.2355 ± 0.0626 대 참조 브랜치 2.2556, 디코드 20.4–20.7 대 21.2 tok/s. 이틀 된 숫자는 증거가 아니다. 실행 기록은 [log](../log/2026-09-13.md#deepseek-v41-on-ik-llama)에 있다.
 
 ## 격차: cold 20%, warm 5%, 원인은 페이지 폴트
 
@@ -77,7 +77,7 @@ Q3_K_M 파일이 mainline에서 약 20 tok/s로 돈다. 더 빠르게 만들 레
 
 draft 수용률은 오히려 ik가 낫다 — 1.41배 대 mainline 1.29배. draft 경로는 격차가 있는 곳이 아니다. 다만 block 5(배치 6)에서 ik는 break-even(14.33)으로 주저앉고 mainline은 버틴다.
 
-남은 것은 warm 5%와, VRAM 재배분을 ik가 한 번도 안 가진 채 잰 drafted 쌍(19.9 대 26)의 재측정이다. 해소 실행은 [log](../log/2026-09-14-v41-gap-closed-prefill-and-queue.md)에 있다.
+남은 것은 warm 5%와, VRAM 재배분을 ik가 한 번도 안 가진 채 잰 drafted 쌍(19.9 대 26)의 재측정이다. 해소 실행은 [log](../log/2026-09-14.md#v41-gap-closed-prefill-and-queue)에 있다.
 
 ## 체크포인트: 한 줄, 잘못된 층에 두 번 손대고 배운 것
 
