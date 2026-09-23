@@ -1,0 +1,13 @@
+[Unit]
+Description=Freeze netdata while a measurement lease is held
+After=netdata.service
+
+[Service]
+ExecStart=/usr/local/sbin/netdata-lease-gate
+# 게이트가 멈추면(중지·크래시) netdata가 언 채로 남지 않게 한다.
+ExecStopPost=-/usr/bin/systemctl thaw netdata.service
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
