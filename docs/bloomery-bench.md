@@ -207,9 +207,9 @@ Files: `Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf`.
 | prompt=lcg hot=none place=a stats=off | prompt | 4096 | 2026-09-26 | uniondispatch-ab | 9626c7f (feed=batch) | 180.0 | — | — | clean | [09-26#uniondispatch-ab](../log/2026-09-26.md#uniondispatch-ab) |
 |  |  |  | 2026-09-27 | v41-xeng | 1160dac (feed=batch) | 330.2 | ×1.834 | ×1.834 | cold 1/2 | [09-27#v41-xeng](../log/2026-09-27.md#v41-xeng) |
 |  |  |  | 2026-09-28 | v41 | 53e2def (feed=batch) | 358.4 | ×1.085 | ×1.991 | provisional [1] · cpu-busy 2/2 | [09-28#v41-release](../log/2026-09-28.md#v41-release) |
-| prompt=prose hot=hotlist-384.txt place=a stats=on | prompt | 512 | 2026-09-26 | b1-pp-ab | 0bcee2c (feed=batch) | 171.6 | — | — | clean | [09-26#b1-pp-ab](../log/2026-09-26.md#b1-pp-ab) |
-|  |  |  | 2026-09-26 | cardtile-ab | efc202f (feed=batch) | 216.1 | ×1.259 | ×1.259 | clean | [09-26#cardtile-ab](../log/2026-09-26.md#cardtile-ab) |
-| prompt=prose hot=hotlist-384.txt place=a stats=on | prompt | 4096 | 2026-09-26 | cardtile-ab | efc202f (feed=batch) | 292.1 | — | — | clean | [09-26#cardtile-ab](../log/2026-09-26.md#cardtile-ab) |
+| prompt=prose hot=hotlist-384.txt place=a stats=on | prompt | 512 | 2026-09-26 | b1-pp-ab | 0bcee2c (feed=batch) | 171.6 | — | — | list in-sample | [09-26#b1-pp-ab](../log/2026-09-26.md#b1-pp-ab) |
+|  |  |  | 2026-09-26 | cardtile-ab | efc202f (feed=batch) | 216.1 | ×1.259 | ×1.259 | list in-sample | [09-26#cardtile-ab](../log/2026-09-26.md#cardtile-ab) |
+| prompt=prose hot=hotlist-384.txt place=a stats=on | prompt | 4096 | 2026-09-26 | cardtile-ab | efc202f (feed=batch) | 292.1 | — | — | list in-sample | [09-26#cardtile-ab](../log/2026-09-26.md#cardtile-ab) |
 
 ### GLM-5.3-Flash — RTX A6000
 
