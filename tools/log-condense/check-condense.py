@@ -15,7 +15,7 @@ FAIL conditions (exit 1):
   - a link to an old per-experiment log filename (must use 2026-09-DD.md#slug)
   - an upstream issue/PR URL present in the old files but missing in the new one
   - an original ~~strikethrough~~ span missing verbatim, or a struck span not in the old files
-  - new size > 22% of old total bytes
+  - new size > CONDENSE_CAP of old total bytes (default 0.22; check-day.sh passes 0.45)
 """
 import os, re, sys
 
@@ -99,7 +99,7 @@ if ratio > cap:
     fails.append(f"size {nb} B = {ratio:.1%} of old {ob} B (cap {cap:.0%})")
 
 print(f"new {nb} B / old {ob} B = {ratio:.1%}; strikethrough old {old_strike} new {new_strike}; "
-      f"anchors {len(olds)}; upstream URLs {len(up)}")
+      f"anchors {sum(len(re.findall(r'<a name=', t)) for t in old_texts.values())} old -> {len(re.findall(r'<a name=', new))} new; upstream URLs {len(up)}")
 if fails:
     print("FAIL")
     for f in fails:

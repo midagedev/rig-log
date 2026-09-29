@@ -51,11 +51,15 @@ def sections(text):
     out = []
     for k, i in enumerate(heads):
         end = heads[k + 1] if k + 1 < len(heads) else len(lines)
-        if k + 1 < len(heads) and end > 0 and ANCHOR_RE.match(lines[end - 1]):
+        # 합친 절은 옛 앵커를 `## ` 위에 여러 줄 쌓는다(2026-09-30~). 쌓인 줄은 전부 다음 절 몫이다.
+        while k + 1 < len(heads) and end > i + 1 and (ANCHOR_RE.match(lines[end - 1]) or not lines[end - 1].strip()):
             end -= 1
-        m = ANCHOR_RE.match(lines[i - 1]) if i > 0 else None
+        stacked, j = [], i - 1
+        while j >= 0 and ANCHOR_RE.match(lines[j]):
+            stacked.insert(0, ANCHOR_RE.match(lines[j]).group(1))
+            j -= 1
         body = "\n".join(lines[i:end]).strip()
-        out.append((m.group(1) if m else None, lines[i][3:].strip(), len(body.encode()), i + 1))
+        out.append((stacked[-1] if stacked else None, lines[i][3:].strip(), len(body.encode()), i + 1, stacked[:-1]))
     return out
 
 
@@ -85,9 +89,15 @@ def check_day(path, new, old, errs, warns):
     else:
         warns.extend(e + " (옛 결손)" for e in head_errs(path, new))
     secs = sections(new)
-    old_secs = {(s[0] or s[1]): s for s in sections(old)} if old is not None else {}
+    old_secs = {(s[0] or s[1]): s[:4] for s in sections(old)} if old is not None else {}
     seen = {}
-    for slug, title, size, ln in secs:
+    for slug, title, size, ln, extra in secs:
+        for a in extra:
+            if not SLUG_RE.match(a):
+                errs.append(f"{path}:{ln} S3 쌓인 slug {a!r}는 소문자·숫자·`-`·`.`만 쓴다")
+            if a in seen:
+                errs.append(f"{path}:{ln} S3 쌓인 slug {a!r}가 {seen[a]}행과 겹친다")
+            seen.setdefault(a, ln)
         key = slug or title
         prev = old_secs.get(key)
         changed = prev is None or prev[1:3] != (title, size)

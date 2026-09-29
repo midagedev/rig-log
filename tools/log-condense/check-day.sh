@@ -19,7 +19,10 @@ g = runpy.run_path(f"{root}/tools/check-log.py", run_name="check_log_lib")
 errs, warns = [], []
 g["check_day"](f"log/{day}.md", open(new, encoding="utf-8").read(), None, errs, warns)
 for e in errs: print("FAIL", e)
-print(f"check-log sections: {'FAIL' if errs else 'ok'} ({len(g['sections'](open(new, encoding='utf-8').read()))} sections)")
+secs = g["sections"](open(new, encoding="utf-8").read())
+for slug, title, size, ln, extra in secs:
+    print(f"  {size:5d} B  {len(title):3d}자  {title[:40]}")
+print(f"check-log sections: {'FAIL' if errs else 'ok'} ({len(secs)} sections)")
 sys.exit(1 if errs else 0)
 PY
 exit $rc
