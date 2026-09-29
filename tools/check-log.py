@@ -14,7 +14,7 @@
      (선 긋기 정정은 들어가야 하니까).
   S2 새 절이나 바뀐 제목이 60자 초과. 09-15–09-21 최대가 57자였다.
   S3 `## ` 바로 위에 `<a name="slug"></a>`가 없거나 slug가 파일 안에서 겹침.
-  F1 log/에 날짜 파일(YYYY-MM-DD.md)이 아닌 새 파일.
+  F1 log/에 날짜 파일(YYYY-MM-DD.md)이 아닌 새 파일. moved.tsv에 오른 이름의 "옮겨졌다" 스텁은 예외.
   F2 날짜 파일이 `# YYYY-MM-DD` 제목과 첫 절 앞 머리 문단으로 시작하지 않음.
   R1 가장 최근 날짜보다 앞선 날짜 파일에 README 기록 색인 행이 없음.
   R2 색인 행의 보이는 글자(링크 대상 제외)가 200자 초과.
@@ -116,6 +116,13 @@ def check_day(path, new, old, errs, warns):
                             f"판명된 것만 남기고, 긴 상세는 docs/나 bloomery 쪽에 두고 링크한다")
 
 
+def is_moved_stub(path, text, moved):
+    # 날짜 파일로 합친 옛 파일명을 외부 링크 때문에 남기는 스텁은 moved.tsv에 올라 있을 때만 허용한다.
+    name = os.path.basename(path)
+    return text.startswith("# 옮겨졌다 / Moved") and any(
+        l.split("\t", 1)[0] == name for l in (moved or "").splitlines())
+
+
 def visible(row):
     return re.sub(r"\]\([^)]*\)", "]", row)
 
@@ -178,7 +185,7 @@ def main():
             continue
         if DAY_RE.match(p):
             check_day(p, read_new(p), read_old(p), errs, warns)
-        elif p in added:
+        elif p in added and not is_moved_stub(p, read_new(p), read_new("log/moved.tsv")):
             errs.append(f"{p} F1 log/에는 날짜 파일(YYYY-MM-DD.md)만 새로 만든다 — 실험은 그날 파일의 절이다")
     day_files = [p for p in tree if DAY_RE.match(p)]
     check_readme(readme, day_files, errs)
@@ -188,7 +195,7 @@ def main():
         print("FAIL", e)
     if errs:
         print(f"\ncheck-log: {len(errs)}건. 규칙은 tools/check-log.py 머리말과 CLAUDE.md 「관례」. "
-              f"한도를 고치려면 근거와 날짜를 같이 적는다.")
+              f"한도를 고치려면 근거와 날짜를 같이 적는다. `--no-verify`로 넘기지 않는다.")
         return 1
     if files or mode == "--all":
         print(f"check-log: ok ({len(files)} files, {len(warns)} warn)")
