@@ -32,7 +32,7 @@
 
 ~~지속 부하에서 A6000이 86–87 °C를 유지하고 `SW Thermal Slowdown`이 약 100% 시간 켜져 있으니, duty cycle 100%인 작업은 시작하기도 전에 스로틀링 상태다.~~ 2026-09-16 선 그음: 팬 속도를 증인에 넣지 않고 쓴 문장이었다. 87 °C는 카드 자체 목표 84 °C보다 5 °C 위일 뿐이고, 원인은 카드 팬 커브가 100%에 닿기까지 3.7분 걸리는 데 있다. GPU 팬은 NVML로 제어한다([`tools/gpu-fan-curve.py`](tools/gpu-fan-curve.py), [측정](log/2026-09-16.md#diffusion-first-run-and-three-regimes)).
 
-3090은 부하 중 버스에서 떨어진다(`Xid 79`). NCCL DDP로 133초 만에 재현되고 양 카드를 250 W로 묶으면 같은 DDP가 900초 동안 깨끗하지만, 이것은 동작하는 설정이지 원인 규명이 아니다([재현](log/2026-09-18.md#b-the-fault-reproduced)). 2026-09-22에 하루 두 번 떨어져서 그날부터 시간 측정은 A6000에서 하고, 3090은 게이트·빌드용으로 ~~300 W~~ 250 W 캡을 걸어 쓴다(2026-09-23에 바꿨다 — [기록](log/2026-09-23.md#machine-0923))([기록](log/2026-09-22-g-the-3090-fell-twice-so-the-clock-moved-to-the-a6000.md)).
+3090은 부하 중 버스에서 떨어진다(`Xid 79`). NCCL DDP로 133초 만에 재현되고 양 카드를 250 W로 묶으면 같은 DDP가 900초 동안 깨끗하지만, 이것은 동작하는 설정이지 원인 규명이 아니다([재현](log/2026-09-18.md#b-the-fault-reproduced)). 2026-09-22에 하루 두 번 떨어져서 그날부터 시간 측정은 A6000에서 하고, 3090은 게이트·빌드용으로 ~~300 W~~ 250 W 캡을 걸어 쓴다(2026-09-23에 바꿨다 — [기록](log/2026-09-23.md#machine-0923))([기록](log/2026-09-22.md#g-the-3090-fell-twice-so-the-clock-moved-to-the-a6000)).
 
 ## 속도
 
@@ -46,7 +46,7 @@
 | Qwen3.6-35B-A3B UD-Q6_K, 1스트림 | ik / mistral.rs | 129 / 111 tok/s | [09-17](log/2026-09-17.md#a-rust-engine-on-the-same-card) |
 | 같은 모델, 8스트림 합계 | ik / mistral.rs | 152 / 324 tok/s | [09-17](log/2026-09-17.md#b-where-the-four-stream-gap-actually-is) |
 | GLM-5.3-Flash | ik, expert 10층 온카드 / ExLlamaV3 `-mcs 195` | 18.7 / 22.2 tok/s | [09-15](log/2026-09-15.md#glm-5.3-flash-first-run) |
-| MiMo-V2.6-Flash MXFP4 | mainline, expert 16층 GPU·31층 RAM | 24.0 tok/s | [09-22](log/2026-09-22-l-mimo-v2.6-flash-on-two-cards-and-ram.md) |
+| MiMo-V2.6-Flash MXFP4 | mainline, expert 16층 GPU·31층 RAM | 24.0 tok/s | [09-22](log/2026-09-22.md#l-mimo-v2.6-flash-on-two-cards-and-ram) |
 | DeepSeek-V4.1-Flash 첫 가동, engram 84 GB는 NVMe에 | mainline llama.cpp | 20 tok/s | [09-12](log/2026-09-12.md#deepseek-v41-first-run) |
 | DeepSeek-V4.1-Flash 공개 Q3_K_M, 깊이 6 | bloomery, A6000 + 시스템 RAM (llama.cpp PR #28696 22.75) | 29.66 tok/s `[cpu-busy]` | [09-28](log/2026-09-28.md#v41-release) |
 | 같은 모델, 채팅 사용 프로필 | bloomery, 양 카드 + 시스템 RAM | 36.0–45.5 tok/s | [09-29](log/2026-09-29.md#chatlist-clip) |
@@ -69,7 +69,7 @@
 | [09-19](log/2026-09-19.md) | 자체 엔진 bloomery가 첫 토큰을 골랐고(0.0521 tok/s) 밤까지 5.48 tok/s. Rust GPU gemv가 ggml의 **1.86배**. DSpark 검증 비용이 라우팅 expert 바이트 몫과 0.13%p 안에서 일치 — 검증은 공짜가 될 수 없다 |
 | [09-20](log/2026-09-20.md) | bloomery CPU 경로의 ik 대비 배수를 18.7배에서 **1.13배**로. 빠진 `#[target_feature]` 하나, 청크 끝마다 잡던 락, 스텝당 14454번의 할당 |
 | [09-21](log/2026-09-21.md) | CPU 경로가 깊이 0에서 ik 최속 조합을 여섯 바퀴 전승(85.96 대 84.13)했지만 깊이 4096에서는 ik에 못 미친다. GPU 경로가 첫 토큰을 냈고 3090에서 ik CUDA를 넘었다. 사흘 묵은 HTTP 500 오진 정정 |
-| 09-22 | 창을 맞추니 헤드라인이 깊이 4096에서 뒤집혔고([c](log/2026-09-22-c-the-headline-inverted-at-depth-4096.md)), 텐서 코어 flash가 참값 자 검증을 거쳐 기본값이 됐다([n](log/2026-09-22-n-the-mma-pass-became-the-default.md)). 3090이 두 번 떨어져 시간 측정을 A6000으로 옮겼다([g](log/2026-09-22-g-the-3090-fell-twice-so-the-clock-moved-to-the-a6000.md)) |
+| [09-22](log/2026-09-22.md) | 창을 맞추니 헤드라인이 깊이 4096에서 0.912배로 뒤집혔고, 깊이 비용은 전부 flash였다. 텐서 코어 flash가 참값 자 검증을 거쳐 기본값이 되어 4096에서도 1.115배. 3090이 두 번 떨어져 시계를 A6000으로 |
 | [09-23](log/2026-09-23.md) | engram 행은 실제 스트림에서 되풀이된다(48행 중 새 행 코드 8.38·산문 25.72). V4.1 첫 GPU 디코드가 A6000 + 호스트 티어로 25 tok/s. CUDA 13.3에서도 우리 커널은 바이트 그대로 |
 | [09-24](log/2026-09-24.md) | bloomery CPU 디코드가 깊이 4096에서 처음 ik를 넘었다(69.4 대 66.9 tok/s). V4.1 GPU 스텝 42 ms의 57 %는 카드가 호스트 expert를 기다린 시간. 공개 Q3_K_M 첫 실측 42.9 tok/s |
 | [09-25](log/2026-09-25.md) | 프리필의 날. V4.1은 첫 기준선 30.7 tok/s(ik 165.8)에서 밤까지 pp4096 169.4로. Qwen3 프리필은 342에서 pp4096 7,490 tok/s로 올라 llama.cpp `-ub 4096`의 1.085배 |
@@ -78,7 +78,7 @@
 | [09-28](log/2026-09-28.md) | 108분 출시 시팅으로 네 모델 공개 표. llama.cpp 대비 디코드 V4.1 1.30–1.38배, Qwen3.6 1.23–1.25배, GLM-5.3 PR 빌드의 1.18–1.25배. Qwen3.8은 0.90배로 진다 |
 | [09-29](log/2026-09-29.md) | 채팅 사용 프로필로 V4.1 두 카드 채팅 디코드가 28.8–29.5에서 36.0–45.5 tok/s로. 교체 복사를 엔진 뒤로 미뤄 residency 디코드 +14.4 %. Qwen3.8 카드 expert로 pp 1.81–1.91배 |
 
-09-21까지는 실험당 한 파일이었고, 09-22는 날짜가 끝나면 같은 방식으로 합친다. 09-11–09-21의 옛 파일명과 새 위치의 대응은 [`log/moved.tsv`](log/moved.tsv)에 있고, 옛 원문은 커밋 `c27c3a7`에 그대로 남아 있다.
+09-22까지는 실험당 한 파일이었고, 날짜 파일로 합치며 줄였다. 옛 파일명과 새 위치의 대응은 [`log/moved.tsv`](log/moved.tsv)에 있고, 옛 원문은 커밋 `c27c3a7`(09-11–09-21)과 `d62f650`(09-22)에 그대로 남아 있다. 새 기록의 형식은 커밋 훅 [`tools/check-log.py`](tools/check-log.py)가 잰다.
 
 ## 다음
 
