@@ -4,7 +4,9 @@
 usage: check-condense.py <new day file> <old file> [<old file> ...]
 
 env: CONDENSE_SRC_COMMIT (commit that still holds the old files; default c27c3a7),
-     CONDENSE_CAP (max new/old byte ratio; default 0.22)
+     CONDENSE_CAP (max new/old byte ratio; default 0.22),
+     CONDENSE_LINK_BASE (dir relative links resolve from; default the new file's dir)
+An old file named YYYY-MM-DD.md is a day file condensed in place: every anchor it has must survive.
 
 FAIL conditions (exit 1):
   - a number in the new file that appears in none of the old files (invented number)
@@ -41,6 +43,16 @@ if invented:
     fails.append(f"numbers not in any old file: {invented[:40]}")
 
 for p in olds:
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}\.md", os.path.basename(p)):
+        # 날짜 파일을 제자리에서 줄이는 경우(2026-09-30~): 옛 파일의 앵커가 전부 남아야 한다.
+        # 다른 리포(bloomery docs)가 DATE.md#slug로 인용하므로 하나라도 빠지면 링크가 죽는다.
+        for a in re.findall(r'<a name="([^"]+)"></a>', old_texts[p]):
+            if f'<a name="{a}"></a>' not in new:
+                fails.append(f'missing anchor <a name="{a}"></a> from {os.path.basename(p)}')
+        src = f"git show {SRC}:log/{os.path.basename(p)}"
+        if src not in new:
+            fails.append(f"missing source line: {src}")
+        continue
     slug = re.sub(r"^\d{4}-\d{2}-\d{2}-", "", os.path.basename(p))[:-3]
     if f'<a name="{slug}"></a>' not in new:
         fails.append(f'missing anchor <a name="{slug}"></a> for {os.path.basename(p)}')
@@ -48,7 +60,7 @@ for p in olds:
     if src not in new:
         fails.append(f"missing source line: {src}")
 
-base = os.path.dirname(os.path.abspath(new_path))
+base = os.environ.get("CONDENSE_LINK_BASE") or os.path.dirname(os.path.abspath(new_path))
 for m in re.finditer(r"\]\(([^)\s]+)\)", new):
     t = m.group(1)
     if re.match(r"^[a-z]+:", t) or t.startswith("#"):
