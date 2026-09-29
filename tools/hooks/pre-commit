@@ -1,0 +1,9 @@
+#!/bin/bash
+# rig-log 커밋 게이트. `git config core.hooksPath tools/hooks`로 켠다(이 체크아웃에서 2026-09-30에 켰다).
+# 다른 리포의 세션이 `git -C ~/repo/rig-log commit`으로 써도 여기를 지난다 — 규칙을 글이 아니라 훅으로 준다.
+set -u
+root=$(git rev-parse --show-toplevel) || exit 1
+python3 "$root/tools/check-log.py" || exit 1
+if git diff --cached --name-only | grep -q '^assets/.*\.tape$'; then
+  "$root/tools/check-tapes-sanitized.sh" || exit 1
+fi

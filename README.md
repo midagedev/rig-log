@@ -48,6 +48,9 @@
 | GLM-5.3-Flash | ik, expert 10층 온카드 / ExLlamaV3 `-mcs 195` | 18.7 / 22.2 tok/s | [09-15](log/2026-09-15.md#glm-5.3-flash-first-run) |
 | MiMo-V2.6-Flash MXFP4 | mainline, expert 16층 GPU·31층 RAM | 24.0 tok/s | [09-22](log/2026-09-22-l-mimo-v2.6-flash-on-two-cards-and-ram.md) |
 | DeepSeek-V4.1-Flash 첫 가동, engram 84 GB는 NVMe에 | mainline llama.cpp | 20 tok/s | [09-12](log/2026-09-12.md#deepseek-v41-first-run) |
+| DeepSeek-V4.1-Flash 공개 Q3_K_M, 깊이 6 | bloomery, A6000 + 시스템 RAM (llama.cpp PR #28696 22.75) | 29.66 tok/s `[cpu-busy]` | [09-28](log/2026-09-28.md#v41-release) |
+| 같은 모델, 채팅 사용 프로필 | bloomery, 양 카드 + 시스템 RAM | 36.0–45.5 tok/s | [09-29](log/2026-09-29.md#chatlist-clip) |
+| Qwen3.6-35B-A3B Q4_K_M, 깊이 6 | bloomery, A6000 단독 (llama.cpp 163.8, mistral.rs 114.5) | 204.4 tok/s | [09-28](log/2026-09-28.md#q36-release) |
 
 ## 기록 색인
 
@@ -66,8 +69,14 @@
 | [09-19](log/2026-09-19.md) | 자체 엔진 bloomery가 첫 토큰을 골랐고(0.0521 tok/s) 밤까지 5.48 tok/s. Rust GPU gemv가 ggml의 **1.86배**. DSpark 검증 비용이 라우팅 expert 바이트 몫과 0.13%p 안에서 일치 — 검증은 공짜가 될 수 없다 |
 | [09-20](log/2026-09-20.md) | bloomery CPU 경로의 ik 대비 배수를 18.7배에서 **1.13배**로. 빠진 `#[target_feature]` 하나, 청크 끝마다 잡던 락, 스텝당 14454번의 할당 |
 | [09-21](log/2026-09-21.md) | CPU 경로가 깊이 0에서 ik 최속 조합을 여섯 바퀴 전승(85.96 대 84.13)했지만 깊이 4096에서는 ik에 못 미친다. GPU 경로가 첫 토큰을 냈고 3090에서 ik CUDA를 넘었다. 사흘 묵은 HTTP 500 오진 정정 |
-| 09-22 | 창을 맞추니 헤드라인이 깊이 4096에서 뒤집혔고([c](log/2026-09-22-c-the-headline-inverted-at-depth-4096.md)), 깊이 비용은 전부 flash였다([f](log/2026-09-22-f-the-depth-cost-is-flash-and-the-meter-lied-twice.md)). 텐서 코어 flash가 깊이 4096에서 ik를 이겼고([j](log/2026-09-22-j-the-mma-kernel-beat-ik-at-depth-4096-and-the-gate-said-no.md)) 참값 자로 검증한 뒤 기본값이 됐다([m](log/2026-09-22-m-the-truth-ruler-caught-ik-too-and-the-extra-error-was-the-activation-block.md), [n](log/2026-09-22-n-the-mma-pass-became-the-default.md)); 새 기본값으로 다시 잰 깊이 표에서는 세 깊이 전부 ik보다 빠르다([o](log/2026-09-22-o-the-depth-table-on-the-new-default-and-the-reversal-is-gone.md)). engram의 NVMe 읽기는 토큰당 0.3 ms이고 그 3분의 2가 syscall 발행이다([p](log/2026-09-22-p-the-engram-path-costs-a-third-of-a-millisecond-and-it-is-syscalls.md)). 3090이 두 번 떨어져 시계를 A6000으로 옮겼다([d](log/2026-09-22-d-the-link-died-60ms-before-the-gpu.md), [e](log/2026-09-22-e-the-link-was-fine-and-this-was-a-fourth-face.md), [g](log/2026-09-22-g-the-3090-fell-twice-so-the-clock-moved-to-the-a6000.md)). MiMo-V2.6-Flash 공개 당일 24 tok/s([l](log/2026-09-22-l-mimo-v2.6-flash-on-two-cards-and-ram.md)). 그 밖에 [a](log/2026-09-22-a-the-instructions-came-out-and-it-got-slower.md) · [b](log/2026-09-22-b-the-barrier-got-a-price.md) · [h](log/2026-09-22-h-the-flash-layer-is-two-load-loops-and-heads-in-one-block-did-not-help.md) · [i](log/2026-09-22-i-qk-on-tensor-cores-was-correct-and-slower.md) · [k](log/2026-09-22-k-a-rulebook-three-reviews-and-four-refactors-in-one-night.md) |
-| [09-23](log/2026-09-23.md) | engram 행은 실제 토큰 스트림에서 되풀이된다 — 토큰당 48행 중 새로 읽을 것은 코드 8.38행·산문 25.72행이고, 남는 미스는 전부 처음 보는 n-gram의 강제 미스다([재사용률](log/2026-09-23.md#engram-row-reuse)). CUDA 13.3 툴킷을 13.0 옆에 깔았는데 우리 커널은 `.oxart` md5까지 같고 GPU 게이트 판정 줄 416줄이 그대로였다([전환](log/2026-09-23.md#cuda-13-3)) |
+| 09-22 | 창을 맞추니 헤드라인이 깊이 4096에서 뒤집혔고([c](log/2026-09-22-c-the-headline-inverted-at-depth-4096.md)), 텐서 코어 flash가 참값 자 검증을 거쳐 기본값이 됐다([n](log/2026-09-22-n-the-mma-pass-became-the-default.md)). 3090이 두 번 떨어져 시간 측정을 A6000으로 옮겼다([g](log/2026-09-22-g-the-3090-fell-twice-so-the-clock-moved-to-the-a6000.md)) |
+| [09-23](log/2026-09-23.md) | engram 행은 실제 스트림에서 되풀이된다(48행 중 새 행 코드 8.38·산문 25.72). V4.1 첫 GPU 디코드가 A6000 + 호스트 티어로 25 tok/s. CUDA 13.3에서도 우리 커널은 바이트 그대로 |
+| [09-24](log/2026-09-24.md) | bloomery CPU 디코드가 깊이 4096에서 처음 ik를 넘었다(69.4 대 66.9 tok/s). V4.1 GPU 스텝 42 ms의 57 %는 카드가 호스트 expert를 기다린 시간. 공개 Q3_K_M 첫 실측 42.9 tok/s |
+| [09-25](log/2026-09-25.md) | 프리필의 날. V4.1은 첫 기준선 30.7 tok/s(ik 165.8)에서 밤까지 pp4096 169.4로. Qwen3 프리필은 342에서 pp4096 7,490 tok/s로 올라 llama.cpp `-ub 4096`의 1.085배 |
+| [09-26](log/2026-09-26.md) | V4.1 프롬프트 호출을 union 디스패치·배치 폭 어텐션·카드 expert 타일·층 우선 두 배치로 줄였다(각 +8–25 %). Qwen3 GEMM은 L1TEX가 아니라 지연에 묶여 있었다 |
+| [09-27](log/2026-09-27.md) | V4.1을 RTX 3090 한 장에서 36.7 tok/s(예측 33–38). Qwen3-30B 깊이 4096 디코드가 llama.cpp의 1.011배. V4.1 교차 엔진 창은 llama.cpp 행이 차가워 공개 표에서 뺐다 |
+| [09-28](log/2026-09-28.md) | 108분 출시 시팅으로 네 모델 공개 표. llama.cpp 대비 디코드 V4.1 1.30–1.38배, Qwen3.6 1.23–1.25배, GLM-5.3 PR 빌드의 1.18–1.25배. Qwen3.8은 0.90배로 진다 |
+| [09-29](log/2026-09-29.md) | 채팅 사용 프로필로 V4.1 두 카드 채팅 디코드가 28.8–29.5에서 36.0–45.5 tok/s로. 교체 복사를 엔진 뒤로 미뤄 residency 디코드 +14.4 %. Qwen3.8 카드 expert로 pp 1.81–1.91배 |
 
 09-21까지는 실험당 한 파일이었고, 09-22는 날짜가 끝나면 같은 방식으로 합친다. 09-11–09-21의 옛 파일명과 새 위치의 대응은 [`log/moved.tsv`](log/moved.tsv)에 있고, 옛 원문은 커밋 `c27c3a7`에 그대로 남아 있다.
 
