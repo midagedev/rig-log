@@ -42,7 +42,7 @@ SUB=6 MUSIC=<644.mp3> MUSIC_AT=7 .venv/bin/python render.py full    # 한 프로
 | 교체 시점과 개수 | 4패스마다 24개 결정, 4패스 뒤 반영 | `<arm>-p512-r2.residency.txt`의 `made`, `landed` |
 | 프롬프트 교체 층당 12 | admitted 480 ÷ 40 | `call stream end` |
 | 디코드 tok/s 29.48 / 35.70 / 43.86 | 96스텝 | 시팅 보고 표 |
-| 프롬프트 자체 +1.6 % | pp4096 374.68 ÷ 368.70 | `time prompt` 행 |
+| 프롬프트 자체 +1.8 % | pp4096 두 바퀴 평균 373.64 ÷ 367.19 | `time prompt` 행 |
 | 경주의 토큰 리듬 | 스텝별 wall ms | `<arm>-p512-r2.tsv` |
 | 토큰 | 실제 생성 결과, 세 팔 95토큰이 모두 같다 | 위와 같음 |
 

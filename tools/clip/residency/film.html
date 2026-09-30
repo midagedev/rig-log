@@ -458,7 +458,7 @@ function chart(t, a) {
   line(CX0 + 3, CY0 - 4, CX0 + 2, CY1 + 2, 2, INK, 58, { p: out((t - A1 - .1) / .5) });
   line(CX0 - 6, CY1, CX1 + 10, CY1 + 1, 4, INK, 62, { p: out((t - A1 - .15) / .6) });
   line(CX0 - 2, CY1 + 3, CX1 + 4, CY1 + 2, 2, INK, 59, { p: out((t - A1 - .25) / .6) });
-  hand('calls served by the GPU', CX0 + 14, CY0 + 6, 34, GRAY, { reveal: write(t, A1 + .2, 'calls served by the GPU', 40), seed: 63 });
+  hand('calls served by the GPU', CX0 + 14, CY0 + 6, 34, GRAY, { font: 'Brush', reveal: write(t, A1 + .2, 'calls served by the GPU', 40), seed: 63 });
   hand('100%', CX0 - 9, CY0 + 10, 30, GRAY, { align: 'right', seed: 64 });
   hand('0', CX0 - 9, CY1 + 10, 30, GRAY, { align: 'right', seed: 65 });
   hand('decode step →', CX1, CY1 + 34, 32, GRAY, { align: 'right', reveal: write(t, A1 + .5, 'decode step →', 30), seed: 66 });
@@ -495,7 +495,7 @@ function bigNumber(t, act, a) {
   const cur = act.st.inv(t); if (cur < 0) return;
   const i = Math.min(LAST, Math.floor(cur)), v = mean(act.h.slice(Math.max(0, i - 7), i + 1));
   ctx.save(); ctx.globalAlpha = a;
-  hand('served by the GPU', 668, 892, 34, GRAY, { seed: 81 });
+  hand('served by the GPU', 668, 892, 34, GRAY, { font: 'Brush', seed: 81 });
   hand(Math.round(v * 100) + '%', 664, 988, 120, ARM[act.arm].col, { font: 'Brush', seed: 82 });
   const tps = mean(D.arms[act.arm].tg_tps.p512), tl = act.st.at(LAST);
   if (t > tl) hand(`decode ${tps.toFixed(1)} tok/s`, 668, 1038, 42, INK, { reveal: write(t, tl, 'decode 00.0 tok/s', 30), seed: 83 });
@@ -523,7 +523,7 @@ function note(t, lines, t0, t1, x = 784, y0 = 252, dy = 32) {
 function subtitle(t, s, t0, t1, col) {
   const a = fadeIO(t, t0, t1, .2, .25); if (a <= 0) return;
   ctx.save(); ctx.globalAlpha = a;
-  hand(s, 540, 816, 44, col, { align: 'center', reveal: write(t, t0, s, 60), seed: 140 + s.length });
+  hand(s, 540, 816, 46, col, { font: 'Brush', align: 'center', reveal: write(t, t0, s, 60), seed: 140 + s.length });
   ctx.restore();
 }
 function sideLabels(t, a) {

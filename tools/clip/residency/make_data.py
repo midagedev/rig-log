@@ -64,7 +64,8 @@ def from_pack(pack):
     L, K = 40, 6
     # decode tok/s after 96 steps: the sitting's table (two rounds at P 512 were reported by the runner; see README)
     TG = {"off": {"p512": [29.48], "p4096": [29.12]}, "rule": {"p512": [35.70], "p4096": [31.71]}, "stream": {"p512": [43.86], "p4096": [36.90]}}
-    PP = {"off": {"p512": [193.11], "p4096": [368.88]}, "rule": {"p512": [192.65], "p4096": [368.70]}, "stream": {"p512": [190.52], "p4096": [374.68]}}
+    # prompt tok/s, P 4096: the two rounds' means from the sitting's `time prompt` rows (P 512 kept as one row each)
+    PP = {"off": {"p512": [193.11], "p4096": [367.19]}, "rule": {"p512": [192.65], "p4096": [367.19]}, "stream": {"p512": [190.52], "p4096": [373.64]}}
     arms = {}
     for arm in ("off", "rule", "stream"):
         st = [r for r in rows(f"{arm}-stats-p512-r1.tsv") if r["host_slots"]]
