@@ -1,0 +1,867 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>adaptive residency</title>
+<style>
+  @font-face { font-family: Brush; src: url(fonts/CaveatBrush-Regular.ttf); }
+  @font-face { font-family: Hand; src: url(fonts/GochiHand-Regular.ttf); }
+  html, body { margin: 0; background: #EFE8DA; }
+  #stage { width: 1080px; height: 1080px; display: block; }
+</style></head>
+<body>
+<canvas id="stage" width="1080" height="1080"></canvas>
+<script>
+// Every frame is a pure function of t (seconds): no timers, no state carried between frames.
+// Numbers come from data.json (make_data.py). Dot positions are schematic; hit % and tok/s are the sitting's records.
+const W = 1080, H = 1080, T = 42;
+const PAPER = '#EFE8DA', CARD = '#FBF7EE', INK = '#17140F', GRAY = '#8C867B', HOT = '#E0503A',
+      AMBER = '#F2B83B', LIGHT = '#F6DC8E', BLUE = '#2E5E9E', LBLUE = '#7FA6DE', DIMP = '#CFC6B4';
+const ARM = {
+  off: { col: GRAY, name: 'fixed seats' },
+  rule: { col: BLUE, name: 'watches itself' },
+  stream: { col: HOT, name: 'prompt picks' },
+};
+let D = null, BF = 0;
+const cv = document.getElementById('stage'), ctx = cv.getContext('2d');
+
+// ---- small math ------------------------------------------------------------------------------------------------
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, u) => a + (b - a) * u;
+const io = x => { x = clamp(x); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+const out = x => { x = clamp(x); return 1 - Math.pow(1 - x, 3); };
+const fadeIO = (t, a, b, fi = .35, fo = .35) => clamp(Math.min(out((t - a) / fi), 1 - io((t - (b - fo)) / fo)));
+function hsh(...k) {
+  let h = 0x9e3779b9 | 0;
+  for (const x of k) { h = Math.imul(h ^ (x | 0), 0x85ebca6b); h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35); h ^= h >>> 16; }
+  return (h >>> 0) / 4294967296;
+}
+function n1(u, s) { const i = Math.floor(u), f = u - i, w = f * f * (3 - 2 * f); return lerp(hsh(s, i), hsh(s, i + 1), w); }
+function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const mean = a => a.reduce((x, y) => x + y, 0) / a.length;
+
+// ---- brush ---------------------------------------------------------------------------------------------------
+function resample(pts, step) {
+  const o = [pts[0].slice()]; let carry = 0, len = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const [x0, y0] = pts[i - 1], [x1, y1] = pts[i], d = Math.hypot(x1 - x0, y1 - y0); len += d;
+    if (d === 0) continue;
+    let s = step - carry;
+    while (s <= d) { o.push([x0 + (x1 - x0) * s / d, y0 + (y1 - y0) * s / d]); s += step; }
+    carry = d - (s - step);
+  }
+  const e = pts[pts.length - 1], l = o[o.length - 1];
+  if (Math.hypot(e[0] - l[0], e[1] - l[1]) > .5) o.push(e.slice());
+  return { p: o, len };
+}
+// A tapered, wobbling ribbon with dry-brush gaps. o.p reveals it from the start (0..1).
+function brush(pts, w, col, seed, o = {}) {
+  const rev = o.p === undefined ? 1 : clamp(o.p);
+  if (rev <= 0) return;
+  const { p } = resample(pts, Math.max(2.5, Math.min(6, w * .6)));
+  const n = p.length; if (n < 2) return;
+  const m = Math.max(2, Math.ceil(n * rev));
+  const bs = seed * 131 + (o.still ? 0 : BF) * 977;
+  const L = [], R = [];
+  for (let i = 0; i < m; i++) {
+    const a = p[Math.max(0, i - 1)], b = p[Math.min(n - 1, i + 1)];
+    let dx = b[0] - a[0], dy = b[1] - a[1]; const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
+    const s = i / (n - 1);
+    const tap = o.flat ? 1 : Math.max(o.tip ?? .12, Math.pow(Math.min(1, s / .07, (1 - s) / .14), .55));
+    const ww = w * tap * (.74 + .52 * n1(i * .18, bs + 3)) * .5;
+    const off = (n1(i * .11, bs + 5) - .5) * w * (o.jit ?? .35);
+    const cx = p[i][0] - dy * off, cy = p[i][1] + dx * off;
+    L.push([cx - dy * ww, cy + dx * ww]); R.push([cx + dy * ww, cy - dx * ww]);
+  }
+  ctx.beginPath(); ctx.moveTo(L[0][0], L[0][1]);
+  for (const q of L) ctx.lineTo(q[0], q[1]);
+  for (let i = R.length - 1; i >= 0; i--) ctx.lineTo(R[i][0], R[i][1]);
+  ctx.closePath(); ctx.fillStyle = col; ctx.fill();
+  if (w >= 6 && o.dry !== 0) {
+    const k = w > 14 ? 3 : 2, a0 = ctx.globalAlpha;
+    ctx.strokeStyle = o.gap || PAPER; ctx.lineCap = 'round';
+    for (let j = 0; j < k; j++) {
+      const fo = (hsh(bs, j, 11) - .5) * .62;
+      ctx.globalAlpha = a0 * (.5 + .35 * hsh(bs, j, 12));
+      ctx.lineWidth = Math.max(.8, w * (.05 + .05 * hsh(bs, j, 13)));
+      ctx.beginPath(); let pen = false;
+      for (let i = 0; i < m; i++) {
+        const on = n1(i * .09 + j * 7.3, bs + 20 + j) > (o.dryT ?? .55);
+        const x = (L[i][0] + R[i][0]) / 2 + (L[i][0] - R[i][0]) * fo, y = (L[i][1] + R[i][1]) / 2 + (L[i][1] - R[i][1]) * fo;
+        if (on) { if (!pen) { ctx.moveTo(x, y); pen = true; } else ctx.lineTo(x, y); } else pen = false;
+      }
+      ctx.stroke();
+    }
+    ctx.globalAlpha = a0;
+  }
+}
+const line = (x0, y0, x1, y1, w, col, seed, o) => brush([[x0, y0], [x1, y1]], w, col, seed, o);
+// An ink blot: a lumpy closed shape, optional splash spikes and satellite dots.
+function blot(x, y, r, col, seed, o = {}) {
+  const bs = seed * 71 + (o.still ? 0 : BF) * 313, N = 14, P = [];
+  for (let i = 0; i < N; i++) {
+    const a = i / N * Math.PI * 2 + (hsh(bs, i, 2) - .5) * .25, rr = r * (.8 + .38 * hsh(bs, i));
+    P.push([x + Math.cos(a) * rr, y + Math.sin(a) * rr]);
+  }
+  const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  ctx.beginPath(); const m0 = mid(P[N - 1], P[0]); ctx.moveTo(m0[0], m0[1]);
+  for (let i = 0; i < N; i++) { const q = mid(P[i], P[(i + 1) % N]); ctx.quadraticCurveTo(P[i][0], P[i][1], q[0], q[1]); }
+  ctx.fillStyle = col; ctx.fill();
+  for (let j = 0; j < (o.spikes || 0); j++) {
+    const a = (o.up ? Math.PI * (1.1 + .8 * hsh(seed, j, 5)) : hsh(seed, j, 5) * 6.283) + (hsh(bs, j, 6) - .5) * .35, l = r * (.6 + .9 * hsh(seed, j, 7)) * (o.spk || 1);
+    brush([[x + Math.cos(a) * r * .5, y + Math.sin(a) * r * .5], [x + Math.cos(a) * (r + l), y + Math.sin(a) * (r + l)]],
+      r * .6, col, seed * 13 + j, { dry: 0, tip: .05 });
+  }
+  for (let j = 0; j < (o.dots || 0); j++) {
+    const a = hsh(seed, j, 8) * 6.283, d = r * (1.6 + hsh(seed, j, 9) * 1.3) * (o.spk || 1);
+    ctx.beginPath(); ctx.arc(x + Math.cos(a) * d, y + Math.sin(a) * d, 1 + hsh(seed, j, 10) * 1.7, 0, 6.283); ctx.fill();
+  }
+}
+// A filled region with a hand-cut edge.
+function roughPoly(corners, col, seed, amp = 2.5) {
+  const pts = [];
+  for (let c = 0; c < corners.length; c++) {
+    const [ax, ay] = corners[c], [bx, by] = corners[(c + 1) % corners.length];
+    const n = Math.max(2, Math.round(Math.hypot(bx - ax, by - ay) / 26));
+    for (let i = 0; i < n; i++) pts.push([lerp(ax, bx, i / n), lerp(ay, by, i / n)]);
+  }
+  ctx.beginPath();
+  pts.forEach((p, i) => {
+    const x = p[0] + (hsh(seed, i, BF) - .5) * 2 * amp, y = p[1] + (hsh(seed, i, BF + 7777) - .5) * 2 * amp;
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  });
+  ctx.closePath(); ctx.fillStyle = col; ctx.fill();
+}
+// Dry-brush streaks inside an ink mass: thin broken paper-colored lines, clipped to the current path.
+function streaks(x0, y0, x1, y1, seed, n, o = {}) {
+  ctx.save(); ctx.clip();
+  ctx.strokeStyle = o.col || PAPER; ctx.lineCap = 'round';
+  for (let k = 0; k < n; k++) {
+    const y = lerp(y0, y1, hsh(seed, k, 1)), ang = (hsh(seed, k, 2) - .5) * .06, a0 = ctx.globalAlpha;
+    ctx.globalAlpha = a0 * (.18 + .3 * hsh(seed, k, 3)) * (o.a ?? 1);
+    ctx.lineWidth = .8 + 1.8 * hsh(seed, k, 4);
+    ctx.beginPath(); let pen = false;
+    const bs = seed * 7 + k * 13 + Math.floor(BF / 2) * 3;          // streaks boil at half rate
+    for (let x = x0; x <= x1; x += 6) {
+      const on = n1(x * .012 + k * 3.1, bs) > .42;
+      const yy = y + (x - x0) * ang + (n1(x * .02, bs + 9) - .5) * 3;
+      if (on) { if (!pen) { ctx.moveTo(x, yy); pen = true; } else ctx.lineTo(x, yy); } else pen = false;
+    }
+    ctx.stroke(); ctx.globalAlpha = a0;
+  }
+  ctx.restore();
+}
+// Handwriting: per-letter jitter that boils, revealed letter by letter.
+function hand(s, x, y, size, col, o = {}) {
+  ctx.font = `${size}px ${o.font || 'Hand'}`; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+  const ch = [...s], ws = ch.map(c => ctx.measureText(c).width), tw = ws.reduce((a, b) => a + b, 0);
+  let cx = o.align === 'center' ? x - tw / 2 : o.align === 'right' ? x - tw : x;
+  const show = o.reveal === undefined ? ch.length : Math.floor(ch.length * clamp(o.reveal) + 1e-6);
+  const sd = (o.seed || 0) * 17 + (o.still ? 0 : BF) * 131;
+  ctx.fillStyle = col;
+  for (let i = 0; i < ch.length; i++) {
+    if (i < show && ch[i] !== ' ') {
+      const big = size >= 80, jy = big ? Math.min(3, size * .05) : size * .05, jx = big ? Math.min(3, size * .03) : size * .03;
+      const r = (hsh(sd, i, 1) - .5) * (o.rot ?? (big ? .04 : .07)), dy = (hsh(sd, i, 2) - .5) * jy, dx = (hsh(sd, i, 3) - .5) * jx;
+      ctx.save(); ctx.translate(cx + dx + ws[i] / 2, y + dy); ctx.rotate(r);
+      if (o.outline) { ctx.lineJoin = 'round'; ctx.lineWidth = o.ow || 6; ctx.strokeStyle = o.outline; ctx.strokeText(ch[i], -ws[i] / 2, 0); }
+      ctx.fillText(ch[i], -ws[i] / 2, 0); ctx.restore();
+    }
+    cx += ws[i];
+  }
+  return tw;
+}
+const measure = (s, size, font = 'Hand') => { ctx.font = `${size}px ${font}`; return ctx.measureText(s).width; };
+const write = (t, t0, s, cps = 26) => (t - t0) * cps / Math.max(1, [...s].length);   // letters per second -> reveal
+
+// ---- paper -----------------------------------------------------------------------------------------------------
+const bg = document.createElement('canvas'); bg.width = W; bg.height = H;
+(() => {
+  const g = bg.getContext('2d'), r = mulberry32(5);
+  g.fillStyle = PAPER; g.fillRect(0, 0, W, H);
+  for (let i = 0; i < 110000; i++) {
+    g.fillStyle = r() < .55 ? `rgba(70,52,30,${.03 + r() * .04})` : `rgba(255,255,250,${.05 + r() * .06})`;
+    g.fillRect(r() * W, r() * H, 1 + r(), 1 + r());
+  }
+  g.lineCap = 'round';
+  for (let i = 0; i < 700; i++) {
+    const x = r() * W, y = r() * H, a = r() * 6.283, l = 4 + r() * 14;
+    g.strokeStyle = `rgba(90,70,45,${.04 + r() * .04})`; g.lineWidth = .6;
+    g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + Math.cos(a + .5) * l * .5, y + Math.sin(a + .5) * l * .5, x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke();
+  }
+  const v = g.createRadialGradient(W / 2, H / 2, W * .35, W / 2, H / 2, W * .78);
+  v.addColorStop(0, 'rgba(80,60,35,0)'); v.addColorStop(1, 'rgba(80,60,35,.16)');
+  g.fillStyle = v; g.fillRect(0, 0, W, H);
+})();
+
+// ---- layout ----------------------------------------------------------------------------------------------------
+const LAMP = [540, 116], CONE_TOP = 142, CONE_BOT = 478, HW_TOP = 36, HW_BOT = 330;
+const hw = y => HW_TOP + (y - CONE_TOP) / (CONE_BOT - CONE_TOP) * (HW_BOT - HW_TOP);
+const COLS = 14;
+let NSEAT = 70, PIN = 40, NL = 40, K = 6;
+function seatXY(s) {
+  const r = Math.floor(s / COLS), c = s % COLS, y = 298 + r * 40, u = 2 * (hw(y) - 30);
+  return [540 - u / 2 + c * u / (COLS - 1), y, 8.5 + r * 1.15];
+}
+const HX0 = 100, HX1 = 980, HY0 = 560, HY1 = 744, HCOLS = 27, HROWS = 12;
+const hostXY = q => [HX0 + (q % HCOLS) * (HX1 - HX0) / (HCOLS - 1) + (hsh(q, 31) - .5) * 12, HY0 + Math.floor(q / HCOLS) * (HY1 - HY0) / (HROWS - 1) + (hsh(q, 32) - .5) * 5, 6.3 * (.7 + .6 * hsh(q, 33))];
+
+// ---- the three decode runs as a timeline ------------------------------------------------------------------------
+const POP = new Float64Array(384);
+(() => { const r = mulberry32(11), perm = [...Array(384).keys()]; for (let i = 383; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [perm[i], perm[j]] = [perm[j], perm[i]]; } perm.forEach((id, rank) => POP[id] = 1 / Math.pow(rank + 6, 1.15)); })();
+const HOSTSLOT0 = new Int16Array(384).fill(-1);
+function seedState() {
+  const seat = new Int16Array(NSEAT).fill(-1), where = new Int16Array(384).fill(-1), host = new Int16Array(384).fill(-1);
+  for (let s = 0; s < NSEAT - 1; s++) { seat[s] = s; where[s] = s; }     // the last seat is the spare
+  for (let id = 0; id < 384; id++) if (where[id] < 0) host[id] = HOSTSLOT0[id];
+  return { seat, where, host };
+}
+const cloneState = S => ({ seat: S.seat.slice(), where: S.where.slice(), host: S.host.slice() });
+function applySwap(S, hot, cold) {
+  const s = S.where[cold], q = S.host[hot];
+  S.seat[s] = hot; S.where[hot] = s; S.host[hot] = -1;
+  S.where[cold] = -1; S.host[cold] = q;
+}
+function knotsT(kn) {
+  const f = i => { for (let j = 1; j < kn.length; j++) if (i <= kn[j][0] || j === kn.length - 1) return lerp(kn[j - 1][1], kn[j][1], (i - kn[j - 1][0]) / (kn[j][0] - kn[j - 1][0])); };
+  const inv = t => { for (let j = 1; j < kn.length; j++) if (t <= kn[j][1] || j === kn.length - 1) return lerp(kn[j - 1][0], kn[j][0], (t - kn[j - 1][1]) / (kn[j][1] - kn[j - 1][1])); };
+  return { at: f, inv };
+}
+function hits(arm) { return D.arms[arm].steps.p512.map(s => 1 - s.host_slots / (NL * K)); }
+function smooth(a, k = 2) { return a.map((_, i) => mean(a.slice(Math.max(0, i - k), i + k + 1))); }
+
+const ACTS = {};
+function buildAct(name, arm, kn, flights, prompt) {
+  const st = knotsT(kn), h = hits(arm), S = seedState(), ev = [], steps = [];
+  const pending = [];                                     // swaps that go live later: {t1, hot, cold}
+  const live = t => { pending.sort((a, b) => a.t1 - b.t1); while (pending.length && pending[0].t1 <= t) { const e = pending.shift(); applySwap(S, e.hot, e.cold); if (e.done) e.done(); } };
+  const inFlight = new Set();
+  const CNT = new Float64Array(384);
+  const choose = (n) => {                                 // hottest host experts in, coldest movable residents out
+    const key = id => CNT[id] + POP[id];
+    const hotL = [...Array(384).keys()].filter(id => S.where[id] < 0 && !inFlight.has(id)).sort((a, b) => key(b) - key(a));
+    const coldL = [...Array(384).keys()].filter(id => S.where[id] >= PIN && !inFlight.has(id)).sort((a, b) => key(a) - key(b));
+    const o = [];
+    for (let j = 0; j < n && j < hotL.length && j < coldL.length; j++) if (key(hotL[j]) > key(coldL[j])) o.push([hotL[j], coldL[j]]);
+    return o;
+  };
+  if (prompt) {
+    for (const [hot, cold] of choose(prompt.n).map((p, j) => p)) {
+      const j = ev.length, t0 = prompt.t0 + j * .15;
+      ev.push({ kind: 'relayout', hot, cold, t0, t1: t0 + .8, from: S.host[hot], seat: S.where[cold] });
+      inFlight.add(hot); inFlight.add(cold); pending.push({ t1: t0 + .8, hot, cold });
+    }
+    live(1e9); inFlight.clear();
+  }
+  const fl = flights ? flights(st) : [];
+  let fi = 0;
+  for (let i = 0; i < h.length; i++) {
+    const ts = st.at(i);
+    while (fi < fl.length && fl[fi].t0 <= ts) {
+      const f = fl[fi++]; live(f.t0);
+      for (const [hot, cold] of choose(f.n)) {
+        ev.push({ kind: 'flip', hot, cold, t0: f.t0, t1: f.t1, from: S.host[hot], seat: S.where[cold] });
+        inFlight.add(hot); inFlight.add(cold); pending.push({ t1: f.t1, hot, cold, done: () => { inFlight.delete(hot); inFlight.delete(cold); } });
+      }
+    }
+    live(ts);
+    // this step's six calls in the drawn layer: as many on the card as the measured hit says (error diffusion)
+    const want = h[i] * K, acc = steps.reduce((a, s) => a + s.on, 0), target = Math.round((i + 1) * mean(h.slice(0, i + 1)) * K);
+    const on = clamp(Math.round(want + (target - acc - want) * .5), 0, K);
+    const r = mulberry32(hsh(name.length, i, 99) * 4e9 | 0), picks = [];
+    const pickFrom = (pool, n) => {
+      pool = pool.slice();
+      for (let k = 0; k < n && pool.length; k++) {
+        let tot = 0; for (const id of pool) tot += POP[id];
+        let x = r() * tot, j = 0; for (; j < pool.length - 1; j++) { x -= POP[pool[j]]; if (x <= 0) break; }
+        picks.push(pool[j]); pool.splice(j, 1);
+      }
+    };
+    const ids = [...Array(384).keys()];
+    pickFrom(ids.filter(id => S.where[id] >= 0), on);
+    pickFrom(ids.filter(id => S.where[id] < 0), K - on);
+    for (const id of picks) CNT[id] += 1;
+    steps.push({ ts, picks, on });
+  }
+  live(1e9);
+  ACTS[name] = { name, arm, st, h, hs: smooth(h), ev, steps, end: S };
+}
+function stateAt(act, t) {
+  const S = seedState();
+  for (const e of [...act.ev].sort((a, b) => a.t1 - b.t1)) if (e.t1 <= t) applySwap(S, e.hot, e.cold);
+  return S;
+}
+
+// ---- timeline --------------------------------------------------------------------------------------------------
+let LAST = 95;
+const A1 = 4.6, A2 = 11.6, A3 = 21.6, A4 = 30.4, A5 = 37.0, FOCUS_L = 7, SHOW = 15;
+function build() {
+  const m = D.meta;
+  LAST = D.arms.off.steps.p512.length - 1;
+  NSEAT = typeof m.card_slots_per_layer === 'number' ? m.card_slots_per_layer : Math.round(mean(m.card_slots_per_layer));
+  PIN = m.pinned_P; NL = m.layers; K = m.topk;
+  const r = mulberry32(3), slots = [...Array(HCOLS * HROWS).keys()];
+  for (let i = slots.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [slots[i], slots[j]] = [slots[j], slots[i]]; }
+  let k = 0; for (let id = NSEAT - 1; id < 384; id++) HOSTSLOT0[id] = slots[k++];
+  const ruleFlights = (arm) => st => {
+    const FL = D.arms[arm].flights;
+    const b = D.arms[arm].boundaries.p512, f = D.arms[arm].flips.p512; let acc = 0, given = 0;
+    const from = j => FL ? FL[j].made : Math.max(0, b[j] - 3);
+    const first = arm === 'rule' ? b.findIndex(x => x >= SHOW) : 0;   // the drawn layer's first swap is the slow-motion one
+    return b.map((x, j) => { acc += (f[j] || 0) / NL; let n = Math.floor(acc + 1e-9) - given; if (j < first) n = 0; if (j === first) n = Math.max(1, n); given += Math.max(0, n); return { t0: st.at(from(j)), t1: st.at(x), n }; }).filter(q => q.n > 0);
+  };
+  buildAct('fixed', 'off', [[0, A1 + .9], [5, A1 + 1.9], [LAST, A2 - 1.0]], null, null);
+  buildAct('rule', 'rule', [[0, A2 + .5], [SHOW - 4, A2 + 2.0], [SHOW, A2 + 5.0], [SHOW + 2, A2 + 5.8], [LAST, A3 - 1.4]], ruleFlights('rule'), null);
+  const perLayer = Math.max(1, Math.round(D.call_stream_end.p512.admitted / NL));
+  buildAct('stream', 'stream', [[0, A3 + 4.4], [LAST, A4 - 1.8]], ruleFlights('stream'), { t0: A3 + 2.6, n: perLayer });
+}
+
+// ---- drawing: the layer ---------------------------------------------------------------------------------------
+function stageAndHost(t, a, reveal) {
+  if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha = a;
+  // host RAM: a dark room
+  const hr = clamp(reveal);
+  if (hr > 0) {
+    ctx.save(); ctx.beginPath(); ctx.moveTo(0, 0);
+    for (let y = 480; y <= 790; y += 12) ctx.lineTo(40 + hr * 1000 + (n1(y * .05, 49) - .5) * 70 * (1 - hr * .7), y);
+    ctx.lineTo(0, 800); ctx.closePath(); ctx.clip();
+    roughPoly([[70, 506], [1010, 502], [1012, 762], [68, 766]], INK, 41, 4);
+    streaks(60, 510, 1020, 760, 41, 13, { a: .55 });
+    ctx.restore();
+  }
+  line(64, 504, 1016, 500, 9, INK, 42, { p: hr });
+  // the lamp and its light
+  line(540, 20, 540, 94, 4, INK, 44, { p: clamp(reveal * 2) });
+  roughPoly([[517, 92], [563, 92], [586, 128], [494, 128]], INK, 45, 1.6);
+  streaks(490, 94, 590, 126, 45, 4);
+  ctx.globalAlpha = a * clamp(reveal * 1.4 - .2);
+  const g = ctx.createLinearGradient(0, CONE_TOP, 0, CONE_BOT);
+  g.addColorStop(0, 'rgba(246,220,142,.95)'); g.addColorStop(1, 'rgba(246,220,142,.62)');
+  roughPoly([[540 - HW_TOP, CONE_TOP], [540 + HW_TOP, CONE_TOP], [540 + HW_BOT, CONE_BOT], [540 - HW_BOT, CONE_BOT]], g, 46, 1.5);
+  for (const sgn of [-1, 1]) for (let j = 0; j < 9; j++) {
+    const u0 = j / 9 + .012 + (hsh(j, sgn, 5) - .5) * .02, u1 = u0 + .07 * (.6 + .8 * hsh(j, sgn, 6));
+    line(540 + sgn * lerp(HW_TOP, HW_BOT, u0), lerp(CONE_TOP, CONE_BOT, u0), 540 + sgn * lerp(HW_TOP, HW_BOT, u1), lerp(CONE_TOP, CONE_BOT, u1), 4, INK, 50 + j + (sgn > 0 ? 20 : 0));
+  }
+  ctx.globalAlpha = a;
+  ctx.beginPath(); ctx.arc(540, 131, 9, 0, Math.PI); ctx.fillStyle = AMBER; ctx.fill();
+  hand('GPU · VRAM', 784, 178, 44, INK, { font: 'Brush', reveal: (reveal - .3) / .5, seed: 47 });
+  hand('fast', 788, 214, 30, GRAY, { reveal: (reveal - .6) / .3, seed: 48 });
+  // seats
+  for (let s = 0; s < NSEAT; s++) {
+    const [x, y, r] = seatXY(s), p = clamp(reveal * 1.6 - .5 - s / NSEAT * .4);
+    line(x - r * 1.2, y + r + 5, x + r * 1.2, y + r + 5, s < PIN ? 3.2 : 2.4, s < PIN ? INK : 'rgba(23,20,15,.55)', 200 + s, { p, dry: 0 });
+    if (s < PIN) line(x - r * 1.0, y + r + 9, x + r * 1.0, y + r + 9, 2, INK, 400 + s, { p, dry: 0 });
+  }
+  ctx.restore();
+}
+function bez(p0, p1, u, lift) {
+  const c = [(p0[0] + p1[0]) / 2, Math.min(p0[1], p1[1]) - lift];
+  const v = 1 - u; return [v * v * p0[0] + 2 * v * u * c[0] + u * u * p1[0], v * v * p0[1] + 2 * v * u * c[1] + u * u * p1[1]];
+}
+function trail(p0, p1, u0, u1, lift, col, seed, w = 4) {
+  const pts = []; for (let k = 0; k <= 16; k++) pts.push(bez(p0, p1, lerp(u0, u1, k / 16), lift));
+  brush(pts, w, col, seed, { dry: 0 });
+}
+let FX = [];
+function experts(t, act, a, scatter) {
+  FX = [];
+  if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha = a;
+  const S = act ? stateAt(act, t) : seedState();
+  const flying = new Map();
+  if (act) for (const e of act.ev) {
+    if (t >= e.t0 && t < e.t1 + 1.2) flying.set(e.hot, e), flying.set(e.cold, e);
+    if (e.kind === 'relayout' && t >= e.t1 && t < e.t1 + 1.6) FX.push({ kind: 'badge', x: seatXY(e.seat)[0], y: seatXY(e.seat)[1], r: seatXY(e.seat)[2], id: e.hot, e, n: act.ev.indexOf(e) + 1, fade: 1 - (t - e.t1) / 1.6 });
+  }
+  // heat: recent calls, per expert
+  const heat = new Float64Array(384), flash = [];
+  if (act) for (const s of act.steps) {
+    if (s.ts > t) break;
+    const age = t - s.ts;
+    for (const id of s.picks) { heat[id] += .42 * Math.exp(-age / 1.8); if (age < .45) flash.push([id, age, s.on]); }
+  }
+  const posOf = (id, St) => St.where[id] >= 0 ? seatXY(St.where[id]) : St.host[id] >= 0 ? hostXY(St.host[id]) : null;
+  const rewind = act && act.rewindFrom && t < act.rewindFrom.t1 ? act.rewindFrom : null;
+  for (let id = 0; id < 384; id++) {
+    let p = posOf(id, S), onCard = S.where[id] >= 0, fill = 1;
+    if (rewind) {
+      const u = io((t - rewind.t0) / (rewind.t1 - rewind.t0)), q = posOf(id, rewind.S);
+      if (q && p && (q[0] !== p[0] || q[1] !== p[1])) {
+        p = [...bez(q, p, u, 60), lerp(q[2], p[2], u)];
+        onCard = u > .5 ? onCard : rewind.S.where[id] >= 0;
+      }
+    }
+    const e = flying.get(id);
+    if (e) {
+      const seat = seatXY(e.seat), host = hostXY(e.from);
+      if (e.kind === 'relayout') {
+        const u = io((t - e.t0) / (e.t1 - e.t0));
+        if (id === e.hot) { p = [...bez(host, seat, u, 140), lerp(host[2], seat[2], u) * (1 + .5 * Math.sin(Math.PI * u))]; onCard = u > .6; trail(host, seat, Math.max(0, u - .35), u, 140, HOT, id * 3 + 1, 6); FX.push({ kind: 'badge', x: p[0], y: p[1], r: p[2], id, e, n: act.ev.indexOf(e) + 1 }); }
+        else { p = [...bez(seat, host, u, -40), lerp(seat[2], host[2], u)]; onCard = u < .4; trail(seat, host, Math.max(0, u - .45), u, -40, LBLUE, id * 3 + 2, 6); }
+      } else if (id === e.hot) {
+        const big = e === act.ev[0] && act.name === 'rule', grow = big ? 2.0 : 1;
+        const hover = [seat[0], seat[1] - (big ? 60 : 30), seat[2] * grow];
+        if (t < e.t1) {
+          const u = io((t - e.t0) / Math.min(.9, (e.t1 - e.t0) * .5)), prog = clamp((t - e.t0) / (e.t1 - e.t0));
+          p = [...bez(host, hover, u, 120), lerp(host[2], hover[2], u)];
+          trail(host, hover, 0, u, 120, HOT, id * 3 + 1, big ? 8 : 4.5);
+          if (big) FX.push({ kind: 'hot', x: p[0], y: p[1], r: p[2], id, e, u });
+          // the copy fills the blot like ink soaking in
+          ctx.save(); ctx.beginPath(); ctx.arc(p[0], p[1], p[2] * 1.25, 0, 6.283); ctx.lineWidth = 2; ctx.strokeStyle = HOT; ctx.stroke();
+          ctx.beginPath(); ctx.rect(p[0] - 20, p[1] + p[2] * 1.2 - prog * p[2] * 2.4, 40, 40); ctx.clip();
+          blot(p[0], p[1], p[2], HOT, id + 500); ctx.restore();
+          continue;
+        }
+        const u = io((t - e.t1) / (big ? .5 : .35)); p = [lerp(hover[0], seat[0], u), lerp(hover[1], seat[1], u), lerp(hover[2], seat[2], u)]; onCard = true;
+        if (u < 1) { ctx.save(); ctx.globalAlpha *= 1 - u; trail(host, hover, 0, 1, 120, HOT, id * 3 + 1, big ? 8 : 4.5); ctx.restore(); }
+        if (big && t < e.t1 + 1.2) FX.push({ kind: 'land', x: seat[0], y: seat[1], r: seat[2], id, e, u: (t - e.t1) / 1.2 });
+        else if (t < e.t1 + .5) FX.push({ kind: 'pop', x: seat[0], y: seat[1], r: seat[2], id, e, u: (t - e.t1) / .5 });
+      } else {
+        const big = e === act.ev[0] && act.name === 'rule';
+        if (t >= e.t1) {
+          const d = big ? 1.1 : .6, u = io((t - e.t1) / d); p = [...bez(seat, host, u, -30), lerp(seat[2] * (big ? 1.6 : 1), host[2], u)]; onCard = u < .45;
+          trail(seat, host, Math.max(0, u - .6), u, -30, LBLUE, id * 3 + 2, big ? 9 : 6);
+          if (big && u < 1) FX.push({ kind: 'cold', x: p[0], y: p[1], r: p[2], id, e, u });
+        } else if (big) { const [sx, sy, sr] = seatXY(S.where[id] >= 0 ? S.where[id] : e.seat); FX.push({ kind: 'coldwait', x: sx, y: sy, r: sr, id, e }); }
+      }
+    }
+    if (!p) continue;
+    let [x, y, r] = p;
+    if (scatter !== undefined) {
+      const u = out((scatter - hsh(id, 4) * .5) / .6);
+      if (u <= 0) continue;
+      x = lerp(540, x, u); y = lerp(560, y, u); r *= lerp(.4, 1, u);
+    }
+    const f = flash.find(q => q[0] === id);
+    const hot = clamp(heat[id]);
+    if (onCard) {
+      const kick = f ? 1 - f[1] / .45 : 0;
+      blot(x, y, r * (1 + .2 * kick), INK, id, { spikes: kick > .25 ? 4 : 0, spk: .18, up: true });
+    } else {
+      const c = hot > .05 ? mixHex(PAPER, HOT, Math.min(1, hot * 1.3)) : PAPER;
+      blot(x, y, r * (1 + .4 * hot), c, id, { dots: hot > .5 ? 2 : 0 });
+      if (f) { const u = f[1] / .45; ctx.beginPath(); ctx.arc(x, y, r * (1.4 + 2.2 * u), 0, 6.283); ctx.lineWidth = 3 * (1 - u); ctx.strokeStyle = HOT; ctx.stroke(); }
+    }
+  }
+  ctx.restore();
+}
+function mixHex(a, b, u) {
+  const p = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)), A = p(a), B = p(b);
+  return `rgb(${A.map((v, i) => Math.round(lerp(v, B[i], u))).join(',')})`;
+}
+
+// ---- drawing: chart and the big number ------------------------------------------------------------------------
+const CX0 = 118, CX1 = 626, CY0 = 872, CY1 = 1000;
+const cxy = (i, h) => [CX0 + i / LAST * (CX1 - CX0), CY1 - h * (CY1 - CY0)];
+function chart(t, a) {
+  if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha = a;
+  line(CX0, CY0 - 10, CX0 + 1, CY1 + 6, 4, INK, 61, { p: out((t - A1) / .5) });
+  line(CX0 + 3, CY0 - 4, CX0 + 2, CY1 + 2, 2, INK, 58, { p: out((t - A1 - .1) / .5) });
+  line(CX0 - 6, CY1, CX1 + 10, CY1 + 1, 4, INK, 62, { p: out((t - A1 - .15) / .6) });
+  line(CX0 - 2, CY1 + 3, CX1 + 4, CY1 + 2, 2, INK, 59, { p: out((t - A1 - .25) / .6) });
+  hand('calls served by the GPU', CX0 + 14, CY0 + 6, 34, GRAY, { reveal: write(t, A1 + .2, 'calls served by the GPU', 40), seed: 63 });
+  hand('100%', CX0 - 9, CY0 + 10, 30, GRAY, { align: 'right', seed: 64 });
+  hand('0', CX0 - 9, CY1 + 10, 30, GRAY, { align: 'right', seed: 65 });
+  hand('decode step →', CX1, CY1 + 34, 32, GRAY, { align: 'right', reveal: write(t, A1 + .5, 'decode step →', 30), seed: 66 });
+  const labels = [];
+  for (const act of [ACTS.fixed, ACTS.rule, ACTS.stream]) {
+    const cur = act.st.inv(t); if (cur < 0) continue;
+    const n = Math.min(LAST, cur), pts = [];
+    for (let i = 0; i <= Math.floor(n); i++) pts.push(cxy(i, act.hs[i]));
+    if (n < LAST && Math.floor(n) < LAST) { const i = Math.floor(n), u = n - i; pts.push(cxy(n, lerp(act.hs[i], act.hs[i + 1], u))); }
+    if (pts.length >= 2) brush(pts, 7, ARM[act.arm].col, 70 + act.name.length, { dry: 0, jit: .2, flat: true });
+    if (cur >= LAST) labels.push(act);
+  }
+  // curve names: above their own curve, where the curves above it are furthest away
+  const all = [ACTS.fixed, ACTS.rule, ACTS.stream];
+  for (const act of labels) {
+    const name = ARM[act.arm].name, w = measure(name, 36);
+    let best = 50, bestD = -1;
+    for (let i = 8; i <= 88; i += 2) {
+      const x = cxy(i, 0)[0]; if (x - w / 2 < CX0 + 12 || x + w / 2 > CX1) continue;
+      let d = 1; for (const o of all) if (o !== act && o.hs[i] > act.hs[i]) d = Math.min(d, o.hs[i] - act.hs[i]);
+      if (d > bestD) { bestD = d; best = i; }
+    }
+    const [x, y] = cxy(best, act.hs[best]);
+    PAPER_PAT = PAPER_PAT || ctx.createPattern(bg, 'no-repeat');
+    const pa = ctx.globalAlpha; ctx.globalAlpha = pa * clamp(write(t, act.st.at(LAST), name, 30) * 3);
+    roughPoly([[x - w / 2 - 8, y - 44], [x + w / 2 + 8, y - 44], [x + w / 2 + 8, y - 4], [x - w / 2 - 8, y - 4]], PAPER_PAT, 170 + act.name.length, 1.5);
+    ctx.globalAlpha = pa;
+    hand(name, x, y - 14, 36, ARM[act.arm].col, { align: 'center', reveal: write(t, act.st.at(LAST), name, 30), seed: 67 + act.name.length, outline: PAPER, ow: 7 });
+  }
+  ctx.restore();
+}
+function bigNumber(t, act, a) {
+  if (a <= 0 || !act) return;
+  const cur = act.st.inv(t); if (cur < 0) return;
+  const i = Math.min(LAST, Math.floor(cur)), v = mean(act.h.slice(Math.max(0, i - 7), i + 1));
+  ctx.save(); ctx.globalAlpha = a;
+  hand('served by the GPU', 668, 892, 34, GRAY, { seed: 81 });
+  hand(Math.round(v * 100) + '%', 664, 988, 120, ARM[act.arm].col, { font: 'Brush', seed: 82 });
+  const tps = mean(D.arms[act.arm].tg_tps.p512), tl = act.st.at(LAST);
+  if (t > tl) hand(`decode ${tps.toFixed(1)} tok/s`, 668, 1038, 42, INK, { reveal: write(t, tl, 'decode 00.0 tok/s', 30), seed: 83 });
+  ctx.restore();
+}
+
+// ---- captions, notes -------------------------------------------------------------------------------------------
+function caption(t, s, t0, t1, seed) {
+  const a = fadeIO(t, t0, t1, .25, .3); if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha = a;
+  const size = Math.min(46, 46 * 380 / measure(s, 46)), w = measure(s, size) + 44, x = 56, y = 46, h = 70;
+  roughPoly([[x, y], [x + w, y], [x + w, y + h], [x, y + h]], CARD, seed, 1.2);
+  line(x - 5, y, x + w + 6, y + 1, 5, INK, seed + 1); line(x + w, y - 4, x + w + 1, y + h + 5, 5, INK, seed + 2);
+  line(x + w + 5, y + h, x - 4, y + h - 1, 5, INK, seed + 3); line(x, y + h + 4, x - 1, y - 5, 5, INK, seed + 4);
+  hand(s, x + 22, y + 51, size, INK, { reveal: write(t, t0 + .1, s, 22), seed });
+  ctx.restore();
+}
+function note(t, lines, t0, t1, x = 784, y0 = 252, dy = 32) {
+  const a = fadeIO(t, t0, t1, .3, .35); if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha = a;
+  let tt = t0;
+  lines.forEach(([s, col, size], k) => { hand(s, x, y0 + k * dy, size || 27, col || INK, { reveal: write(t, tt, s, 30), seed: 90 + k + s.length }); tt += [...s].length / 30 + .15; });
+  ctx.restore();
+}
+function subtitle(t, s, t0, t1, col) {
+  const a = fadeIO(t, t0, t1, .2, .25); if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha = a;
+  hand(s, 540, 816, 44, col, { align: 'center', reveal: write(t, t0, s, 60), seed: 140 + s.length });
+  ctx.restore();
+}
+function sideLabels(t, a) {
+  if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha = a;
+  const [, y1] = seatXY(COLS), [, y4] = seatXY(COLS * 3);
+  hand(`${PIN} stay put →`, 540 - hw(y1) + 14, y1 + 11, 36, INK, { align: 'right', seed: 101 });
+  hand(`${NSEAT - PIN} can move →`, 540 - hw(y4) + 16, y4 + 11, 36, INK, { align: 'right', seed: 102 });
+  ctx.restore();
+}
+
+
+// ---- the swap, made visible: spotlight, tags, burst, badges, counter ---------------------------------------------
+const spotCv = document.createElement('canvas'); spotCv.width = W; spotCv.height = H; const sctx = spotCv.getContext('2d');
+function callsUpTo(act, id, t) { let n = 0; for (const st of act.steps) { if (st.ts > t) break; if (st.picks.includes(id)) n++; } return n; }
+function swapFX(t, act) {
+  if (!act) return;
+  const bigE = act.name === 'rule' ? act.ev[0] : null;
+  if (bigE) {
+    const a = Math.min(clamp((t - bigE.t0 + .1) / .35), 1 - clamp((t - (bigE.t1 + 1.3)) / .45));
+    const holes = FX.filter(f => f.e === bigE && f.kind !== 'pop').map(f => ({ x: f.x, y: f.y, r: f.kind === 'land' ? 150 : 115 }));
+    if (a > 0 && holes.length) {
+      sctx.globalCompositeOperation = 'source-over'; sctx.clearRect(0, 0, W, H);
+      sctx.fillStyle = 'rgba(23,20,15,.62)'; sctx.fillRect(0, 0, W, H);
+      sctx.globalCompositeOperation = 'destination-out';
+      for (const h of holes) { const g = sctx.createRadialGradient(h.x, h.y, h.r * .35, h.x, h.y, h.r); g.addColorStop(0, 'rgba(0,0,0,1)'); g.addColorStop(1, 'rgba(0,0,0,0)'); sctx.fillStyle = g; sctx.fillRect(h.x - h.r, h.y - h.r, 2 * h.r, 2 * h.r); }
+      ctx.save(); ctx.globalAlpha = a; ctx.drawImage(spotCv, 0, 0); ctx.restore();
+    }
+  }
+  for (const f of FX) {
+    ctx.save();
+    if (f.kind === 'hot') {
+      hand('hot · called a lot', f.x + f.r + 18, f.y + 12, 40, HOT, { font: 'Brush', seed: 1600, outline: INK, ow: 7 });
+    } else if (f.kind === 'cold' || f.kind === 'coldwait') {
+      hand('cold · barely called', f.x - f.r - 16, f.y + 46, 40, LBLUE, { font: 'Brush', align: 'right', seed: 1601, outline: INK, ow: 7 });
+    } else if (f.kind === 'land') {
+      const u = clamp(f.u);
+      ctx.globalAlpha = 1 - u;
+      ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (1.6 + 5 * out(u)), 0, 6.283); ctx.lineWidth = 6 * (1 - u) + 1; ctx.strokeStyle = AMBER; ctx.stroke();
+      blot(f.x, f.y, f.r * (1.2 + .6 * (1 - u)), INK, 1610, { spikes: 9, spk: .9 * (1 - u) + .2 });
+      if (u < .85) hand('swap!', f.x, f.y - 46 - 20 * out(u), 60, HOT, { font: 'Brush', align: 'center', seed: 1611, outline: INK, ow: 8 });
+    } else if (f.kind === 'pop') {
+      const u = clamp(f.u); ctx.globalAlpha = 1 - u;
+      ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (1.4 + 3 * out(u)), 0, 6.283); ctx.lineWidth = 4 * (1 - u) + 1; ctx.strokeStyle = AMBER; ctx.stroke();
+    } else if (f.kind === 'badge') {
+      ctx.globalAlpha = f.fade === undefined ? 1 : clamp(f.fade * 2);
+      const bx = f.x + f.r + 6, by = f.y - f.r - 6;
+      ctx.beginPath(); ctx.arc(bx, by, 15, 0, 6.283); ctx.fillStyle = CARD; ctx.fill(); ctx.lineWidth = 2.5; ctx.strokeStyle = INK; ctx.stroke();
+      hand(String(f.n), bx, by + 9, 26, HOT, { font: 'Brush', align: 'center', seed: 1620 + f.n, still: true });
+    }
+    ctx.restore();
+  }
+}
+function swapCount(t, act, a) {
+  if (a <= 0 || !act || act.name === 'fixed') return;
+  const n = act.ev.filter(e => e.t1 <= t).length;
+  ctx.save(); ctx.globalAlpha = a; hand(`swaps so far: ${n}`, 788, 296, 36, INK, { font: 'Brush', seed: 1630 }); ctx.restore();
+}
+function nowWord(t, act, a) {
+  if (a <= 0 || !act) return;
+  let i = -1; for (let j = 0; j < act.steps.length; j++) { if (act.steps[j].ts <= t) i = j; else break; }
+  if (i < 0) return;
+  const w = (D.arms[act.arm].tokens || [])[i] || '', shown = w.includes('\n') ? '⏎' : w.trim() || '·';
+  ctx.save(); ctx.globalAlpha = a;
+  hand('this token:', 604, 72, 28, GRAY, { font: 'Brush', seed: 1640 });
+  hand(`“${shown}”`, 604, 116, 44, INK, { font: 'Brush', seed: 1641 + i });
+  ctx.restore();
+}
+function ladder(t, a) {
+  if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha = a;
+  hand(`layer ${FOCUS_L} of ${NL}`, 788, 256, 32, INK, { font: 'Brush', seed: 1650 });
+  for (let l = 0; l < NL; l++) {
+    const y = 150 + l * 5.4, on = l === FOCUS_L - 1;
+    ctx.fillStyle = on ? HOT : l % 10 === 9 ? GRAY : DIMP; ctx.fillRect(on ? 1000 : 1006, y, on ? 32 : 20, 3.4);
+  }
+  ctx.restore();
+}
+
+// ---- intro: every word walks 40 layers, then dive into one ---------------------------------------------------------
+const SX = c => 72 + c * 246, SY = r => 176 + r * 58;
+function introShelves(t, a) {
+  if (a <= 0) return;
+  const z = Math.exp(Math.log(7) * io((t - 3.1) / 1.4)), fx = SX(0) + 105, fy = SY(FOCUS_L - 1) + 20;
+  ctx.save(); ctx.globalAlpha = a;
+  ctx.translate(540, 470); ctx.scale(z, z); ctx.translate(-lerp(540, fx, clamp((z - 1) / 1.5)), -lerp(470, fy, clamp((z - 1) / 1.5)));
+  for (let l = 0; l < NL; l++) {
+    const c = Math.floor(l / 10), r = l % 10, x = SX(c), y = SY(r), p = clamp((t - .15 - l * .012) / .35);
+    if (p <= 0) continue;
+    roughPoly([[x, y], [x + 38 * p, y], [x + 38 * p, y + 38], [x, y + 38]], LIGHT, 1700 + l, 1);
+    roughPoly([[x + 42, y], [x + 42 + 170 * p, y], [x + 42 + 170 * p, y + 38], [x + 42, y + 38]], INK, 1750 + l, 1);
+    hand(String(l + 1), x - 8, y + 30, 22, GRAY, { font: 'Brush', align: 'right', seed: 1800 + l });
+  }
+  roughPoly([[SX(0), 128], [SX(0) + 26, 128], [SX(0) + 26, 150], [SX(0), 150]], LIGHT, 1852, 1);
+  hand('GPU seats', SX(0) + 36, 150, 32, INK, { font: 'Brush', seed: 1850 });
+  roughPoly([[SX(0) + 190, 128], [SX(0) + 216, 128], [SX(0) + 216, 150], [SX(0) + 190, 150]], INK, 1853, 1);
+  hand('host RAM', SX(0) + 226, 150, 32, INK, { font: 'Brush', seed: 1851 });
+  // words dropping through the layers, one after another
+  const toks = D.arms.off.tokens || [];
+  for (let j = 0; j < 9; j++) {
+    const t0 = .7 + j * .26, u = (t - t0) / 1.3;
+    if (u < 0 || u > 1) continue;
+    const q = u * NL, l = Math.min(NL - 1, Math.floor(q)), f = q - l, c = Math.floor(l / 10), r = l % 10;
+    const x = SX(c) + 20 + f * 0, y = SY(r) + 19 + f * 58;
+    blot(x, y, 9, HOT, 1860 + j, { spikes: 3, spk: .4 });
+    const w = (toks[j] || '').includes('\n') ? '⏎' : (toks[j] || '').trim();
+    if (w) hand(w, x + 14, y + 8, 24, INK, { font: 'Brush', seed: 1870 + j, outline: PAPER, ow: 5 });
+  }
+  ctx.restore();
+}
+function introAnswer(t, a) {
+  if (a <= 0) return;
+  const toks = D.arms.off.tokens || [], n = [...Array(9).keys()].filter(j => t >= .7 + j * .26 + 1.3).length;
+  ctx.save(); ctx.globalAlpha = a;
+  const x = 72, y = 880, w = 936, h = 64;
+  roughPoly([[x, y], [x + w, y - 3], [x + w + 2, y + h], [x - 2, y + h + 2]], CARD, 1880, 1.5);
+  brush([[x, y], [x + w, y - 3], [x + w + 2, y + h], [x - 2, y + h + 2], [x, y]], 4, INK, 1881, { dry: 0, flat: true });
+  hand('output:', x + 18, y + 44, 32, GRAY, { font: 'Brush', seed: 1882 });
+  ctx.font = '34px Hand'; const ln = wrapText(toks.slice(0, n).join('').replace(/\n+/g, ' ⏎ '), w - 160);
+  hand(ln[ln.length - 1] || '', x + 130, y + 44, 34, INK, { seed: 1883, still: true });
+  ctx.restore();
+}
+
+function wrapText(text, maxw) {               // words first; a run without spaces (a URL) breaks by characters
+  const lines = []; let cur = '';
+  for (const ch of text) {
+    const tr = cur + ch;
+    if (ctx.measureText(tr).width > maxw) {
+      const cut = cur.lastIndexOf(' ');
+      if (cut > cur.length * .5) { lines.push(cur.slice(0, cut)); cur = cur.slice(cut + 1) + ch; } else { lines.push(cur); cur = ch; }
+    } else cur = tr;
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+// ---- the race ----------------------------------------------------------------------------------------------------
+function race(t, t0, t1) {
+  const a = fadeIO(t, t0, t1, .4, .3); if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha = a;
+  const RATE = .25, MAXN = 60, ms = Math.max(0, t - (t0 + .8)) * RATE * 1000;
+  hand('same prompt, three ways · the output, 4× slower than real', 540, 162, 34, INK, { font: 'Brush', align: 'center', seed: 1500 });
+  ['off', 'rule', 'stream'].forEach((arm, k) => {
+    const A = D.arms[arm], y = 240 + k * 214, col = ARM[arm].col;
+    let n = 0, c = 0; while (n < A.step_ms.length && c + A.step_ms[n] <= ms) { c += A.step_ms[n]; n++; }
+    hand(ARM[arm].name, 66, y, 52, col, { font: 'Brush', seed: 1510 + k });
+    hand(`${n} tokens`, 1016, y, 44, INK, { font: 'Brush', align: 'right', seed: 1550 + k });
+    roughPoly([[62, y + 18], [1018, y + 14], [1020, y + 124], [60, y + 128]], CARD, 1520 + k, 1.5);
+    brush([[62, y + 18], [1018, y + 14], [1020, y + 124], [60, y + 128], [62, y + 18]], 4, INK, 1530 + k, { dry: 0, flat: true });
+    const text = (A.tokens || []).slice(0, n).join('').replace(/\n+/g, ' ⏎ ').replace(/\s+/g, ' ');
+    ctx.font = '38px Hand'; const lines = wrapText(text, 910);
+    lines.slice(-2).forEach((ln, j) => hand(ln, 82, y + 64 + j * 44, 38, INK, { seed: 1540 + j + lines.length, still: true }));
+    const bw = 956 * Math.min(1, n / MAXN);
+    if (bw > 2) brush([[62, y + 146], [62 + bw, y + 146]], 12, col, 1580 + k, { dry: 0, flat: true, jit: .1 });
+    if (t > t1 - 2.4) hand(`${mean(A.tg_tps.p512).toFixed(1)} tok/s`, 1016, y + 180, 44, col, { font: 'Brush', align: 'right', seed: 1560 + k, reveal: (t - (t1 - 2.4)) * 3 });
+  });
+  const v0 = mean(D.arms.off.tg_tps.p512), v2 = mean(D.arms.stream.tg_tps.p512);
+  if (t > t1 - 1.8) hand(`+${Math.round((v2 / v0 - 1) * 100)}% on the same GPU`, 66, 1000, 56, HOT, { font: 'Brush', seed: 1570, reveal: (t - (t1 - 1.8)) * 2 });
+  ctx.restore();
+}
+function rewindFX(t, t0, t1, cx = 540, cy = 470, rot = 0) {
+  const a = fadeIO(t, t0, t1, .15, .25); if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha = a * .18; ctx.fillStyle = INK; ctx.fillRect(0, 0, W, H); ctx.restore();
+  ctx.save(); ctx.globalAlpha = a;
+  for (let k = 0; k < 12; k++) { const y = ((hsh(k, BF, 1) * H) | 0), x0 = hsh(k, BF, 2) * 400; brush([[x0, y], [x0 + 300 + hsh(k, BF, 3) * 500, y + 2]], 3, PAPER, 1400 + k + BF, { dry: 0 }); }
+  ctx.translate(cx, cy); ctx.rotate(rot); ctx.translate(-cx, -cy);
+  for (const dx of [-60, 30]) brush([[cx + dx + 70, cy - 60], [cx + dx, cy], [cx + dx + 70, cy + 60], [cx + dx + 70, cy - 60]], 16, INK, 1450 + dx, { dry: .5, flat: true });
+  hand('rewind', cx, cy + 130, 60, INK, { font: 'Brush', align: 'center', seed: 1460, outline: PAPER, ow: 10 });
+  ctx.restore();
+}
+
+// ---- act 0: the hook (unused) ------------------------------------------------------------------------------------
+function hook(t) {
+  const a = 1 - io((t - (A1 - .3)) / .4);
+  if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha = a;
+  const r = 95 * out((t - .1) / .35) * (1 - io((t - .75) / .6));
+  if (r > 1) { blot(540, 560, r, INK, 7, { spikes: 13, spk: 1.1, dots: 10 }); ctx.beginPath(); ctx.arc(540, 560, r * .95, 0, 6.283); streaks(540 - r, 560 - r, 540 + r, 560 + r, 8, 9); }
+  hand(`The GPU seats ${NSEAT} of them.`, 540, 912, 58, INK, { font: 'Brush', align: 'center', reveal: write(t, 1.3, 'The GPU seats 70 of them.', 24), seed: 110 });
+  hand(`Which ${NSEAT}?`, 540, 988, 64, HOT, { font: 'Brush', align: 'center', reveal: write(t, 2.35, 'Which 70?', 16), seed: 111 });
+  ctx.restore();
+}
+
+// ---- act 4: bars -----------------------------------------------------------------------------------------------
+let PAPER_PAT = null;
+function wipe(t, t0) {   // paper-colored brush strokes sweep the page
+  const u = clamp((t - t0) / .7); if (u <= 0) return;
+  PAPER_PAT = PAPER_PAT || ctx.createPattern(bg, 'no-repeat');
+  for (let k = 0; k < 10; k++) {
+    const y = 40 + k * 112, s = clamp(u * 1.6 - k * .06);
+    if (s > 0) brush([[-40, y], [W + 40, y + 10]], 160, PAPER_PAT, 300 + k, { p: s, dry: 0, flat: true, jit: .1 });
+  }
+}
+function bars(t, a) {
+  if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha = a;
+  const arms = ['off', 'rule', 'stream'], base = 860, scale = 470 / Math.max(...arms.flatMap(a => [mean(D.arms[a].tg_tps.p512), mean(D.arms[a].tg_tps.p4096)])), groups = [['p512', 'after a 512-token prompt', 150], ['p4096', 'after a 4,096-token prompt', 590]];
+  arms.forEach((arm, k) => {
+    const x = [100, 410, 740][k];
+    blot(x, 206, 12, ARM[arm].col, 700 + k);
+    hand(ARM[arm].name, x + 24, 218, 36, ARM[arm].col, { reveal: write(t, A4 + .6 + k * .2, ARM[arm].name, 30), seed: 701 + k });
+  });
+  groups.forEach(([key, label, gx], g) => {
+    line(gx - 10, base, gx + 350, base + 2, 5, INK, 710 + g, { p: out((t - A4 - .5) / .5) });
+    hand(label, gx + 170, base + 46, 34, GRAY, { align: 'center', reveal: write(t, A4 + .9, label, 34), seed: 712 + g });
+    arms.forEach((arm, k) => {
+      const v = mean(D.arms[arm].tg_tps[key]), x0 = gx + 12 + k * 112, bw = 86;
+      const u = out((t - (A4 + .8 + g * .35 + k * .15)) / .7), h = v * scale * u;
+      if (u <= 0) return;
+      ctx.save(); ctx.beginPath(); ctx.rect(x0 - 4, base - h, bw + 8, h); ctx.clip();
+      for (let j = -6; j < 40; j++) line(x0 + j * 13 + (hsh(j, k, g) - .5) * 6, base + 4, x0 + j * 13 + 70 + (hsh(j, k, g + 5) - .5) * 30, base - 540, 6, ARM[arm].col, 720 + g * 50 + k * 60 + j, { dry: 0, jit: .15 });
+      ctx.restore();
+      brush([[x0, base], [x0, base - h], [x0 + bw, base - h], [x0 + bw, base]], 4, INK, 780 + g * 5 + k, { dry: 0, flat: true, jit: .2 });
+      if (u > .9) hand(v.toFixed(1), x0 + bw / 2, base - h - 14, 40, ARM[arm].col, { font: 'Brush', align: 'center', seed: 790 + g * 5 + k });
+    });
+    const v0 = mean(D.arms.off.tg_tps[key]), v2 = mean(D.arms.stream.tg_tps[key]), gain = Math.round((v2 / v0 - 1) * 100);
+    const ga = clamp((t - (A4 + 2.2 + g * .3)) / .4);
+    if (ga > 0) {
+      ctx.save(); ctx.globalAlpha = a * ga;
+      const xa = gx + 12 + 43, xb = gx + 12 + 224 + 43, ya = base - v0 * scale - 60, yb = base - v2 * scale - 60;
+      trail([xa, ya], [xb, yb], 0, ga, 70, HOT, 800 + g, 4);
+      hand(`+${gain}%`, (xa + xb) / 2, Math.min(ya, yb) - 58, 46, HOT, { font: 'Brush', align: 'center', seed: 805 + g });
+      ctx.restore();
+    }
+  });
+  ctx.restore();
+}
+
+// ---- act 5: the end --------------------------------------------------------------------------------------------
+function finale(t) {
+  if (t < A5) return;
+  const u = clamp((t - A5) / .55);
+  for (let k = 0; k < 26; k++) {
+    const ang = k / 26 * 6.283 + hsh(k, 3) * .2, l = 900 * out(u * 1.2 - hsh(k, 4) * .25);
+    if (l > 5) brush([[540, 540], [540 + Math.cos(ang) * l, 540 + Math.sin(ang) * l]], 150 + hsh(k, 5) * 120, INK, 900 + k, { dry: .5 });
+  }
+  blot(540, 540, 170 * out(u * 1.5), INK, 950, { spikes: 12, spk: 1.2 });
+  const f = clamp((t - A5 - .45) / .25);
+  if (f > 0) { ctx.save(); ctx.globalAlpha = f; ctx.fillStyle = INK; ctx.fillRect(0, 0, W, H); ctx.restore(); }
+  const t0 = A5 + .6;
+  hand('run it again →', 540, 440, 86, PAPER, { font: 'Brush', align: 'center', reveal: write(t, t0, 'run it again →', 30), seed: 960 });
+  hand('same text.', 540, 540, 86, PAPER, { font: 'Brush', align: 'center', reveal: write(t, t0 + .5, 'same text.', 30), seed: 961 });
+  line(380, 566, 700, 572, 7, HOT, 962, { p: clamp((t - t0 - 1.0) / .4), gap: INK });
+  hand('the GPU\'s seats follow the conversation,', 540, 664, 46, DIMP, { font: 'Brush', align: 'center', reveal: write(t, t0 + 1.0, 'x'.repeat(30), 60), seed: 963 });
+  hand('and change only between tokens', 540, 718, 46, DIMP, { font: 'Brush', align: 'center', reveal: write(t, t0 + 1.4, 'x'.repeat(24), 60), seed: 966 });
+  hand('bloomery  ·  DeepSeek-V4.1-Flash  ·  one RTX A6000 + host RAM', 540, 822, 34, GRAY, { align: 'center', reveal: write(t, t0 + 1.9, 'x'.repeat(30), 60), seed: 964 });
+  hand('github.com/midagedev/bloomery', 540, 874, 40, AMBER, { align: 'center', reveal: write(t, t0 + 2.2, 'x'.repeat(30), 60), seed: 965 });
+}
+
+function frame() {
+  const sd = 990, M = 22;
+  line(M - 6, M, W - M + 8, M + 2, 9, INK, sd); line(W - M, M - 6, W - M + 1, H - M + 8, 9, INK, sd + 1);
+  line(W - M + 6, H - M, M - 8, H - M - 1, 9, INK, sd + 2); line(M, H - M + 6, M - 1, M - 8, 9, INK, sd + 3);
+}
+function stamp() {
+  if (!D.placeholder) return;
+  ctx.save(); ctx.translate(540, 1046); ctx.globalAlpha = .85;
+  ctx.font = '24px Hand'; ctx.fillStyle = '#C0182B'; ctx.textAlign = 'center'; ctx.fillText('PLACEHOLDER NUMBERS', 0, 0);
+  ctx.restore();
+}
+
+// ---- scene ----------------------------------------------------------------------------------------------------
+function scene(t) {
+  BF = Math.floor((t * 60 + .5) / 5);                 // 12 boils a second, changing between frames, never inside one
+  ctx.globalAlpha = 1; ctx.drawImage(bg, 0, 0);
+  const stageA = clamp((t - 4.2) / .35);
+  if (t < 4.6) { introShelves(t, 1); introAnswer(t, fadeIO(t, 1.0, 3.9, .3, .2)); wipe(t, 3.72); }
+  const act = t < A2 ? ACTS.fixed : t < A3 ? ACTS.rule : ACTS.stream;
+  if (t < A4 + .8 && stageA > 0) {
+    ctx.save(); ctx.globalAlpha = stageA;
+    stageAndHost(t, 1, 1);
+    experts(t, t < A1 ? null : act, 1);
+    sideLabels(t, fadeIO(t, A2 - 1.4, A2 + 3.2, .4, .4));
+    hand('host RAM  ·  the CPU does these  ·  slow', 92, 540, 36, DIMP, { seed: 43, outline: INK, ow: 6 });
+    ladder(t, 1);
+    nowWord(t, t < A1 ? null : act, 1);
+    chart(t, t < A1 ? 0 : 1);
+    bigNumber(t, act, t < A1 ? 0 : 1);
+    swapFX(t, t < A1 ? null : act);
+    swapCount(t, act, t >= A2 && t < A4 ? 1 : 0);
+    ctx.restore();
+  } else FX = [];
+  if (t >= A4) { wipe(t, A4); race(t, A4 + .4, A5 + .2); }
+  caption(t, 'every token walks 40 layers.', .3, 3.9, 119);
+  caption(t, 'one layer. 384 experts.', 4.1, A1 + .6, 120);
+  caption(t, 'fixed seats.', A1 + .6, A2, 121);
+  caption(t, 'it watches itself.', A2, A3, 122);
+  caption(t, 'the prompt picks.', A3 + .8, A4, 123);
+  caption(t, 'the race.', A4 + .4, A5 + .2, 124);
+  const pp = D.arms.stream.pp_tps.p4096[0] / D.arms.rule.pp_tps.p4096[0] - 1, per = Math.round(D.call_stream_end.p512.admitted / NL);
+  const SUBS = [
+    [1.2, 3.9, `each layer: 384 experts, ${NSEAT} fit on the GPU`, INK],
+    [A1 + .4, A1 + 3.4, `seats set once, at load: the first ${NSEAT - 1} ids`, INK],
+    [A1 + 3.6, A2 - .1, 'most calls land in the dark room', INK],
+    [A2 + .3, A2 + 1.9, 'it counts every call', INK],
+    [A2 + 2.0, A2 + 5.0, 'the hottest one in RAM is copied up in the background', HOT],
+    [A2 + 5.1, A2 + 6.8, 'the coldest seat goes back to RAM', BLUE],
+    [A2 + 6.9, A2 + 8.4, 'swaps land only between tokens', INK],
+    [A2 + 8.5, A3 - .05, 'same history → same output', INK],
+    [A3 + .9, A3 + 2.4, 'then a 512-token prompt arrives', INK],
+    [A3 + 2.5, A3 + 4.6, `its ${per} hottest experts a layer move in, and stay`, HOT],
+    [A3 + 4.7, A3 + 6.9, `the prompt itself: about the same speed (${pp >= 0 ? '+' : '−'}${Math.abs(pp * 100).toFixed(1)}%)`, GRAY],
+    [A3 + 7.0, A4, 'the win is the decode after it', INK],
+  ];
+  for (const [a0, a1, str, col] of SUBS) subtitle(t, str, a0, a1, col);
+  if (t >= A3 + .8 && t < A3 + 4.2) promptStrip(t);
+  rewindFX(t, A3, A3 + .8, 720, 420, .05);
+  finale(t);
+  frame();
+  stamp();
+}
+function promptStrip(t) {
+  const u = io((t - (A3 + 1.2)) / 1.3), a = fadeIO(t, A3 + 1.2, A3 + 4.1, .25, .4);
+  if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha = a;
+  const x = lerp(-280, 330, u), y = 590;
+  roughPoly([[x, y], [x + 250, y - 6], [x + 254, y + 136], [x + 4, y + 140]], CARD, 130, 2);
+  brush([[x, y], [x + 250, y - 6], [x + 254, y + 136], [x + 4, y + 140], [x, y]], 4, INK, 131, { dry: 0, flat: true });
+  for (let k = 0; k < 5; k++) line(x + 22, y + 34 + k * 22, x + 150 + hsh(k, 1) * 80, y + 32 + k * 22, 3, GRAY, 132 + k, { dry: 0 });
+  hand('512-token prompt', x + 128, y - 18, 34, CARD, { align: 'center', seed: 138, outline: INK, ow: 6 });
+  ctx.restore();
+}
+
+window.seek = t => {
+  scene(t);
+  const LOOP = .5, k = (t - (T - LOOP)) / LOOP;         // cross-fade into frame 0 for a clean loop
+  if (k > 0) {
+    const snap = document.createElement('canvas'); snap.width = W; snap.height = H; snap.getContext('2d').drawImage(cv, 0, 0);
+    scene(0);
+    const f0 = document.createElement('canvas'); f0.width = W; f0.height = H; f0.getContext('2d').drawImage(cv, 0, 0);
+    ctx.globalAlpha = 1; ctx.drawImage(snap, 0, 0); ctx.globalAlpha = io(k); ctx.drawImage(f0, 0, 0); ctx.globalAlpha = 1;
+  }
+};
+(async () => {
+  D = await (await fetch('data.json', { cache: 'no-store' })).json();
+  await Promise.all([document.fonts.load('40px Brush'), document.fonts.load('40px Hand')]);
+  build();
+  ACTS.stream.rewindFrom = { t0: A3 + .05, t1: A3 + .8, S: ACTS.rule.end };
+  window.seek(0); window.ready = true;
+})();
+</script>
+</body></html>
