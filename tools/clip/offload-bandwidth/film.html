@@ -1,0 +1,360 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>offload bandwidth</title>
+<style>
+  html,body{margin:0;background:#0b0b0c}
+  #stage{width:1080px;height:1080px;display:block}
+</style></head>
+<body>
+<canvas id="stage" width="1080" height="1080"></canvas>
+<script>
+// Everything is a pure function of t (seconds). No timers, no state between frames. Numbers and sources: README.md.
+const W = 1080, H = 1080, T = 35.5;
+const SLOW = 100;            // act 1: time slowed 100x
+const GB_PER_CROSS = 1;      // act 1: each crossing carries 1 GB
+const L3 = +new URLSearchParams(location.search).get('l3') || 0;  // ?l3=<GB/s> once the probe lands; 0 = no L3 lane
+// One V4.1 decode token with every routed expert on the host (-ot exps=CPU): 6 of 384 experts x 40 layers.
+// bloomery docs/v41-placement.md section 3: layers 0-1 q5_K 109,486,080 B, layers 2-39 q4_K 100,638,720 B.
+const LAYER_B = i => i < 2 ? 109486080 : 100638720;
+const TOKEN_B = 2 * 109486080 + 38 * 100638720;   // 4,043,243,520
+const TOKEN_GB = TOKEN_B / 1e9;
+const HOP_B = 5120 * 4;                            // hidden state, 5,120 f32 per hop [derived]
+const LANES = [
+  ...(L3 ? [{ name: 'L3 cache → CPU cores', how: '32 threads, 2 MiB each, in cache', gbs: L3, col: '#a78bfa' }] : []),
+  { name: 'VRAM → GPU cores', how: 'RTX A6000, one gemv launch (peak)', gbs: 701, col: '#4ade80' },
+  { name: 'RAM → CPU cores', how: '8× DDR4-3600, 32-thread read', gbs: 147.7, col: '#38bdf8' },
+  { name: 'RAM → VRAM over PCIe 4.0 ×16', how: 'pinned host → A6000', gbs: 26.28, col: '#ff7a3d' },
+  { name: 'NVMe SSD → RAM', how: 'O_DIRECT, 1 thread', gbs: 6.12, col: '#facc15' },
+];
+const BARS = [
+  { name: "if it all fit in VRAM (it can't: 259 GB)", gbs: 701, col: '#4ade80' },
+  { name: 'CPU reads it in RAM', gbs: 147.7, col: '#38bdf8' },
+  { name: 'ship it to the GPU over PCIe', gbs: 26.28, col: '#ff7a3d' },
+  { name: 'read it from the NVMe SSD', gbs: 6.12, col: '#facc15' },
+];
+const INK = '#f4f4f0', DIM = '#a8a8a3', FAINT = '#2a2a2c', BG = '#0b0b0c';
+const GPU_C = '#4ade80', CPU_C = '#38bdf8', BUS_C = '#ff7a3d';
+const SANS = '"Helvetica Neue", Helvetica, Arial, sans-serif';
+const MONO = 'Menlo, "SF Mono", monospace';
+
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const io = x => { x = clamp(x); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+const out = x => { x = clamp(x); return 1 - Math.pow(1 - x, 3); };
+const fadeIO = (t, a, b, fi = .35, fo = .35) => Math.min(out((t - a) / fi), 1 - io((t - (b - fo)) / fo));
+const fmt = v => v >= 1000 ? Math.round(v).toLocaleString('en-US') : v >= 100 ? (Number.isInteger(v) ? String(v) : v.toFixed(1)) : v.toFixed(2);
+const bytes = b => b >= 1e9 ? (b / 1e9).toFixed(2) + ' GB' : b >= 1e6 ? (b / 1e6).toFixed(b >= 1e8 ? 0 : 1) + ' MB' : Math.round(b / 1e3) + ' KB';
+function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const PICKS = Array.from({ length: 40 }, (_, l) => {      // 6 of 384 per layer, seeded: identical every render
+  const r = mulberry32(1000 + l), s = new Set();
+  while (s.size < 6) s.add(Math.floor(r() * 384));
+  return [...s];
+});
+
+const cv = document.getElementById('stage'), ctx = cv.getContext('2d');
+function text(s, x, y, size, col, opts = {}) {
+  ctx.font = `${opts.weight || 500} ${size}px ${opts.mono ? MONO : SANS}`;
+  ctx.fillStyle = col; ctx.textAlign = opts.align || 'left'; ctx.textBaseline = opts.base || 'alphabetic';
+  ctx.fillText(s, x, y);
+}
+function rrect(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); }
+
+// ---- act 1: the race -------------------------------------------------------------------------------------------
+function race(t, a) {
+  if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha = a;
+  text('How fast does data move', 72, 128, 60, INK, { weight: 700 });
+  text('inside one PC?', 72, 196, 60, INK, { weight: 700 });
+  text(`each ball carries ${GB_PER_CROSS} GB per crossing · time slowed ${SLOW}×`, 72, 248, 28, DIM);
+  const n = LANES.length, top = n === 5 ? 318 : 350, step = n === 5 ? 136 : 160, x0 = 72, x1 = W - 72, r = 17;
+  LANES.forEach((ln, i) => {
+    const y = top + i * step;
+    text(ln.name, x0, y, 32, INK, { weight: 600 });
+    text(`${fmt(ln.gbs)} GB/s`, x1, y, 32, ln.col, { weight: 700, mono: true, align: 'right' });
+    text(ln.how, x0, y + 34, 26, DIM);
+    const ty = y + 70;
+    ctx.strokeStyle = FAINT; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x0, ty); ctx.lineTo(x1, ty); ctx.stroke();
+    ctx.fillStyle = FAINT; ctx.fillRect(x0 - 2, ty - 16, 4, 32); ctx.fillRect(x1 - 2, ty - 16, 4, 32);
+    const p = ln.gbs / GB_PER_CROSS / SLOW * t;          // crossings so far
+    const f = p % 2, u = f < 1 ? f : 2 - f;
+    const bx = x0 + r + 4 + u * (x1 - x0 - 2 * r - 8);
+    ctx.fillStyle = ln.col; ctx.beginPath(); ctx.arc(bx, ty, r, 0, Math.PI * 2); ctx.fill();
+    text(`${p < 10 ? (Math.floor(p * 10) / 10).toFixed(1) : Math.floor(p).toLocaleString('en-US')} GB moved`, x1, ty - 36, 26, DIM, { mono: true, align: 'right' });
+  });
+  ctx.restore();
+}
+
+// ---- act 2: one token, four paths ------------------------------------------------------------------------------
+const MS_PER_S = 55, AXIS_MS = 180;   // bars grow 55 ms of transfer per second of film
+function token(t, a, t0) {
+  if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha = a;
+  const e = t - t0;
+  text('One token of DeepSeek-V4.1-Flash', 72, 128, 52, INK, { weight: 700 });
+  text(`reads ${TOKEN_GB.toFixed(2)} GB of expert weights.`, 72, 190, 40, INK);
+  text('How long just to move them?', 72, 246, 40, DIM);
+  const x0 = 72, x1 = W - 72, wmax = x1 - x0, top = 350, step = 142;
+  BARS.forEach((b, i) => {
+    const y = top + i * step, ms = TOKEN_GB / b.gbs * 1000;
+    ctx.globalAlpha = a * out((e - .12 * i) / .35);
+    text(b.name, x0, y, 30, INK, { weight: 600 });
+    const grown = Math.max(0, (e - .5) * MS_PER_S), cur = Math.min(ms, grown);
+    const w = Math.min(wmax, cur / AXIS_MS * wmax);
+    rrect(x0, y + 20, wmax, 40, 8); ctx.fillStyle = '#161618'; ctx.fill();
+    if (w > 0) { rrect(x0, y + 20, Math.max(w, 8), 40, 8); ctx.fillStyle = b.col; ctx.fill(); }
+    const done = grown >= ms, lbl = `${cur < 10 ? cur.toFixed(1) : Math.round(cur)} ms` + (ms > AXIS_MS && w >= wmax ? ' →' : '');
+    ctx.font = `700 30px ${MONO}`;
+    const lw = ctx.measureText(lbl).width;
+    if (grown > 0) {
+      if (lw + 32 <= w) text(lbl, x0 + w - 16, y + 52, 30, BG, { weight: 700, mono: true, align: 'right' });
+      else text(lbl, x0 + w + 16, y + 52, 30, done ? b.col : INK, { weight: 700, mono: true });
+    }
+    if (ms > AXIS_MS && grown > AXIS_MS) text(`finishes at ${Math.round(ms)} ms`, x1, y + 100, 30, b.col, { weight: 600, mono: true, align: 'right' });
+  });
+  ctx.globalAlpha = a * out((e - 1) / .5);
+  text(`time = ${TOKEN_GB.toFixed(2)} GB ÷ measured bandwidth (derived, not timed)`, 72, 930, 26, DIM);
+  ctx.restore();
+}
+
+// ---- act 3: one decode token, step by step, with time ----------------------------------------------------------
+// Bytes: public DeepSeek-V4.1-Flash Q3_K_M, 347,271,481,305 B, inventoried by role with gguf_roles.py (2026-09-30).
+// Time: bytes / measured rate, one step after another (a serial estimate; no overlap claimed). GPU at 503 GB/s (the
+// measured whole-token-graph rate, log 09-23), CPU at 147.7 GB/s (act 1/2), PCIe hop ~3 us (log 09-18). KV excluded.
+const ATT_L = (2203914240 + 16906240 + 819200) / 40;   // attention + hyper-connections + ffn_norm, per-layer average
+const RT_L = 157409280 / 40;                            // router + expert bias, per-layer average
+const SH_L = 673873920 / 40;                            // shared expert, per-layer average
+const ENG_B = 135203200 / 2, ENG_L = [1, 14];           // engram dense, runs in blk.1 and blk.14 (before attention)
+const HEAD_B = 542996480;                               // output head, once per token
+const ROW_B = 256 * 48 * 4, EMB_B = 5120 * 4;           // engram rows gathered on host -> GPU, token embedding row
+const BACK_B = 6 * HOP_B;                               // 6 expert outputs come back un-summed (weighted sum on GPU)
+const PCIE_B = 40 * (HOP_B + 24 + BACK_B) + EMB_B + 2 * ROW_B;   // 5,854,144
+const GPU_BPS = 503e9, CPU_BPS = 147.7e9, HOP_S = 3e-6;
+const FAULT_MS = [4 * 0.092, 23 * 0.384];               // 4-23 faults/token x 92-384 us/fault (logs 09-14, 09-16, 09-22)
+// one layer's steps in real seconds: 1 attention | 2 router | 3 hop out | 4 CPU experts | 5a hop back | 5b shared expert
+const stepS = k => [ATT_L / GPU_BPS, RT_L / GPU_BPS, HOP_S, LAYER_B(k) / CPU_BPS, HOP_S, SH_L / GPU_BPS];
+const L1S = stepS(0).reduce((p, q) => p + q, 0);        // layer 1, ~0.90 ms
+const SLOWMO = 8000;                                    // layer 1 plays at 8,000x slow motion, to scale
+const FR = (() => { const s = stepS(0); let acc = 0; return [0, ...s.map(x => (acc += x) / L1S)]; })();  // boundaries 0..1
+const LDUR = Array.from({ length: 40 }, (_, k) => k === 0 ? L1S * SLOWMO : Math.max(0.06, 0.9 * Math.pow(0.55, k - 1)));
+const LSTART = LDUR.reduce((acc, d, k) => (acc.push(acc[k] + d), acc), [0]);
+const P0 = .4, P1 = 2.9, L0 = 3.1;                     // load prologue, first layer
+const HEAD0 = L0 + LSTART[40] + .1, HEAD1 = HEAD0 + 1.3, END0 = HEAD1 + .1;
+const GX = 72, GY = 176, GW = 380, GH = 424, CX = W - 72 - 380, CY = 176, CW = 380, CH = 190;
+const RX = CX, RY = 430, RW = 380, RH = 250, NX = CX, NY = 720, NW = 380, NH = 120;
+const COLS = 24, ROWS = 16, NV_C = '#facc15';
+const ramp = (x, a, b, w = .03) => clamp((x - a) / w) * clamp((b - x) / w);   // 1 inside [a, b], soft edges
+const seg = (u, i) => clamp((u - FR[i]) / Math.max(1e-9, FR[i + 1] - FR[i]));  // progress through step i of a layer
+function layerState(e) {
+  if (e < 0) return { k: -1, u: 0 };
+  let k = 0; while (k < 40 && e >= LSTART[k + 1]) k++;
+  return k >= 40 ? { k: 40, u: 0 } : { k, u: (e - LSTART[k]) / LDUR[k] };
+}
+function panel(x, y, w, h, col, glow, r = 18) {
+  rrect(x, y, w, h, r); ctx.fillStyle = '#121214'; ctx.fill();
+  if (glow > 0) { ctx.save(); ctx.globalAlpha *= glow * .2; rrect(x, y, w, h, r); ctx.fillStyle = col; ctx.fill(); ctx.restore(); }
+  rrect(x, y, w, h, r); ctx.lineWidth = 3; ctx.strokeStyle = col; ctx.stroke();
+}
+const lab = (s, x, y, size, on, col, o = {}) => text(s, x, y, size, on > .5 ? col : DIM, o);
+function upArrow(x, y0, y1, w, col, alpha) {           // a thick stream from y0 (bottom) up to y1, head at y1
+  if (alpha <= 0) return;
+  ctx.save(); ctx.globalAlpha *= alpha; ctx.fillStyle = col;
+  ctx.fillRect(x - w / 2, y1 + 16, w, y0 - y1 - 16);
+  ctx.beginPath(); ctx.moveTo(x - w / 2 - 14, y1 + 18); ctx.lineTo(x + w / 2 + 14, y1 + 18); ctx.lineTo(x, y1); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+function flow(t, a, t0) {
+  if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha = a;
+  const e = t - t0, { k, u } = layerState(e - L0), inL = k >= 0 && k < 40;
+  const load = clamp((e - P0) / (P1 - P0)), loadOn = ramp(e, P0, P1, .2);
+  const headOn = ramp(e, HEAD0, HEAD1, .1), endA = out((e - END0) / .6);
+  // fast-forward blend: continuous in time across layers 3-5 (a per-layer step made a one-frame jump)
+  const fastF = inL ? clamp((e - L0 - LSTART[2]) / (LSTART[5] - LSTART[2])) : k === 40 ? 1 - clamp((e - L0 - LSTART[40]) / .3) : 0;
+  // how "on" each step is: 0 load, 1 attention, 2 router, 3 hop out, 4 CPU experts, 5 back + shared, 6 head
+  const st = [loadOn, 0, 0, 0, 0, 0, headOn];
+  const rw = inL ? Math.min(.03, .08 / LDUR[k]) : .03;   // soft step edges of ~80 ms whatever the layer length
+  if (inL) {
+    const w = rw;
+    st[1] = Math.max(ramp(u, FR[0], FR[1], w), fastF); st[2] = Math.max(ramp(u, FR[1], FR[2], w), fastF);
+    st[3] = Math.max(ramp(u, FR[2], FR[3], w), fastF); st[4] = Math.max(ramp(u, FR[3], FR[4], w), fastF);
+    st[5] = Math.max(ramp(u, FR[4], FR[6], w), fastF);
+  } else if (k === 40) { for (let i = 1; i <= 5; i++) st[i] = fastF; }
+  const gpuOn = Math.max(st[1], st[2], inL ? ramp(u, FR[5], FR[6], rw) : 0, .6 * fastF, st[6]);
+  // heading
+  ctx.save(); ctx.globalAlpha = a * (1 - endA);
+  text('One decode token, step by step', 72, 96, 46, INK, { weight: 700 });
+  const sub = e < L0 ? 'first, load: the model file sits on the NVMe SSD'
+    : k === 0 ? `layer 1 at ${SLOWMO.toLocaleString('en-US')}× slow motion, to scale` : 'layers 2–40 fast-forwarded';
+  text(sub, 72, 140, 28, k === 0 ? INK : DIM);
+  ctx.restore();
+  ctx.save(); ctx.globalAlpha = a * endA;
+  text('Most of each token is the CPU reading RAM.', 72, 96, 40, INK, { weight: 700 });
+  text(`The bus carries ~${(PCIE_B / 1e6).toFixed(0)} MB per token. It is not the bottleneck.`, 72, 140, 28, INK);
+  ctx.restore();
+  // GPU box: cores on top, VRAM panel below
+  panel(GX, GY, GW, GH, GPU_C, gpuOn);
+  text('GPU cores', GX + 24, GY + 42, 32, GPU_C, { weight: 700 });
+  lab('② router: 384 scores → top 6', GX + 24, GY + 86, 24, st[2] || (inL && u >= FR[1] ? 1 : 0), INK, { weight: 600 });
+  const ids = inL ? [...PICKS[k]].sort((p, q) => p - q) : [];
+  for (let j = 0; j < 6; j++) {                          // the six chosen expert ids
+    const cx = GX + 24 + j * 56, on = inL && u >= FR[1] && fastF < .5;
+    rrect(cx, GY + 104, 50, 36, 8); ctx.fillStyle = on ? GPU_C : '#1c1c1f'; ctx.fill();
+    if (on) text(String(ids[j]), cx + 25, GY + 130, 20, BG, { weight: 700, mono: true, align: 'center' });
+  }
+  const vx = GX + 16, vy = GY + 204, vw = GW - 32, vh = 208;
+  const engOn = inL && ENG_L.includes(k) ? 1 : 0, shOn = inL ? Math.max(ramp(u, FR[5], FR[6], rw), fastF) : st[5];
+  rrect(vx, vy, vw, vh, 12); ctx.fillStyle = '#0f1a12'; ctx.fill();
+  ctx.save(); ctx.globalAlpha *= .35 + .65 * clamp(load * 1.2); rrect(vx, vy, vw * clamp(load * 1.2), vh, 12); ctx.fillStyle = '#123018'; ctx.fill(); ctx.restore();
+  text('VRAM', vx + 16, vy + 32, 26, GPU_C, { weight: 700 });
+  [['① attention', '~55 MB', st[1]], ['② router', '~4 MB', st[2]], ['⑤ shared expert', '~17 MB', shOn], ['engram (2 layers)', '68 MB', engOn], ['⑥ head, once', '543 MB', st[6]]]
+    .forEach(([n, b, on], r) => { lab(n, vx + 16, vy + 66 + r * 32, 24, on, INK); lab(b, vx + vw - 16, vy + 66 + r * 32, 24, on, INK, { mono: true, align: 'right' }); });
+  upArrow(GX + GW / 2, vy - 4, GY + 150, 56, GPU_C, .9 * Math.max(st[1], st[2], shOn, st[6], .7 * fastF));
+  // PCIe link between GPU and CPU
+  const ly = GY + 76, lx0 = GX + GW, lx1 = CX, lxm = (lx0 + lx1) / 2;
+  const busOn = inL ? Math.max(ramp(u, FR[2] - .01, FR[3] + .01, rw), ramp(u, FR[4] - .01, FR[5] + .01, rw)) : 0;
+  ctx.strokeStyle = BUS_C; ctx.lineWidth = 6 - 1.5 * endA + 3 * busOn; ctx.globalAlpha = a * (.55 - .1 * endA + .45 * busOn);
+  ctx.beginPath(); ctx.moveTo(lx0, ly); ctx.lineTo(lx1, ly); ctx.stroke(); ctx.globalAlpha = a;
+  text('PCIe', lxm, ly - 18, 26, BUS_C, { weight: 700, align: 'center' });
+  if (inL && fastF < .3) {
+    // the hops take ~3 us: at 8,000x that is a 1-2 frame blink, drawn to scale; the tag stays so the blink is readable
+    let v = -1;
+    if (u >= FR[2] && u < FR[3]) v = seg(u, 2);
+    if (u >= FR[4] && u < FR[5]) v = 1 - seg(u, 4);
+    if (v >= 0) { const px = lx0 + 14 + v * (lx1 - lx0 - 28); ctx.fillStyle = BUS_C; ctx.beginPath(); ctx.arc(px, ly, 12, 0, Math.PI * 2); ctx.fill(); }
+    ctx.globalAlpha = a * (1 - fastF / .3);
+    if (u >= FR[2] && u < FR[4]) { text('③ 20 KB+ids', lxm, ly + 42, 20, BUS_C, { weight: 700, mono: true, align: 'center' }); text('~3 µs', lxm, ly + 66, 20, BUS_C, { weight: 700, mono: true, align: 'center' }); }
+    if (u >= FR[4]) { text('⑤ 120 KB', lxm, ly + 42, 20, BUS_C, { weight: 700, mono: true, align: 'center' }); text('~3 µs', lxm, ly + 66, 20, BUS_C, { weight: 700, mono: true, align: 'center' }); }
+    ctx.globalAlpha = a;
+  }
+  const steady = Math.max(inL || k === 40 ? clamp((fastF - .5) / .3) : 0, endA);
+  if (steady > 0) {
+    ctx.globalAlpha = a * steady;
+    text('20 KB out', lxm, ly + 42, 22, BUS_C, { weight: 700, mono: true, align: 'center' });
+    text('120 KB back', lxm, ly + 68, 22, BUS_C, { weight: 700, mono: true, align: 'center' });
+    ctx.globalAlpha = a;
+  }
+  // CPU box
+  panel(CX, CY, CW, CH, CPU_C, st[4]);
+  text('CPU cores', CX + 24, CY + 42, 32, CPU_C, { weight: 700 });
+  lab('④ runs the 6 experts', CX + 24, CY + 84, 24, st[4], INK, { weight: 600 });
+  text('(32 threads)', CX + 24, CY + 122, 24, DIM);
+  const tagFade = k === 0 ? 1 : k === 1 ? 1 - clamp(u * LDUR[1] / .3) : 0;   // layer-1 tags leave as layer 2 starts
+  if (tagFade > 0) {                                     // layer 1: what each step cost
+    const s0 = stepS(0), f = k === 0 ? u : 1, fade = tagFade;
+    ctx.save(); ctx.globalAlpha *= fade;
+    if (f >= FR[3]) text(`④ ${Math.round(LAYER_B(0) / 1e6 * seg(f, 3))} / 109 MB · ${(s0[3] * 1e3 * seg(f, 3)).toFixed(2)} ms`, CX + 24, CY + 160, 22, f < FR[4] ? INK : CPU_C, { weight: 700, mono: true });
+    if (f > 0) text(`① ${(s0[0] * 1e3 * seg(f, 0)).toFixed(2)} ms`, GX + 250, GY + 170, 20, f < FR[1] ? INK : GPU_C, { weight: 700, mono: true });
+    if (f >= FR[5]) text(`⑤ ${(s0[5] * 1e3 * seg(f, 5)).toFixed(2)} ms`, GX + 250, GY + 194, 20, f < FR[6] ? INK : GPU_C, { weight: 700, mono: true });
+    ctx.restore();
+  }
+  // RAM block with 384 expert cells
+  panel(RX, RY, RW, RH, '#2f5d73', 0);
+  text('RAM · 384 experts × 40 layers', RX + 24, RY + 32, 24, DIM, { weight: 600 });
+  const gx = RX + 24, gy = RY + 48, cw = (RW - 48) / COLS, ch = (RH - 64) / ROWS;
+  const lit = inL && u >= FR[3] && fastF < .5 ? new Set(PICKS[k]) : new Set();
+  const litFast = (inL || k === 40) && fastF >= .5 ? new Set(PICKS[Math.min(k, 39)]) : new Set();
+  for (let c = 0; c < 384; c++) {
+    const x = gx + (c % COLS) * cw, y = gy + Math.floor(c / COLS) * ch;
+    ctx.fillStyle = lit.has(c) || litFast.has(c) ? CPU_C : c < load * 384 ? '#1f2a30' : '#141618';
+    ctx.globalAlpha = a * (1 - .4 * endA);
+    ctx.fillRect(x + 1, y + 1, cw - 3, ch - 3);
+  }
+  ctx.globalAlpha = a;
+  const sx = CX + CW / 2;
+  // the heavy read: a stream with moving dashes, so the long step visibly works rather than freezes
+  const sA = Math.max(.9 * st[4], .6 * endA);
+  upArrow(sx, RY - 2, CY + CH + 2, 60, CPU_C, sA);
+  if (st[4] > 0 && fastF < .5) {
+    ctx.save(); ctx.globalAlpha *= st[4] * .8; ctx.fillStyle = BG;
+    const y0 = CY + CH + 20, y1 = RY - 2, off = (e * 100) % 22;
+    for (let y = y1 - off; y > y0; y -= 22) ctx.fillRect(sx - 30, y - 6, 60, 6);
+    ctx.restore();
+  }
+  ctx.globalAlpha = a * Math.max(st[4], endA * .8);
+  text(k < 2 ? '④ 109 MB' : '④ ~101 MB', sx + 40, CY + CH + 44, 24, CPU_C, { weight: 700, mono: true });
+  ctx.globalAlpha = a;
+  // NVMe: load, then page faults
+  panel(NX, NY, NW, NH, NV_C, Math.max(st[0], .6 * endA));
+  text('NVMe SSD · 347 GB file', NX + 24, NY + 38, 26, NV_C, { weight: 700 });
+  text('> 256 GB RAM: pages fault in', NX + 24, NY + 72, 24, DIM);
+  text('every token (4–23 measured)', NX + 24, NY + 104, 24, DIM);
+  upArrow(RX + RW / 2, NY - 2, RY + RH + 2, 40, NV_C, .9 * loadOn);
+  ctx.globalAlpha = a * loadOn;
+  text('⓪ load', RX + RW / 2 + 36, RY + RH + 30, 22, NV_C, { weight: 700, mono: true });
+  ctx.globalAlpha = a;
+  // time so far this token, per resource, to scale (serial estimate)
+  const doneL = k < 0 ? 0 : Math.min(40, k);
+  let gpu = 0, cpu = 0, bus = 0, lnow = 0;
+  for (let i = 0; i < doneL; i++) { const s = stepS(i); gpu += s[0] + s[1] + s[5] + (ENG_L.includes(i) ? ENG_B / GPU_BPS : 0); bus += s[2] + s[4]; cpu += s[3]; }
+  if (inL) {
+    const s = stepS(k);
+    gpu += (ENG_L.includes(k) ? ENG_B / GPU_BPS : 0) + s[0] * seg(u, 0) + s[1] * seg(u, 1) + s[5] * seg(u, 5);
+    bus += s[2] * seg(u, 2) + s[4] * seg(u, 4); cpu += s[3] * seg(u, 3);
+    lnow = s.reduce((p, q, i) => p + q * seg(u, i), 0);
+  }
+  gpu += HEAD_B / GPU_BPS * clamp((e - HEAD0) / (HEAD1 - HEAD0 - .2));
+  const zoomOut = io((e - L0 - LSTART[1]) / .7), AXIS = Math.exp(Math.log(1) + (Math.log(30) - Math.log(1)) * zoomOut);
+  const TY = 640, BX = 250, BWID = 210, PXMS = BWID / AXIS;        // bars: 1 ms full scale in layer 1, then 30 ms
+  text(e < L0 ? '' : inL ? `layer ${k + 1} / 40${k === 0 ? `   ${(lnow * 1e3).toFixed(2)} ms` : ''}` : `40 / 40${e > HEAD0 ? '  → next token' : ''}`, GX, TY, 26, INK, { weight: 700, mono: true });
+  const easing = zoomOut > 0 && zoomOut < 1 ? 1 : 0;
+  if (e >= L0) text(`bar = ${AXIS < 1.5 ? '1 ms' : Math.round(AXIS) + ' ms'}`, GX + 540, TY, easing ? 24 : 20, easing ? INK : DIM, { weight: easing ? 700 : 500, mono: true, align: 'right' });
+  const row = (i, name, ms, col, range) => {
+    const y = TY + 44 + i * 46;
+    text(name, GX, y, 24, col, { weight: 600 });
+    rrect(BX, y - 20, BWID, 22, 5); ctx.fillStyle = '#161618'; ctx.fill();
+    if (range) {
+      ctx.save(); ctx.globalAlpha *= .45; ctx.fillStyle = col; ctx.fillRect(BX + range[0] * PXMS, y - 20, (range[1] - range[0]) * PXMS, 22); ctx.restore();
+      text(`${range[0].toFixed(1)}–${Math.round(range[1])} ms`, GX + 540, y, 24, col, { weight: 700, mono: true, align: 'right' });
+    } else {
+      const w = Math.min(BWID, Math.max(ms > 0 ? 2 : 0, ms * PXMS));
+      if (w > 0) { rrect(BX, y - 20, w, 22, 5); ctx.fillStyle = col; ctx.fill(); }
+      text(ms < .1 && ms > 0 ? '< 0.1 ms' : `${ms.toFixed(1)} ms`, GX + 540, y, 24, col, { weight: 700, mono: true, align: 'right' });
+    }
+  };
+  row(0, 'CPU ← RAM', cpu * 1e3, CPU_C);
+  row(1, 'GPU ← VRAM', gpu * 1e3, GPU_C);
+  row(2, 'PCIe', bus * 1e3, BUS_C);
+  ctx.globalAlpha = a * Math.max(endA, 0);
+  row(3, 'page faults', 0, NV_C, FAULT_MS);
+  ctx.globalAlpha = a;
+  ctx.globalAlpha = a * endA;
+  const lo = (cpu + gpu + bus) * 1e3 + FAULT_MS[0], hi = (cpu + gpu + bus) * 1e3 + FAULT_MS[1];
+  text(`≈ ${Math.round(lo)}–${Math.round(hi)} ms per token (serial estimate)`, GX, 890, 28, INK, { weight: 700 });
+  ctx.globalAlpha = a;
+  text('time = bytes ÷ measured rate: GPU 503 GB/s (whole graph), CPU 147.7, PCIe hop ~3 µs', 72, 926, 22, DIM);
+  text('KV cache not counted · big prefill batches do ship weights to the GPU', 72, 954, 22, DIM);
+  ctx.restore();
+}
+
+function footer(a) {
+  ctx.save(); ctx.globalAlpha = a;
+  ctx.fillStyle = FAINT; ctx.fillRect(72, H - 102, W - 144, 2);
+  text('Measured on one PC, Sep 2026 · TR PRO 5975WX · 8× DDR4-3600 · RTX A6000', 72, H - 60, 24, DIM);
+  text('github.com/midagedev/rig-log', 72, H - 26, 24, DIM, { mono: true });
+  ctx.restore();
+}
+
+// timeline
+const A2 = 8.8, A3 = 15.2, LOOP = 0.5;
+function scene(t) {
+  ctx.globalAlpha = 1; ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
+  race(t, 1 - io((t - (A2 - .45)) / .45));
+  token(t, fadeIO(t, A2, A3, .45, .45), A2);
+  flow(t, Math.min(out((t - A3) / .45), 1 - io((t - (T - 1.0)) / .4)), A3);
+  footer(1);
+}
+window.seek = async (t) => {
+  scene(t);
+  const k = (t - (T - LOOP)) / LOOP;            // cross-fade into frame 0 for a clean loop
+  if (k > 0) {
+    const snap = document.createElement('canvas'); snap.width = W; snap.height = H;
+    snap.getContext('2d').drawImage(cv, 0, 0);
+    scene(0);
+    const f0 = document.createElement('canvas'); f0.width = W; f0.height = H;
+    f0.getContext('2d').drawImage(cv, 0, 0);
+    ctx.globalAlpha = 1; ctx.drawImage(snap, 0, 0);
+    ctx.globalAlpha = io(k); ctx.drawImage(f0, 0, 0); ctx.globalAlpha = 1;
+  }
+};
+document.fonts.ready.then(() => { window.seek(0); window.ready = true; });
+</script>
+</body></html>
