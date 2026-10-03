@@ -745,6 +745,20 @@ class Handler(BaseHTTPRequestHandler):
                     spec["env"]["PORT"] = str(body["port"])
                 job = s.submit(spec)
                 return self.send_json(job, 201)
+            if path == "/comfy/stop":
+                # the documented convenience for ending a session window by its tag
+                # (or the only running one); the lawful teardown is cancel's SIGTERM
+                running = [j for j in self.sched.running_jobs()
+                           if j["kind"] == "comfy-session"]
+                if not running:
+                    return self.send_json({"error": "no comfy session running", "rc": 75})
+                want = body.get("tag")
+                job = next((j for j in running if j["name"] == want), None) if want else None
+                if want and not job:
+                    return self.send_json({"error": "no comfy session named %s" % want,
+                                           "rc": 64}, 404)
+                job = job or running[0]
+                return self.send_json(self.sched.cancel(job["id"]))
             if path == "/comfy/batch":
                 return self.send_json(self.comfy_batch(body))
             return self.send_json({"error": "no such route"}, 404)
