@@ -43,6 +43,12 @@ models_on_disk:
   vae: vae
   latent_upscale_models: latent_upscale_models
   loras: loras
+ltx_25:
+  base_path: /models/LTX-2.5
+  diffusion_models: diffusion_models
+  text_encoders: text_encoders
+  vae: vae
+  latent_upscale_models: latent_upscale_models
 YAML
 say "extra_model_paths -> /models"
 
