@@ -1,0 +1,15 @@
+[Unit]
+Description=signalbox — the box's job dispatcher (lease-aware, one lane per card)
+After=network.target
+
+[Service]
+Type=notify
+WatchdogSec=30
+ExecStart=/usr/bin/python3 /home/user/signalbox/daemon.py --home /home/user/signalbox
+Restart=always
+RestartSec=5
+TimeoutStopSec=10
+# Jobs are setsid detached; they survive a restart and are re-adopted by pid.
+
+[Install]
+WantedBy=multi-user.target

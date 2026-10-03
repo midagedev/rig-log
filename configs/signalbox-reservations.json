@@ -1,0 +1,8 @@
+{
+  "cache_cooldown_s": 120,
+  "windows": [
+    {"name": "train-13", "days": [0,1,2,3,4,5,6], "start": "13:00", "minutes": 150, "cards": ["a6000", "3090"], "owner": "gate-batch"},
+    {"name": "train-01", "days": [0,1,2,3,4,5,6], "start": "01:00", "minutes": 150, "cards": ["a6000", "3090"], "owner": "gate-batch"},
+    {"name": "webuta-night", "days": [0,1,2,3,4,5,6], "start": "23:30", "minutes": 480, "cards": ["a6000"], "owner": "webuta"}
+  ]
+}
