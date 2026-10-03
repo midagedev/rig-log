@@ -96,7 +96,7 @@ assets/     클립과 시트
 CLAUDE.md   이 리포에서 일하는 에이전트용 컨텍스트
 ```
 
-자주 쓰는 것: 서빙 [`configs/v41-serve.sh`](configs/v41-serve.sh), 모델 내려받기 [`tools/fetch-gguf.sh`](tools/fetch-gguf.sh), 전력 스위프 [`tools/ik/gpu-power-sweep.sh`](tools/ik/gpu-power-sweep.sh), 서빙 배치 시트 [`assets/placement-sheet.html`](assets/placement-sheet.html). 긴 글은 [처리량 모형](docs/throughput-model.md) · [V4.1 서빙](docs/v41-serving.md) · [조용한 기계](docs/quiet-machine.md) · [보드 펌웨어](docs/wrx80e-bios-setup.md) · [도구 인계](docs/tool-handoff.md).
+자주 쓰는 것: 서빙 [`configs/v41-serve.sh`](configs/v41-serve.sh), 모델 내려받기 [`tools/fetch-gguf.sh`](tools/fetch-gguf.sh), 전력 스위프 [`tools/ik/gpu-power-sweep.sh`](tools/ik/gpu-power-sweep.sh), 서빙 배치 시트 [`assets/placement-sheet.html`](assets/placement-sheet.html). 긴 글은 [처리량 모형](docs/throughput-model.md) · [V4.1 서빙](docs/v41-serving.md) · [조용한 기계](docs/quiet-machine.md) · [보드 펌웨어](docs/wrx80e-bios-setup.md) · [도구 인계](docs/tool-handoff.md) · [프롬프트 작성](docs/prompt-writing.md).
 
 ## 이 로그가 낳은 프로젝트
 
