@@ -659,6 +659,26 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    CTYPES = {
+        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".webp": "image/webp", ".gif": "image/gif", ".mp4": "video/mp4",
+        ".webm": "video/webm", ".wav": "audio/wav", ".mp3": "audio/mpeg",
+        ".ogg": "audio/ogg", ".flac": "audio/flac", ".json": "application/json",
+        ".txt": "text/plain; charset=utf-8",
+    }
+
+    def send_file(self, data, ctype):
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def disk_file(self, path):
+        with open(path, "rb") as f:
+            return f.read(), self.CTYPES.get(os.path.splitext(path)[1].lower(),
+                                             "application/octet-stream")
+
     def body_json(self):
         n = int(self.headers.get("Content-Length") or 0)
         if not n:
@@ -699,6 +719,35 @@ class Handler(BaseHTTPRequestHandler):
         if m:
             return self.send_text(self.tail(s, m.group(1),
                                             int(q.get("tail", ["200"])[0])))
+        m = re.match(r"^/jobs/([A-Za-z0-9._-]+)/files/([^/]+)$", path)
+        if m:
+            job = s.by_id(m.group(1))
+            if not job:
+                return self.send_json({"error": "no such job"}, 404)
+            # the artifact listing is the allowlist: a name is served only from a
+            # recorded artifact path, never by joining client input onto disk paths
+            want = urllib.parse.unquote(m.group(2))
+            for art in job.get("artifacts") or []:
+                if os.path.basename(art["path"]) == want:
+                    try:
+                        data, ctype = self.disk_file(art["path"])
+                    except OSError:
+                        return self.send_json({"error": "artifact unreadable"}, 410)
+                    return self.send_file(data, ctype)
+            return self.send_json({"error": "no artifact named %r" % want}, 404)
+        if path == "/comfy/view":
+            # ComfyUI /view, proxied: outputs are reachable only while a session
+            # holds the lane, and the tailnet has no other route to 127.0.0.1:8188
+            query = urllib.parse.urlencode({k: q.get(k, [""])[0]
+                                            for k in ("filename", "subfolder", "type")})
+            try:
+                with urllib.request.urlopen(COMFY_URL + "/view?" + query, timeout=120) as r:
+                    return self.send_file(r.read(), r.headers.get("Content-Type",
+                                                                  "application/octet-stream"))
+            except urllib.error.HTTPError as e:
+                return self.send_json({"error": "comfy /view %d" % e.code}, 502)
+            except urllib.error.URLError as e:
+                return self.send_json({"error": "comfy /view: %s" % e}, 502)
         return self.send_json({"error": "no such route"}, 404)
 
     @staticmethod
@@ -783,7 +832,7 @@ class Handler(BaseHTTPRequestHandler):
             "seed": ("SEED", False), "count": ("COUNT", False),
         }),
         "music": ("music", {
-            "style": ("STYLE", True), "lyrics_file": ("LYRICS_FILE", False),
+            "style": ("STYLE", True), "lyrics": ("LYRICS", False), "lyrics_file": ("LYRICS_FILE", False),
             "seed": ("SEED", False), "cot": ("COT", False), "abc": ("ABC", False),
             "plan_only": ("PLAN_ONLY", False),
         }),

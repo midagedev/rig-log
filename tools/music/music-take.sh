@@ -7,6 +7,7 @@ TAG=$1; OUT=/home/user/music-runs/$TAG; LEASE=/home/user/gpu-lease
 ENVDIR=/home/user/yue2
 STYLE=${STYLE:?set STYLE}
 LYRICS_FILE=${LYRICS_FILE:-}
+LYRICS=${LYRICS:-}
 SEED=${SEED:-23}
 COT=${COT:-full}
 ABC=${ABC:-}
@@ -49,6 +50,7 @@ nvidia-smi --query-gpu=timestamp,uuid,power.draw,clocks.sm,temperature.gpu,memor
 SMPID=$!
 ARGS=(--style "$STYLE" --out "$OUT" --seed "$SEED" --cot "$COT")
 [ -z "$LYRICS_FILE" ] || ARGS+=(--lyrics-file "$LYRICS_FILE")
+[ -z "$LYRICS" ] || ARGS+=(--lyrics "$LYRICS")
 [ -z "$ABC" ] || ARGS+=(--abc "$ABC")
 [ -z "$PLAN_ONLY" ] || ARGS+=(--plan-only)
 t0=$(date +%s)
