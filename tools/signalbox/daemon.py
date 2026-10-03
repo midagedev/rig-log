@@ -17,6 +17,10 @@ The laws it obeys (each from an incident recorded in rig-log):
   - Jobs are bash runner scripts exec'd from a per-job snapshot, so deploying over a running
     script cannot change what a job does mid-statement (the chain-s lesson, 2026-09-16).
   - Stop is SIGTERM to the recorded pid, waited on; never a blind escalation.
+  - Scheduling is priority-first: higher priority, then older. Time windows are an optional
+    config for whoever wants them, never the default basis — the box's rhythm is requests
+    arriving, not the clock (2026-10-03: webuta's night window outlived webuta itself, which
+    had ended 09-21; a stale window refused jobs for eight hours a night for nothing).
 
 stdlib only, like logproxy and mrs-shim before it. State under /home/user/signalbox/.
 """
@@ -327,6 +331,7 @@ class Scheduler:
                 "expected_min": int(spec.get("expected_min", 0)),
                 "kind": spec.get("kind", "command"),
                 "job_class": spec.get("job_class", "normal"),
+                "priority": max(-1000, min(1000, int(spec.get("priority", 0)))),
                 "script": spec.get("script", ""),
                 "card": spec.get("card", "a6000"),
                 "cache_group": spec.get("cache_group",
@@ -578,7 +583,10 @@ class Scheduler:
     def tick(self):
         with self.lock:
             self.reap()
-            for job in [j for j in self.jobs if j["status"] == "queued"]:
+            # priority-first: higher priority wins a free lane, ties by arrival
+            queued = sorted((j for j in self.jobs if j["status"] == "queued"),
+                            key=lambda j: (-j["priority"], j["submitted"]))
+            for job in queued:
                 card, reason = self.can_start(job)
                 if card is None:
                     if reason != job.get("wait_reason"):
@@ -587,6 +595,60 @@ class Scheduler:
                 job["wait_reason"] = None
                 self.start(job, card)
             self.persist()
+
+    def set_priority(self, jid, priority):
+        """Priority is adjustable while queued; a running job keeps its lane."""
+        with self.lock:
+            job = self.by_id(jid)
+            if not job:
+                return None
+            if job["status"] != "queued":
+                raise ValueError("priority applies to queued jobs only (this one is %s)"
+                                 % job["status"])
+            job["priority"] = max(-1000, min(1000, int(priority)))
+            self.event("job %s priority -> %d" % (jid, job["priority"]))
+            self.persist()
+            return job
+
+    def eta_seconds(self, job):
+        """First-order estimate of seconds until this job could start: 0 when it could start
+        this tick, else the blocker's remaining expected time plus the expected durations of
+        queued jobs that would go first on the same lane. None when a blocker has no
+        expected_min — an honest "unknown" beats a made-up number. Gate-bound waits (a lease,
+        bloomery locks) are not modelled."""
+        card, _ = self.can_start(job)
+        if card is not None:
+            return 0
+        now = self.now()
+        lanes = [job["card"]] if job["card"] in CARDS else list(CARDS)
+        # arrival order is list order (submit appends); timestamps can tie at 1 s granularity
+        idx = {j["id"]: i for i, j in enumerate(self.jobs)}
+        ahead = [q for q in self.jobs if q["status"] == "queued"
+                 and (q["priority"] > job["priority"]
+                      or (q["priority"] == job["priority"]
+                          and idx[q["id"]] < idx[job["id"]]))]
+        best = None
+        for lane in lanes:
+            seconds = 0.0
+            for r in [r for r in self.running_jobs() if self.lane_of(r) == lane]:
+                if not r["expected_min"]:
+                    seconds = None
+                    break
+                started = datetime.fromisoformat(r["started"]) if r.get("started") else now
+                seconds = max(seconds,
+                              (started - now).total_seconds() + r["expected_min"] * 60)
+            if seconds is None:
+                continue
+            for q in ahead:
+                if q["card"] in (lane, "any"):
+                    if not q["expected_min"]:
+                        seconds = None
+                        break
+                    seconds += q["expected_min"] * 60
+            if seconds is None:
+                continue
+            best = seconds if best is None else min(best, seconds)
+        return best
 
     # -- views --------------------------------------------------------------
 
@@ -605,11 +667,14 @@ class Scheduler:
             model = j.get("script") or j["kind"]
             end = j.get("finished") or (j["status"] if j["status"] != "running" else "…")
             wait = (" — %s" % j["wait_reason"]) if (j["status"] == "queued" and j.get("wait_reason")) else ""
+            pos = order if j["status"] in ("queued", "running") else "—"
+            if j["status"] == "queued" and j.get("priority"):
+                pos = "%d (p%s%d)" % (pos, "+" if j["priority"] > 0 else "", j["priority"])
             lines.append("| %s | %s | %s | %s | %s | %s%s | %s | %s |" % (
                 j["submitted"][11:19] if j.get("submitted") else "",
                 j["owner"], j["name"], model,
                 j["expected_min"] or "—", j["title"] or "—", wait,
-                order if j["status"] in ("queued", "running") else "—", end))
+                pos, end))
         return "\n".join(lines) + "\n"
 
     def state_view(self):
@@ -630,7 +695,7 @@ class Scheduler:
             "reservations_file": self.reservations.path,
             "jobs": [{k: j.get(k) for k in ("id", "owner", "name", "title", "status",
                                             "kind", "script", "card", "resolved_card",
-                                            "expected_min", "submitted", "started",
+                                            "priority", "expected_min", "submitted", "started",
                                             "finished", "rc", "sentinel", "wait_reason")}
                      for j in self.jobs],
             "events": self.events[-20:],
@@ -704,8 +769,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/jobs":
             return self.send_json([{k: j.get(k) for k in ("id", "owner", "name", "status",
                                                           "kind", "script", "card",
-                                                          "submitted", "started", "finished",
-                                                          "rc", "wait_reason")}
+                                                          "priority", "submitted", "started",
+                                                          "finished", "rc", "wait_reason")}
                                    for j in s.jobs])
         m = re.match(r"^/jobs/([A-Za-z0-9._-]+)$", path)
         if m:
@@ -760,6 +825,29 @@ class Handler(BaseHTTPRequestHandler):
             return ""
         return b"\n".join(data.splitlines()[-nlines:]).decode(errors="replace")
 
+    # -- submission with the caller's bargain: wait up to `wait` seconds (default 60) for
+    # -- allocation when the estimate says it can happen in time; otherwise answer at once
+    # -- with the estimate. A "wait" longer than the estimate never blocks the answer.
+
+    def submit_and_maybe_wait(self, spec, wait_s):
+        s = self.sched
+        job = s.submit(spec)
+        cap = int(wait_s if wait_s is not None else 60)
+        if cap > 0:
+            deadline = time.time() + cap + 10  # the dispatcher ticks every 2 s
+            while time.time() < deadline:
+                job = s.by_id(job["id"]) or job
+                if job["status"] != "queued":
+                    break
+                eta = s.eta_seconds(job)
+                if eta is None or eta > deadline - time.time():
+                    break
+                time.sleep(1)
+        job = s.by_id(job["id"]) or job
+        view = dict(job)
+        view["eta_s"] = s.eta_seconds(job) if job["status"] == "queued" else 0
+        return view
+
     def do_POST(self):
         path = urllib.parse.urlparse(self.path).path
         s = self.sched
@@ -769,8 +857,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"error": str(e), "rc": 64}, 400)
         try:
             if path == "/jobs":
-                job = s.submit(body)
-                return self.send_json(job, 201)
+                return self.send_json(self.submit_and_maybe_wait(body, body.get("wait", 60)), 201)
+            m = re.match(r"^/jobs/([A-Za-z0-9._-]+)/priority$", path)
+            if m:
+                job = s.set_priority(m.group(1), body.get("priority"))
+                if not job:
+                    return self.send_json({"error": "no such job", "rc": 64}, 404)
+                return self.send_json(job)
             m = re.match(r"^/jobs/([A-Za-z0-9._-]+)/cancel$", path)
             if m:
                 job = s.cancel(m.group(1))
@@ -778,7 +871,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json({"error": "no such job"}, 404)
                 return self.send_json(job)
             if path in ("/gen/video", "/gen/image", "/gen/music", "/gen/audio"):
-                return self.send_json(self.gen(path.rsplit("/", 1)[1], body), 201)
+                return self.send_json(
+                    self.submit_and_maybe_wait(self.gen(path.rsplit("/", 1)[1], body),
+                                               body.get("wait", 60)), 201)
             if path == "/comfy/session":
                 spec = {
                     "kind": "comfy-session",
@@ -786,14 +881,14 @@ class Handler(BaseHTTPRequestHandler):
                     "name": body.get("tag") or body.get("name") or "",
                     "title": body.get("title", "ComfyUI interactive window"),
                     "expected_min": int(body.get("minutes", 0)),
+                    "priority": body.get("priority", 0),
                     "card": body.get("card", "a6000"),
                     "env": {"MINUTES": str(int(body.get("minutes", 0))),
                             "TS_SERVE": "1" if body.get("ts_serve") else "0"},
                 }
                 if body.get("port"):
                     spec["env"]["PORT"] = str(body["port"])
-                job = s.submit(spec)
-                return self.send_json(job, 201)
+                return self.send_json(self.submit_and_maybe_wait(spec, body.get("wait", 60)), 201)
             if path == "/comfy/stop":
                 # the documented convenience for ending a session window by its tag
                 # (or the only running one); the lawful teardown is cancel's SIGTERM
@@ -858,10 +953,11 @@ class Handler(BaseHTTPRequestHandler):
             "name": body.get("tag") or "",
             "title": body.get("title", "gen/%s" % medium),
             "expected_min": int(body.get("expected_min", 0)),
+            "priority": body.get("priority", 0),
             "card": body.get("card", "a6000"),
             "env": env,
         }
-        return self.sched.submit(spec)
+        return spec
 
     def comfy_batch(self, body):
         prompt = body.get("prompt")

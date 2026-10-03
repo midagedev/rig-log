@@ -219,5 +219,64 @@ check("calendar: row carries owner and title", "line1" in md and "GLM 깊이 6 �
 view = s.state_view()
 check("state: cards carry reasons list", isinstance(view["cards"]["a6000"]["reasons"], list))
 
+# ---------------------------------------------------------------- priority + eta
+s, clock = make_sched(cooldown=0)
+blocker = s.submit({"kind": "fake", "name": "blk", "owner": "t", "card": "a6000",
+                    "expected_min": 10, "env": {"SLEEP": "30"}})
+s.tick()
+check("priority: blocker running", blocker["status"] == "running")
+low = s.submit({"kind": "fake", "name": "low", "owner": "t", "card": "a6000",
+                "priority": -5, "expected_min": 1, "env": {"SLEEP": "1"}})
+high = s.submit({"kind": "fake", "name": "high", "owner": "t", "card": "a6000",
+                 "priority": 5, "expected_min": 1, "env": {"SLEEP": "1"}})
+eta = s.eta_seconds(low)
+check("eta: blocker known -> finite", eta is not None and 500 <= eta <= 660, eta)
+# unblock the lane; the higher priority takes it first
+blocker["expected_min"] = 0
+s.procs[blocker["id"]].terminate()
+time.sleep(0.3)
+s.tick()
+check("priority: high jumps low", high["status"] == "running" and low["status"] == "queued",
+      "%s / %s" % (high["status"], low["status"]))
+s2, _ = make_sched(cooldown=0)
+b2 = s2.submit({"kind": "fake", "name": "b2", "owner": "t", "card": "a6000",
+                "expected_min": 0, "env": {"SLEEP": "30"}})
+s2.tick()
+q2 = s2.submit({"kind": "fake", "name": "q2", "owner": "t", "card": "a6000"})
+check("eta: unbounded blocker -> honest unknown", s2.eta_seconds(q2) is None)
+free = s2.submit({"kind": "fake", "name": "free", "owner": "t", "card": "3090"})
+check("eta: startable lane -> 0", s2.eta_seconds(free) == 0)
+s2.tick()
+s2.procs[b2["id"]].terminate(); s2.procs[free["id"]].terminate()
+
+# queued-ahead durations are in the estimate
+s3, _ = make_sched(cooldown=0)
+b3 = s3.submit({"kind": "fake", "name": "b3", "owner": "t", "card": "a6000",
+                "expected_min": 5, "env": {"SLEEP": "30"}})
+s3.tick()
+s3.submit({"kind": "fake", "name": "mid", "owner": "t", "card": "a6000",
+           "expected_min": 7})
+last = s3.submit({"kind": "fake", "name": "last", "owner": "t", "card": "a6000"})
+eta = s3.eta_seconds(last)
+check("eta: queued-ahead included (5+7 min)", eta is not None and 660 <= eta <= 840, eta)
+s3.procs[b3["id"]].terminate()
+
+# priority adjust while queued
+s4, _ = make_sched(cooldown=0)
+b4 = s4.submit({"kind": "fake", "name": "b4", "owner": "t", "card": "a6000",
+                "expected_min": 10, "env": {"SLEEP": "30"}})
+s4.tick()
+late = s4.submit({"kind": "fake", "name": "late", "owner": "t", "card": "a6000"})
+s4.set_priority(late["id"], 50)
+check("priority: adjustable while queued", late["priority"] == 50)
+b4["expected_min"] = 0
+s4.procs[b4["id"]].terminate(); time.sleep(0.3)
+early = s4.submit({"kind": "fake", "name": "early", "owner": "t", "card": "a6000"})
+s4.tick()
+check("priority: bumped job dispatches ahead of newer same-priority",
+      late["status"] == "running" and early["status"] == "queued",
+      "%s / %s" % (late["status"], early["status"]))
+s4.procs[late["id"]].terminate()
+
 print("\n%d passed, %d failed" % (PASS, FAIL))
 sys.exit(1 if FAIL else 0)
