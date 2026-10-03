@@ -12,7 +12,12 @@
 #                                              # SIGTERM runs the lawful stop. This is what the
 #                                              # dispatcher runs, so a session is an ordinary job.
 #   CARD=3090 bash comfy-session.sh start yue2  # 7 GB YuE2 fits the gate card
-#   TS_SERVE=1 ... start                       # also expose the web UI at <box>:8445 over serve
+#   TS_SERVE=1 ... start                       # expose the web UI on the tailnet interface
+#                                              # directly (plain HTTP on the box's tailnet IP).
+#                                              # NOT tailscale serve: the websocket upgrade the
+#                                              # frontend needs does not survive that proxy (it
+#                                              # arrives at aiohttp as a plain GET and 400s, and
+#                                              # the UI sits on the splash logo forever).
 #
 # Sentinels COMFY_DONE / COMFY_FAILED at stop.
 set -u
@@ -24,7 +29,12 @@ PIDF=$RUN/run.pid; LOG=$RUN/run.log
 LEASE=/home/user/gpu-lease
 PORT=${PORT:-8188}
 CARD=${CARD:-a6000}
-TS_SERVE_PORT=8445
+# 127.0.0.1 by default; TS_SERVE=1 listens on the box's tailnet IP instead (still not public)
+LISTEN=127.0.0.1
+if [ "${TS_SERVE:-0}" = 1 ]; then
+  LISTEN=$(tailscale ip -4 | head -1)
+  [ -n "$LISTEN" ] || { say "refused: TS_SERVE set but no tailnet IP"; exit 1; }
+fi
 say(){ echo "$(date +%T) $*"; }
 mkdir -p "$RUN"
 
@@ -74,7 +84,7 @@ stop(){
   members(){ ps -eo pid=,sid= | awk -v s=$SPID '$2==s && $1!=s{printf "%s ", $1}'; }
   for _ in $(seq 15); do [ -z "$(members)" ] && break; sleep 1; done
   [ -n "$(members)" ] && say "session members still alive: $(members) (reporting, not escalating)"
-  [ "${TS_SERVE:-0}" = 1 ] && tailscale serve --https=$TS_SERVE_PORT off 2>/dev/null
+  [ "${TS_SERVE:-0}" = 1 ] || true
   witness stop
   for _ in $(seq 45); do cardidle && break; sleep 2; done
   if cardidle; then
@@ -109,7 +119,7 @@ witness start
 say "$TAG: card=$CARD port=$PORT minutes=${MINUTES:-unbounded}"
 
 CUDA_VISIBLE_DEVICES="$(uuid_for "$CARD")" setsid nohup \
-  $C/.venv/bin/python $C/main.py --listen 127.0.0.1 --port $PORT \
+  $C/.venv/bin/python $C/main.py --listen "$LISTEN" --port $PORT \
   > "$LOG" 2>&1 < /dev/null &
 SPID=$!; echo "$SPID" > "$PIDF"
 kill -0 $SPID 2>/dev/null || { say "run exited immediately"; tail -20 "$LOG"; rm -f $LEASE; echo COMFY_FAILED; exit 1; }
@@ -118,16 +128,14 @@ say "run pid $SPID"
 
 # health wait: ComfyUI answers / when the UI is up (torch import dominates the first boot)
 for _ in $(seq 900); do
-  curl -sf -o /dev/null http://127.0.0.1:$PORT/ && break
+  curl -sf -o /dev/null http://$LISTEN:$PORT/ && break
   kill -0 $SPID 2>/dev/null || { say "ComfyUI died during startup"; tail -20 "$LOG"; bash "$SNAP" stop "$TAG"; echo COMFY_FAILED; exit 1; }
   sleep 1
 done
-curl -sf -o /dev/null http://127.0.0.1:$PORT/ || { say "no answer on $PORT after 900 s"; bash "$SNAP" stop "$TAG"; echo COMFY_FAILED; exit 1; }
-say "http answering on $PORT"
+curl -sf -o /dev/null http://$LISTEN:$PORT/ || { say "no answer on $LISTEN:$PORT after 900 s"; bash "$SNAP" stop "$TAG"; echo COMFY_FAILED; exit 1; }
+say "http answering on $LISTEN:$PORT"
 
-if [ "${TS_SERVE:-0}" = 1 ]; then
-  tailscale serve --bg --https=$TS_SERVE_PORT http://127.0.0.1:$PORT && say "web UI: https://<box>:$TS_SERVE_PORT (serve)"
-fi
+[ "${TS_SERVE:-0}" = 1 ] && say "web UI: http://$LISTEN:$PORT (tailnet)"
 
 if [ "${MODE_RUN:-0}" = 1 ]; then
   # hold the window in the foreground; a signal (or the bound) closes it lawfully
