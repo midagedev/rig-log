@@ -1,0 +1,858 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>bloomery 0.2.6</title>
+<style>
+  @font-face { font-family: Brush; src: url(fonts/CaveatBrush-Regular.ttf); }
+  @font-face { font-family: Hand; src: url(fonts/GochiHand-Regular.ttf); }
+  html, body { margin: 0; background: #EFE8DA; }
+  #stage { width: 1080px; height: 1080px; display: block; }
+</style></head>
+<body>
+<canvas id="stage" width="1080" height="1080"></canvas>
+<script>
+// Every frame is a pure function of t (seconds): no timers, no state carried between frames.
+// Every number comes from data.json (make_data.py; ?data=<file> points at a probe variant). Which expert sits where,
+// how many jobs each blot holds and the split inside a lanes row are schematic; the totals they add up to are the data's.
+const W = 1080, H = 1080, T = 47.5, FLOOR = 34;
+const PAPER = '#EFE8DA', CARD = '#FBF7EE', INK = '#17140F', GRAY = '#8C867B', DGRAY = '#5F594F', HOT = '#E0503A',
+      AMBER = '#F2B83B', LIGHT = '#F6DC8E', BLUE = '#2E5E9E', LBLUE = '#7FA6DE', DIMP = '#CFC6B4', STAMP = '#C0182B';
+let D = null, BF = 0;
+const cv = document.getElementById('stage'), ctx = cv.getContext('2d');
+
+// ---- small math ------------------------------------------------------------------------------------------------
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, u) => a + (b - a) * u;
+const io = x => { x = clamp(x); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+const out = x => { x = clamp(x); return 1 - Math.pow(1 - x, 3); };
+const fadeIO = (t, a, b, fi = .35, fo = .35) => clamp(Math.min(out((t - a) / fi), 1 - io((t - (b - fo)) / fo)));
+function hsh(...k) {
+  let h = 0x9e3779b9 | 0;
+  for (const x of k) { h = Math.imul(h ^ (x | 0), 0x85ebca6b); h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35); h ^= h >>> 16; }
+  return (h >>> 0) / 4294967296;
+}
+function n1(u, s) { const i = Math.floor(u), f = u - i, w = f * f * (3 - 2 * f); return lerp(hsh(s, i), hsh(s, i + 1), w); }
+function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function shuffled(n, seed) { const r = mulberry32(seed), a = [...Array(n).keys()]; for (let i = n - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+const sum = a => a.reduce((x, y) => x + y, 0);
+const fmt = v => Math.round(v).toLocaleString('en-US');
+const fmt1 = v => v >= 100 ? fmt(v) : v.toFixed(1);
+
+// ---- brush ---------------------------------------------------------------------------------------------------
+function resample(pts, step) {
+  const o = [pts[0].slice()]; let carry = 0, len = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const [x0, y0] = pts[i - 1], [x1, y1] = pts[i], d = Math.hypot(x1 - x0, y1 - y0); len += d;
+    if (d === 0) continue;
+    let s = step - carry;
+    while (s <= d) { o.push([x0 + (x1 - x0) * s / d, y0 + (y1 - y0) * s / d]); s += step; }
+    carry = d - (s - step);
+  }
+  const e = pts[pts.length - 1], l = o[o.length - 1];
+  if (Math.hypot(e[0] - l[0], e[1] - l[1]) > .5) o.push(e.slice());
+  return { p: o, len };
+}
+// A tapered, wobbling ribbon with dry-brush gaps. o.p reveals it from the start (0..1).
+function brush(pts, w, col, seed, o = {}) {
+  const rev = o.p === undefined ? 1 : clamp(o.p);
+  if (rev <= 0) return;
+  const { p } = resample(pts, Math.max(2.5, Math.min(6, w * .6)));
+  const n = p.length; if (n < 2) return;
+  const m = Math.max(2, Math.ceil(n * rev));
+  const bs = seed * 131 + (o.still ? 0 : BF) * 977;
+  const L = [], R = [];
+  for (let i = 0; i < m; i++) {
+    const a = p[Math.max(0, i - 1)], b = p[Math.min(n - 1, i + 1)];
+    let dx = b[0] - a[0], dy = b[1] - a[1]; const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
+    const s = i / (n - 1);
+    const tap = o.flat ? 1 : Math.max(o.tip ?? .12, Math.pow(Math.min(1, s / .07, (1 - s) / .14), .55));
+    const ww = w * tap * (.74 + .52 * n1(i * .18, bs + 3)) * .5;
+    const off = (n1(i * .11, bs + 5) - .5) * w * (o.jit ?? .35);
+    const cx = p[i][0] - dy * off, cy = p[i][1] + dx * off;
+    L.push([cx - dy * ww, cy + dx * ww]); R.push([cx + dy * ww, cy - dx * ww]);
+  }
+  ctx.beginPath(); ctx.moveTo(L[0][0], L[0][1]);
+  for (const q of L) ctx.lineTo(q[0], q[1]);
+  for (let i = R.length - 1; i >= 0; i--) ctx.lineTo(R[i][0], R[i][1]);
+  ctx.closePath(); ctx.fillStyle = col; ctx.fill();
+  if (w >= 6 && o.dry !== 0) {
+    const k = w > 14 ? 3 : 2, a0 = ctx.globalAlpha;
+    ctx.strokeStyle = o.gap || PAPER; ctx.lineCap = 'round';
+    for (let j = 0; j < k; j++) {
+      const fo = (hsh(bs, j, 11) - .5) * .62;
+      ctx.globalAlpha = a0 * (.5 + .35 * hsh(bs, j, 12));
+      ctx.lineWidth = Math.max(.8, w * (.05 + .05 * hsh(bs, j, 13)));
+      ctx.beginPath(); let pen = false;
+      for (let i = 0; i < m; i++) {
+        const on = n1(i * .09 + j * 7.3, bs + 20 + j) > (o.dryT ?? .55);
+        const x = (L[i][0] + R[i][0]) / 2 + (L[i][0] - R[i][0]) * fo, y = (L[i][1] + R[i][1]) / 2 + (L[i][1] - R[i][1]) * fo;
+        if (on) { if (!pen) { ctx.moveTo(x, y); pen = true; } else ctx.lineTo(x, y); } else pen = false;
+      }
+      ctx.stroke();
+    }
+    ctx.globalAlpha = a0;
+  }
+}
+const line = (x0, y0, x1, y1, w, col, seed, o) => brush([[x0, y0], [x1, y1]], w, col, seed, o);
+// An ink blot: a lumpy closed shape, optional splash spikes and satellite dots.
+function blot(x, y, r, col, seed, o = {}) {
+  if (r <= .3) return;
+  const bs = seed * 71 + (o.still ? 0 : BF) * 313, N = 14, P = [];
+  for (let i = 0; i < N; i++) {
+    const a = i / N * Math.PI * 2 + (hsh(bs, i, 2) - .5) * .25, rr = r * (.8 + .38 * hsh(bs, i));
+    P.push([x + Math.cos(a) * rr, y + Math.sin(a) * rr]);
+  }
+  const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  ctx.beginPath(); const m0 = mid(P[N - 1], P[0]); ctx.moveTo(m0[0], m0[1]);
+  for (let i = 0; i < N; i++) { const q = mid(P[i], P[(i + 1) % N]); ctx.quadraticCurveTo(P[i][0], P[i][1], q[0], q[1]); }
+  ctx.fillStyle = col; ctx.fill();
+  for (let j = 0; j < (o.spikes || 0); j++) {
+    const a = (o.up ? Math.PI * (1.1 + .8 * hsh(seed, j, 5)) : hsh(seed, j, 5) * 6.283) + (hsh(bs, j, 6) - .5) * .35, l = r * (.6 + .9 * hsh(seed, j, 7)) * (o.spk || 1);
+    brush([[x + Math.cos(a) * r * .5, y + Math.sin(a) * r * .5], [x + Math.cos(a) * (r + l), y + Math.sin(a) * (r + l)]],
+      r * .6, col, seed * 13 + j, { dry: 0, tip: .05 });
+  }
+  for (let j = 0; j < (o.dots || 0); j++) {
+    const a = hsh(seed, j, 8) * 6.283, d = r * (1.6 + hsh(seed, j, 9) * 1.3) * (o.spk || 1);
+    ctx.beginPath(); ctx.arc(x + Math.cos(a) * d, y + Math.sin(a) * d, 1 + hsh(seed, j, 10) * 1.7, 0, 6.283); ctx.fill();
+  }
+}
+// A filled region with a hand-cut edge.
+function roughPoly(corners, col, seed, amp = 2.5) {
+  const pts = [];
+  for (let c = 0; c < corners.length; c++) {
+    const [ax, ay] = corners[c], [bx, by] = corners[(c + 1) % corners.length];
+    const n = Math.max(2, Math.round(Math.hypot(bx - ax, by - ay) / 26));
+    for (let i = 0; i < n; i++) pts.push([lerp(ax, bx, i / n), lerp(ay, by, i / n)]);
+  }
+  ctx.beginPath();
+  pts.forEach((p, i) => {
+    const x = p[0] + (hsh(seed, i, BF) - .5) * 2 * amp, y = p[1] + (hsh(seed, i, BF + 7777) - .5) * 2 * amp;
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  });
+  ctx.closePath(); ctx.fillStyle = col; ctx.fill();
+}
+const box = (x0, y0, x1, y1, seed, w = 4, col = INK) => brush([[x0, y0], [x1, y0 - 2], [x1 + 2, y1], [x0 - 2, y1 + 1], [x0, y0]], w, col, seed, { dry: 0, flat: true });
+// Dry-brush streaks inside an ink mass: thin broken paper-colored lines, clipped to the current path.
+function streaks(x0, y0, x1, y1, seed, n, o = {}) {
+  ctx.save(); ctx.clip();
+  ctx.strokeStyle = o.col || PAPER; ctx.lineCap = 'round';
+  for (let k = 0; k < n; k++) {
+    const y = lerp(y0, y1, hsh(seed, k, 1)), ang = (hsh(seed, k, 2) - .5) * .06, a0 = ctx.globalAlpha;
+    ctx.globalAlpha = a0 * (.18 + .3 * hsh(seed, k, 3)) * (o.a ?? 1);
+    ctx.lineWidth = .8 + 1.8 * hsh(seed, k, 4);
+    ctx.beginPath(); let pen = false;
+    const bs = seed * 7 + k * 13 + Math.floor(BF / 2) * 3;          // streaks boil at half rate
+    for (let x = x0; x <= x1; x += 6) {
+      const on = n1(x * .012 + k * 3.1, bs) > .42;
+      const yy = y + (x - x0) * ang + (n1(x * .02, bs + 9) - .5) * 3;
+      if (on) { if (!pen) { ctx.moveTo(x, yy); pen = true; } else ctx.lineTo(x, yy); } else pen = false;
+    }
+    ctx.stroke(); ctx.globalAlpha = a0;
+  }
+  ctx.restore();
+}
+// Handwriting: per-letter jitter that boils, revealed letter by letter. Text under FLOOR px is a defect: it is
+// drawn, and the page reports it as a console error, which render.py prints after every probe and render.
+function hand(s, x, y, size, col, o = {}) {
+  if (size < FLOOR - 1e-6) console.error(`text under ${FLOOR} px: ${size.toFixed(1)} px "${s}"`);
+  ctx.font = `${size}px ${o.font || 'Hand'}`; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+  const ch = [...s], ws = ch.map(c => ctx.measureText(c).width), tw = ws.reduce((a, b) => a + b, 0);
+  let cx = o.align === 'center' ? x - tw / 2 : o.align === 'right' ? x - tw : x;
+  const show = o.reveal === undefined ? ch.length : Math.floor(ch.length * clamp(o.reveal) + 1e-6);
+  const sd = (o.seed || 0) * 17 + (o.still ? 0 : BF) * 131;
+  ctx.fillStyle = col;
+  for (let i = 0; i < ch.length; i++) {
+    if (i < show && ch[i] !== ' ') {
+      const big = size >= 80, jy = big ? Math.min(3, size * .05) : size * .05, jx = big ? Math.min(3, size * .03) : size * .03;
+      const r = (hsh(sd, i, 1) - .5) * (o.rot ?? (big ? .04 : .07)), dy = (hsh(sd, i, 2) - .5) * jy, dx = (hsh(sd, i, 3) - .5) * jx;
+      ctx.save(); ctx.translate(cx + dx + ws[i] / 2, y + dy); ctx.rotate(r);
+      if (o.outline) { ctx.lineJoin = 'round'; ctx.lineWidth = o.ow || 6; ctx.strokeStyle = o.outline; ctx.strokeText(ch[i], -ws[i] / 2, 0); }
+      ctx.fillText(ch[i], -ws[i] / 2, 0); ctx.restore();
+    }
+    cx += ws[i];
+  }
+  return tw;
+}
+const measure = (s, size, font = 'Hand') => { ctx.font = `${size}px ${font}`; return ctx.measureText(s).width; };
+const write = (t, t0, s, cps = 26) => (t - t0) * cps / Math.max(1, [...s].length);   // letters per second -> reveal
+// the same for wrapped lines, one after another: line k starts where line k-1 ends
+const writeLines = (t, t0, lines, cps) => { let c = 0; return lines.map(l => { const r = write(t, t0 + c / cps, l, cps); c += [...l].length; return r; }); };
+const fitSize = (s, size, maxw, font = 'Hand', min = FLOOR) => Math.max(min, Math.min(size, size * maxw / Math.max(1, measure(s, size, font))));
+function wrap(s, size, maxw, font = 'Hand') {                  // words first; a run without spaces breaks by characters
+  ctx.font = `${size}px ${font}`;
+  const lines = []; let cur = '';
+  for (const w of s.split(' ')) {
+    const tr = cur ? cur + ' ' + w : w;
+    if (ctx.measureText(tr).width <= maxw || !cur) cur = tr; else { lines.push(cur); cur = w; }
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+// ---- paper -----------------------------------------------------------------------------------------------------
+const bg = document.createElement('canvas'); bg.width = W; bg.height = H;
+(() => {
+  const g = bg.getContext('2d'), r = mulberry32(5);
+  g.fillStyle = PAPER; g.fillRect(0, 0, W, H);
+  for (let i = 0; i < 110000; i++) {
+    g.fillStyle = r() < .55 ? `rgba(70,52,30,${.03 + r() * .04})` : `rgba(255,255,250,${.05 + r() * .06})`;
+    g.fillRect(r() * W, r() * H, 1 + r(), 1 + r());
+  }
+  g.lineCap = 'round';
+  for (let i = 0; i < 700; i++) {
+    const x = r() * W, y = r() * H, a = r() * 6.283, l = 4 + r() * 14;
+    g.strokeStyle = `rgba(90,70,45,${.04 + r() * .04})`; g.lineWidth = .6;
+    g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + Math.cos(a + .5) * l * .5, y + Math.sin(a + .5) * l * .5, x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke();
+  }
+  const v = g.createRadialGradient(W / 2, H / 2, W * .35, W / 2, H / 2, W * .78);
+  v.addColorStop(0, 'rgba(80,60,35,0)'); v.addColorStop(1, 'rgba(80,60,35,.16)');
+  g.fillStyle = v; g.fillRect(0, 0, W, H);
+})();
+let PAPER_PAT = null;
+
+// ---- timeline (film seconds). The track's groove enters at DROP; scene cuts after it sit on its 0.82 s beat. -------
+const BEAT = .82, DROP = 12.29;
+const S_BEFORE = 3.3, S_AFTER = DROP, S_LANES = DROP + 10 * BEAT, S_RACE = DROP + 16 * BEAT, S_BARS = DROP + 25 * BEAT,
+      S_EXTRA = DROP + 32 * BEAT, S_END = DROP + 37 * BEAT;
+const B_PROMPT = 4.85, B_ROUTE = 5.75, B_WORK = 7.45, B_WAIT = 8.6, B_DONE = 11.9;   // 0.2.5's layer (stream off)
+const A_PICK = DROP + .65, A_COPY = 14.4, A_RUN_MIN = 16.3, A_MONT = 18.44, A_FF = 20.08;   // 0.2.6's layer
+
+// ---- geometry --------------------------------------------------------------------------------------------------
+const GX0 = 56, GX1 = 1024, GY0 = 140, GY1 = 440;          // the GPU room
+const HX0 = 56, HX1 = 1024, HY0 = 488, HY1 = 728;          // host RAM, the CPU's room
+const PIPE = 820, RC = [820, 312], RI = 80, RO = 120;      // PCIe and the ring
+const SEATS = [92, 218, 600, 424], HOSTS = [372, 532, 1000, 684], CHIP = [104, 548, 204, 648], LAMP = 720;
+function grid(n, b) {
+  const [x0, y0, x1, y1] = b, bw = x1 - x0, bh = y1 - y0;
+  let cols = Math.max(1, Math.round(Math.sqrt(n * bw / bh))), rows = Math.ceil(n / cols);
+  const dx = cols > 1 ? bw / (cols - 1) : 0, dy = rows > 1 ? bh / (rows - 1) : 0;
+  return { cols, rows, cell: Math.min(dx || bw, dy || bh), at: q => [x0 + (q % cols) * dx, y0 + Math.floor(q / cols) * dy] };
+}
+
+// ---- data ------------------------------------------------------------------------------------------------------
+let P, NLY, NE, K, NC, NH, HB, HA, NA, NS, SL, HALF, PPB, PPA, RATIO, DB, DA, ARMS = [];
+let hostW = [], hostPos = [], seatPos = [], admitSeat = [], isAdmitSeat = [], rH0, rHmax, rS, wmax;
+let schedB = null, schedA = null, flights = [], tLand = 0, tRun = 0;
+function need(k, kind = 'number') {
+  const v = D[k];
+  if (kind === 'number' ? !(typeof v === 'number' && isFinite(v) && v >= 0) : typeof v !== 'string') throw new Error(`data: ${k} is missing or not a ${kind} (got ${JSON.stringify(v)})`);
+  return v;
+}
+// Host experts ranked by jobs: weights 1/(i+3)^s, s fitted so the ones past the pick hold the measured after/before
+// share (the mean layer streams almost nothing: the ring runs in a few layers only). The ranking is the rule's (count
+// descending); the shape is schematic.
+function fitRest(n, from, frac) {
+  const f = s => { let a = 0, b = 0; for (let i = 0; i < n; i++) { const w = Math.pow(i + 3, -s); a += w; if (i >= from) b += w; } return b / a; };
+  if (from <= 0 || from >= n || frac >= f(0)) return 0;
+  if (frac <= f(6)) return 6;
+  let lo = 0, hi = 6; for (let k = 0; k < 60; k++) { const m = (lo + hi) / 2; if (f(m) > frac) lo = m; else hi = m; }
+  return (lo + hi) / 2;
+}
+// The CPU's threads as list scheduling over the blots in grid order: each takes the next expert, for jobs/rate s.
+function schedule(ranks, rate, t0, lanes = 12) {
+  const free = Array(lanes).fill(t0), map = new Map();
+  for (const i of ranks) { let k = 0; for (let j = 1; j < lanes; j++) if (free[j] < free[k]) k = j; const s = free[k], e = s + hostW[i] / rate; map.set(i, [s, e]); free[k] = e; }
+  return { map, end: Math.max(t0, ...free) };
+}
+function build() {
+  P = need('prompt_tokens'); NLY = need('layers'); NE = need('experts_per_layer'); K = need('topk');
+  NC = clamp(Math.round(need('card_experts_per_layer')), 8, NE - 8); NH = NE - NC;
+  HB = need('host_cols_before'); HA = need('host_cols_after');
+  NA = clamp(Math.round(need('admit_per_layer')), 0, NH);
+  NS = need('streamed_per_layer'); SL = Math.round(need('streamed_layers')); HALF = Math.max(1, Math.round(need('ring_half')));
+  // arm 1: 0.2.5 on the Q4 file (stream off, as its server ran); arm 2: 0.2.6, same file; arm 3: 0.2.6, the Q3 file
+  if (!Array.isArray(D.arms) || D.arms.length !== 3) throw new Error(`data: arms must be a list of three arms (got ${JSON.stringify(D.arms)})`);
+  ARMS = D.arms.map((A, i) => {
+    const take = (k, kind = 'number') => {
+      const v = A[k];
+      if (kind === 'number' ? !(typeof v === 'number' && isFinite(v) && v >= 0) : typeof v !== 'string') throw new Error(`data: arms[${i}].${k} is missing or not a ${kind} (got ${JSON.stringify(v)})`);
+      return v;
+    };
+    return { label: take('label', 'string'), file: take('file', 'string'), gb: take('file_gb'), pp512: take('pp512'), pp4096: take('pp4096'),
+      decode: take('decode'), caption: need(`arm${i + 1}_caption`, 'string'), col: [DGRAY, HOT, BLUE][i], fill: ['#9C968A', HOT, BLUE][i] };
+  });
+  for (const A of ARMS) if (!(A.pp512 > 0 && A.pp4096 > 0 && A.decode > 0)) throw new Error(`data: ${A.label}: every tok/s must be > 0`);
+  PPB = ARMS[0].pp4096; PPA = ARMS[1].pp4096; DB = ARMS[0].decode; DA = ARMS[1].decode;
+  RATIO = typeof D.pp_ratio === 'number' ? D.pp_ratio : PPA / PPB;
+  for (const k of ['model', 'title', 'before_label', 'after_label', 'answers_tag', 'decode_conditions', 'conditions', 'method_line', 'decode_note', 'side1', 'side2', 'version', 'repo']) need(k, 'string');
+  if (!(HB > 0)) throw new Error('data: host_cols_before must be > 0');
+  const s = fitRest(NH, NA, HA / HB), w = [...Array(NH).keys()].map(i => Math.pow(i + 3, -s)), tw = sum(w);
+  hostW = w.map(x => x / tw * HB); wmax = hostW[0];
+  const gH = grid(NH, HOSTS), gS = grid(NC, SEATS), perm = shuffled(NH, 3);
+  rH0 = 2.6; rHmax = Math.min(12, gH.cell * .46); rS = Math.min(8.5, gS.cell * .36);
+  hostPos = hostW.map((_, i) => { const [x, y] = gH.at(perm[i]); return [x + (hsh(i, 31) - .5) * gH.cell * .3, y + (hsh(i, 32) - .5) * gH.cell * .25]; });
+  seatPos = [...Array(NC).keys()].map(q => { const [x, y] = gS.at(q); return [x + (hsh(q, 41) - .5) * gS.cell * .25, y + (hsh(q, 42) - .5) * gS.cell * .2]; });
+  admitSeat = shuffled(NC, 5).slice(0, NA); isAdmitSeat = new Int32Array(NC).fill(-1); admitSeat.forEach((q, k) => isAdmitSeat[q] = k);
+  // the CPU: one rate (jobs a film second) for both layers, so the 0.2.6 layer's share takes HA/HB of the time
+  const order = [...Array(NH).keys()].sort((a, b) => perm[a] - perm[b]), want = B_DONE - .05 - B_WORK;
+  let rate = HB / (12 * want);
+  for (let k = 0; k < 4; k++) rate *= (schedule(order, rate, 0).end) / want;
+  schedB = schedule(order, rate, B_WORK);
+  const rest = order.filter(i => i >= NA);
+  let rA = rate; const endA = schedule(rest, rA, 0).end; if (endA > 3.6) rA *= endA / 3.6;
+  schedA = schedule(rest, rA, A_COPY);
+  // copies over PCIe: the pick's admits, each into the seat its old resident leaves
+  const dk = Math.min(.05, 1.75 / Math.max(1, NA));
+  flights = [];
+  for (let k = 0; k < NA; k++) flights.push({ i: k, t0: A_COPY + k * dk, t1: A_COPY + k * dk + .6, j: admitSeat[k] });
+  tLand = NA ? flights[NA - 1].t1 : A_COPY; tRun = Math.max(A_RUN_MIN, tLand + .12);
+}
+
+// ---- shared pieces -------------------------------------------------------------------------------------------
+function frame() {
+  const sd = 990, M = 22;
+  line(M - 6, M, W - M + 8, M + 2, 9, INK, sd); line(W - M, M - 6, W - M + 1, H - M + 8, 9, INK, sd + 1);
+  line(W - M + 6, H - M, M - 8, H - M - 1, 9, INK, sd + 2); line(M, H - M + 6, M - 1, M - 8, 9, INK, sd + 3);
+}
+function stamp() {
+  if (!D.placeholder) return;
+  ctx.save(); ctx.translate(540, 1043); ctx.rotate(-.015);
+  const s = 'PLACEHOLDER NUMBERS', w = measure(s, 34, 'Hand') + 28;
+  ctx.fillStyle = 'rgba(251,247,238,.92)'; ctx.fillRect(-w / 2, -26, w, 40);
+  ctx.strokeStyle = STAMP; ctx.lineWidth = 3; ctx.strokeRect(-w / 2, -26, w, 40);
+  hand(s, 0, 6, 34, STAMP, { align: 'center', still: true, seed: 3 });
+  ctx.restore();
+}
+function caption(t, s, t0, t1, seed) {
+  const a = fadeIO(t, t0, t1, .25, .3); if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha = a;
+  const size = fitSize(s, 46, 520, 'Hand'), w = measure(s, size) + 44, x = 56, y = 46, h = 70;
+  roughPoly([[x, y], [x + w, y], [x + w, y + h], [x, y + h]], CARD, seed, 1.2);
+  line(x - 5, y, x + w + 6, y + 1, 5, INK, seed + 1); line(x + w, y - 4, x + w + 1, y + h + 5, 5, INK, seed + 2);
+  line(x + w + 5, y + h, x - 4, y + h - 1, 5, INK, seed + 3); line(x, y + h + 4, x - 1, y - 5, 5, INK, seed + 4);
+  hand(s, x + 22, y + 51, size, INK, { reveal: write(t, t0 + .1, s, 22), seed });
+  ctx.restore();
+}
+function subtitle(t, s, t0, t1, col = INK) {
+  const a = fadeIO(t, t0, t1, .2, .25); if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha = a;
+  const size = fitSize(s, 46, 970, 'Brush');
+  hand(s, 540, 768, size, col, { font: 'Brush', align: 'center', reveal: write(t, t0, s, 60), seed: 140 + s.length });
+  ctx.restore();
+}
+// The conditions under every number, bottom-anchored, wrapped (never shrunk below the floor).
+function footer(t, texts, a, col = DGRAY) {
+  if (a <= 0) return;
+  const lines = texts.filter(Boolean).flatMap(s => wrap(s, FLOOR, 970, 'Hand'));
+  ctx.save(); ctx.globalAlpha = a;
+  lines.forEach((s, k) => hand(s, 540, 1006 - (lines.length - 1 - k) * 36, FLOOR, col, { align: 'center', seed: 170 + k + s.length }));
+  ctx.restore();
+  return lines.length;
+}
+function wipe(t, t0) {   // paper-colored brush strokes sweep the page
+  const u = clamp((t - t0) / .7); if (u <= 0) return;
+  PAPER_PAT = PAPER_PAT || ctx.createPattern(bg, 'no-repeat');
+  for (let k = 0; k < 10; k++) {
+    const y = 40 + k * 112, s = clamp(u * 1.6 - k * .06);
+    if (s > 0) brush([[-40, y], [W + 40, y + 10]], 160, PAPER_PAT, 300 + k, { p: s, dry: 0, flat: true, jit: .1 });
+  }
+}
+const tagged = () => D.answers_tag ? ' ' + D.answers_tag : '';   // what the decode number was taken with, e.g. (MTP off)
+
+// ---- act 0: the title --------------------------------------------------------------------------------------------
+function title(t) {
+  if (t > 3.7) return;
+  const a = 1 - io((t - 2.95) / .45); if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha = a;
+  const sw = out((t - .05) / .5);
+  if (sw > 0) brush([[230, 640], [430, 628], [650, 636], [860, 622]], 46, HOT, 12, { p: sw, dryT: .45 });
+  const r = 64 * out((t - .02) / .25) * (1 - .25 * io((t - .5) / .6));
+  if (r > 1) { blot(196, 470, r, INK, 7, { spikes: 7, spk: .55, dots: 12 }); blot(196, 470, r * .36 * (1 + .12 * Math.sin(t * 9)), AMBER, 8); }   // a bloom in the hearth
+  hand('bloomery', 560, 500, 150, INK, { font: 'Brush', align: 'center', reveal: write(t, .15, 'bloomery', 12), seed: 21 });
+  hand(D.version, 560, 650, 120, PAPER, { font: 'Brush', align: 'center', reveal: write(t, .65, D.version, 9), seed: 22, outline: INK, ow: 12 });
+  const s = RATIO >= 1.02 ? `${D.title}: faster prompts` : D.title;
+  hand(s, 540, 780, fitSize(s, 52, 900, 'Brush'), INK, { font: 'Brush', align: 'center', reveal: write(t, 1.0, s, 45), seed: 23 });
+  hand('one workstation: a GPU and host RAM', 540, 842, 40, DGRAY, { align: 'center', reveal: write(t, 1.5, 'x'.repeat(30), 50), seed: 24 });
+  for (let k = 0; k < 14; k++) {                                     // embers off the stroke: a bloomery is a furnace
+    const t0 = .35 + hsh(k, 1) * 1.8, u = (t - t0) / 1.2; if (u < 0 || u > 1) continue;
+    const x = 240 + hsh(k, 2) * 600 + Math.sin(u * 5 + k) * 10, y = 630 - u * (120 + hsh(k, 3) * 120);
+    ctx.globalAlpha = a * (1 - u); ctx.beginPath(); ctx.arc(x, y, 2 + 2 * hsh(k, 4), 0, 6.283); ctx.fillStyle = AMBER; ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ---- acts 1–2: one layer on the stage ----------------------------------------------------------------------------
+const after = t => t >= S_AFTER;
+function lampOn(t) {                       // 1 lit, 0 dim: the 0.2.5 GPU waits after its share
+  if (after(t)) return clamp((t - S_AFTER) / .5 + .2);
+  return 1 - io((t - B_WAIT) / .4) * .85;
+}
+function rooms(t, rev) {
+  const on = lampOn(t);
+  // GPU room
+  const g = ctx.createRadialGradient(LAMP, GY0, 40, LAMP, GY0 + 120, 640);
+  g.addColorStop(0, 'rgba(246,220,142,.98)'); g.addColorStop(1, 'rgba(240,208,120,.72)');
+  ctx.save(); ctx.globalAlpha *= clamp(rev * 1.5);
+  roughPoly([[GX0, GY0], [GX1, GY0], [GX1, GY1], [GX0, GY1]], g, 46, 1.5);
+  if (on < 1) { ctx.globalAlpha *= (1 - on) * .55; roughPoly([[GX0, GY0], [GX1, GY0], [GX1, GY1], [GX0, GY1]], INK, 47, 1.5); }
+  ctx.restore();
+  box(GX0, GY0, GX1, GY1, 48, 5);
+  // lamp
+  line(LAMP, 22, LAMP, 96, 4, INK, 44, { p: clamp(rev * 2) });
+  roughPoly([[LAMP - 23, 94], [LAMP + 23, 94], [LAMP + 46, 128], [LAMP - 46, 128]], INK, 45, 1.6);
+  ctx.beginPath(); ctx.arc(LAMP, 131, 9, 0, Math.PI); ctx.fillStyle = on > .5 ? AMBER : GRAY; ctx.fill();
+  hand('GPU', 84, 186, 46, INK, { font: 'Brush', reveal: (rev - .3) / .4, seed: 49 });
+  // host room
+  ctx.save(); ctx.beginPath(); ctx.moveTo(0, 0);
+  for (let y = HY0 - 20; y <= HY1 + 20; y += 12) ctx.lineTo(40 + rev * 1000 + (n1(y * .05, 49) - .5) * 70 * (1 - rev * .7), y);
+  ctx.lineTo(0, HY1 + 30); ctx.closePath(); ctx.clip();
+  roughPoly([[HX0, HY0], [HX1, HY0 - 3], [HX1 + 2, HY1], [HX0 - 2, HY1 + 2]], INK, 41, 4);
+  streaks(HX0, HY0 + 4, HX1, HY1 - 4, 41, 12, { a: .5 });
+  ctx.restore();
+  hand('host RAM', 84, 530, 44, PAPER, { font: 'Brush', reveal: (rev - .4) / .4, seed: 50 });
+  hand('blot size = its jobs (schematic)', HX1 - 18, HY1 - 14, FLOOR, DIMP, { align: 'right', reveal: (rev - .6) / .4, seed: 51 });
+  // PCIe
+  const top = after(t) ? RC[1] + RO : GY1, pa = after(t) ? 1 : .45;
+  ctx.save(); ctx.globalAlpha *= pa;
+  for (const dx of [-22, 22]) line(PIPE + dx, top - 2, PIPE + dx + 1, HY0 + 6, 5, INK, 52 + dx, { p: clamp(rev * 1.6 - .4), dry: 0 });
+  hand('PCIe', PIPE + 38, 476, 38, INK, { font: 'Brush', reveal: (rev - .5) / .4, seed: 53 });
+  ctx.restore();
+}
+function chip(t, rev, state) {
+  const [x0, y0, x1, y1] = CHIP;
+  ctx.save(); ctx.globalAlpha *= clamp(rev * 1.4 - .3);
+  for (let k = 0; k < 4; k++) {
+    const u = (k + .5) / 4;
+    for (const [ax, ay, bx, by] of [[lerp(x0, x1, u), y0, lerp(x0, x1, u), y0 - 10], [lerp(x0, x1, u), y1, lerp(x0, x1, u), y1 + 10], [x0, lerp(y0, y1, u), x0 - 10, lerp(y0, y1, u)], [x1, lerp(y0, y1, u), x1 + 10, lerp(y0, y1, u)]])
+      line(ax, ay, bx, by, 3, PAPER, 60 + k + ax, { dry: 0 });
+  }
+  roughPoly([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], state === 'work' || state === 'pulse' ? LIGHT : PAPER, 61, 1.2);
+  hand('CPU', (x0 + x1) / 2, (y0 + y1) / 2 + 14, 44, INK, { font: 'Brush', align: 'center', seed: 62 });
+  if (state === 'work' || state === 'pulse') for (let k = 0; k < 3; k++) {   // heat lines while it works
+    const x = x0 + 20 + k * 34, ph = (t * 2.2 + k * .33) % 1;
+    line(x, y0 - 18 - ph * 22, x + 6, y0 - 34 - ph * 22, 3, AMBER, 63 + k + Math.floor(t * 2.2), { dry: 0 });
+  }
+  const s = state === 'work' ? 'working' : state === 'done' ? 'done ✓' : state === 'wait' ? 'waits' : '';
+  if (s) hand(s, (x0 + x1) / 2, y1 + 42, 38, state === 'done' ? AMBER : PAPER, { font: 'Brush', align: 'center', seed: 64 });
+  ctx.restore();
+}
+// How many of expert i's jobs are still on the host at t.
+function hostLeft(i, t) {
+  const g = clamp((t - (B_ROUTE + .2 + hsh(i, 9) * 1.0)) / .45);   // the routing fills each blot
+  if (!after(t)) {
+    const [s, e] = schedB.map.get(i);
+    return hostW[i] * g * (1 - clamp((t - s) / (e - s)));
+  }
+  const back = io((t - S_AFTER - .05) / .55);                      // the rewind refills the layer
+  if (i < NA) {
+    const f = flights[i];
+    return t < f.t0 ? hostW[i] * back : 0;
+  }
+  const [s, e] = schedA.map.get(i);
+  if (t >= A_MONT) return 0;
+  return hostW[i] * back * (1 - clamp((t - s) / (e - s)));
+}
+const rOfJobs = j => j <= 0 ? rH0 : rH0 + (rHmax - rH0) * Math.sqrt(j / wmax);
+function hostBlots(t, rev) {
+  const gin = clamp(rev * 1.3 - .3);
+  for (let i = 0; i < NH; i++) {
+    const [x, y] = hostPos[i], left = hostLeft(i, t), r = rOfJobs(left) * gin;
+    if (r <= .5) continue;
+    let col = PAPER;
+    if (after(t) && i < NA && t >= flights[i].t0) {                // copied up: the host keeps its bytes, the jobs left
+      if (t >= flights[i].t1 - .1) { ctx.save(); ctx.globalAlpha *= clamp((t - flights[i].t1 + .1) / .3); blot(x, y, rH0 + .6, 'rgba(207,198,180,.7)', 700 + i); ctx.restore(); }
+      else blot(x, y, rH0, 'rgba(239,232,218,.35)', 700 + i);
+      continue;
+    }
+    blot(x, y, r, col, 700 + i);
+    const sc = after(t) ? schedA.map.get(i) : schedB.map.get(i);
+    if (sc && t >= sc[0] && t < sc[1] && left > 0) {                // a thread is on it
+      ctx.beginPath(); ctx.arc(x, y, r + 4, 0, 6.283); ctx.lineWidth = 2.2; ctx.strokeStyle = AMBER; ctx.stroke();
+    }
+  }
+}
+function seatFlash(q, t) {
+  const [x] = seatPos[q], u = (x - SEATS[0]) / (SEATS[2] - SEATS[0]);
+  const t0 = after(t) ? (isAdmitSeat[q] >= 0 ? tRun + hsh(q, 7) * .5 : A_COPY + u * 1.7) : B_WORK + u * .9;
+  const d = t - (t0 + hsh(q, 77) * .12);
+  return d >= 0 && d < .22 ? 1 - d / .22 : 0;
+}
+function seats(t, rev) {
+  for (let q = 0; q < NC; q++) {
+    const p = clamp(rev * 1.6 - .5 - q / NC * .4); if (p <= 0) continue;
+    const [x, y] = seatPos[q], k = isAdmitSeat[q];
+    line(x - rS * 1.15, y + rS + 4, x + rS * 1.15, y + rS + 4, 2.2, 'rgba(23,20,15,.5)', 200 + q, { p, dry: 0, still: true });
+    let a = 1;
+    if (after(t) && k >= 0) {                                       // the pick's seat: its old resident leaves, the new one lands
+      const f = flights[k];
+      if (t >= f.t1 - .25) a = 1 - clamp((t - (f.t1 - .25)) / .2);
+      if (t >= f.t1) { ctx.save(); ctx.beginPath(); ctx.arc(x, y, rS + 3.5, 0, 6.283); ctx.lineWidth = 3; ctx.strokeStyle = AMBER; ctx.globalAlpha *= clamp((t - f.t1) / .2); ctx.stroke(); ctx.restore(); blot(x, y, rS, INK, 300 + q); }
+    }
+    if (a > 0 && !(after(t) && k >= 0 && t >= flights[k].t1)) { ctx.save(); ctx.globalAlpha *= a * p; blot(x, y, rS, INK, 300 + q); ctx.restore(); }
+    const fl = seatFlash(q, t);
+    if (fl > 0) { ctx.save(); ctx.globalAlpha *= fl; blot(x, y, rS * 1.25, AMBER, 400 + q, { spikes: 3, spk: .25 }); ctx.restore(); }
+  }
+}
+function layerNo(t) {
+  if (t < A_MONT) return 1;
+  if (t < A_FF) return 2 + Math.floor((t - A_MONT) / .547);
+  return Math.min(NLY, Math.round(lerp(6, NLY, io((t - A_FF) / (S_LANES - .05 - A_FF)))));
+}
+// The ring, drawn empty and quieter than the seats: the mean layer streams almost nothing; its count is a label.
+function ring(t) {
+  const rv = clamp((t - (S_AFTER + .35)) / .6); if (rv <= 0 || SL <= 0) return;
+  ctx.save();
+  ctx.globalAlpha *= clamp(rv * 2) * .8;
+  ctx.beginPath(); ctx.arc(RC[0], RC[1], RO, 0, 6.283); ctx.arc(RC[0], RC[1], RI, 0, 6.283, true); ctx.fillStyle = 'rgba(251,247,238,.85)'; ctx.fill('evenodd');
+  if (HALF <= 160) for (const h of [0, 1]) for (let j = 0; j <= HALF; j++) {   // slot walls, while they stay visible
+    const a = Math.PI / 2 + (h ? -1 : 1) * j / HALF * Math.PI;
+    ctx.beginPath(); ctx.moveTo(RC[0] + Math.cos(a) * RI, RC[1] + Math.sin(a) * RI); ctx.lineTo(RC[0] + Math.cos(a) * RO, RC[1] + Math.sin(a) * RO);
+    ctx.lineWidth = .8; ctx.strokeStyle = 'rgba(23,20,15,.25)'; ctx.stroke();
+  }
+  const ptsC = r => [...Array(65).keys()].map(k => [RC[0] + Math.cos(k / 64 * 6.283) * r, RC[1] + Math.sin(k / 64 * 6.283) * r]);
+  brush(ptsC(RO), 4, DGRAY, 80, { p: rv, dry: 0, flat: true, jit: .15 });
+  brush(ptsC(RI), 3, DGRAY, 81, { p: rv, dry: 0, flat: true, jit: .15 });
+  line(RC[0] - RO - 6, RC[1], RC[0] - RI + 6, RC[1], 3, DGRAY, 82, { p: rv, dry: 0 });      // the two halves' border
+  line(RC[0] + RI - 6, RC[1], RC[0] + RO + 6, RC[1], 3, DGRAY, 83, { p: rv, dry: 0 });
+  hand('ring', RC[0], RC[1] - 6, 42, INK, { font: 'Brush', align: 'center', seed: 84, reveal: (rv - .4) / .4 });
+  hand(`${SL} of ${NLY}`, RC[0], RC[1] + 28, 36, INK, { align: 'center', seed: 85, reveal: (rv - .5) / .4 });
+  hand('layers', RC[0], RC[1] + 60, 34, DGRAY, { align: 'center', seed: 86, reveal: (rv - .6) / .4 });
+  ctx.restore();
+}
+function pick(t) {
+  if (!after(t) || t >= A_MONT) return;
+  for (let k = 0; k < NA; k++) {
+    const f = flights[k], t0 = A_PICK + k / Math.max(1, NA) * 1.0;
+    if (t < t0 || t >= f.t0) continue;
+    const [x, y] = hostPos[k], r = rOfJobs(hostW[k]) + 5, u = out((t - t0) / .25);
+    ctx.beginPath(); ctx.arc(x, y, r * (1.6 - .6 * u), 0, 6.283); ctx.lineWidth = 3; ctx.strokeStyle = AMBER; ctx.globalAlpha = u; ctx.stroke(); ctx.globalAlpha = 1;
+  }
+}
+function flightXY(f, u) {
+  const [hx, hy] = hostPos[f.i], pb = [PIPE, HY0 + 4], pt = [PIPE, GY1 - 4], dst = seatPos[f.j];
+  const q = (a, b, c, v) => [(1 - v) * (1 - v) * a[0] + 2 * (1 - v) * v * b[0] + v * v * c[0], (1 - v) * (1 - v) * a[1] + 2 * (1 - v) * v * b[1] + v * v * c[1]];
+  if (u < .38) return q([hx, hy], [(hx + PIPE) / 2, Math.min(hy, HY0) - 10], pb, io(u / .38));
+  if (u < .6) return [PIPE, lerp(pb[1], pt[1], (u - .38) / .22)];
+  return q(pt, [(PIPE + dst[0]) / 2, Math.min(pt[1], dst[1]) - 40], dst, io((u - .6) / .4));
+}
+function flightsDraw(t) {
+  if (!after(t) || t >= A_MONT) return;
+  for (const f of flights) {
+    if (t < f.t0 || t >= f.t1) continue;
+    const u = (t - f.t0) / (f.t1 - f.t0), [x, y] = flightXY(f, u), r = lerp(rOfJobs(hostW[f.i]), rS, u);
+    const [x2, y2] = flightXY(f, Math.max(0, u - .08));
+    line(x2, y2, x, y, 3, AMBER, 900 + f.i, { dry: 0 });
+    blot(x, y, r, INK, 900 + f.i);
+    ctx.beginPath(); ctx.arc(x, y, r + 3, 0, 6.283); ctx.lineWidth = 2.5; ctx.strokeStyle = AMBER; ctx.stroke();
+  }
+}
+function montagePipe(t) {                                           // the pick's copies of layers 2.. as blobs in the pipe
+  if (t < A_MONT || t >= S_LANES) return;
+  const step = t < A_FF ? .547 : .07, t0 = t < A_FF ? A_MONT : A_FF, u = ((t - t0) % step) / step;
+  if (u > .6) return;
+  for (let k = 0; k < 4; k++) { const v = (u / .6 + k / 4) % 1; blot(PIPE, lerp(HY0 + 2, GY1 - 4, v), 5, AMBER, 960 + k); }
+}
+function promptStrip(t) {
+  if (t < B_PROMPT || t > B_ROUTE + .7) return;
+  const u = io((t - B_PROMPT) / .5), burst = clamp((t - B_ROUTE) / .5), x = lerp(1240, RC[0], u), y = 318;
+  ctx.save(); ctx.globalAlpha *= 1 - burst;
+  const w = 300 * (1 - .4 * burst), h = 120 * (1 - .4 * burst);
+  roughPoly([[x - w / 2, y - h / 2], [x + w / 2, y - h / 2 - 4], [x + w / 2 + 3, y + h / 2], [x - w / 2, y + h / 2 + 3]], CARD, 130, 2);
+  box(x - w / 2, y - h / 2, x + w / 2, y + h / 2, 131, 4);
+  for (let k = 0; k < 4; k++) line(x - w / 2 + 22, y - h / 2 + 28 + k * 22, x - w / 2 + 120 + hsh(k, 1) * (w - 150), y - h / 2 + 26 + k * 22, 3, GRAY, 132 + k, { dry: 0 });
+  const s = `${fmt(P)}-token prompt`;
+  hand(s, x, y - h / 2 - 16, 40, INK, { font: 'Brush', align: 'center', seed: 138, outline: CARD, ow: 7 });
+  ctx.restore();
+}
+function routing(t) {                                               // each speck: a token's job heading for an expert
+  if (t < B_ROUTE || t > B_ROUTE + 1.9) return;
+  const src = [RC[0], 318];
+  const go = (id, p, k) => {
+    const t0 = B_ROUTE + .02 + hsh(id, k, 9) * 1.0, u = (t - t0) / .45; if (u < 0 || u > 1) return;
+    const v = io(u), c = [(src[0] + p[0]) / 2, Math.min(src[1], p[1]) - 80];
+    const x = (1 - v) * (1 - v) * src[0] + 2 * (1 - v) * v * c[0] + v * v * p[0], y = (1 - v) * (1 - v) * src[1] + 2 * (1 - v) * v * c[1] + v * v * p[1];
+    ctx.beginPath(); ctx.arc(x, y, 3, 0, 6.283); ctx.fillStyle = HOT; ctx.fill();
+  };
+  for (let q = 0; q < NC; q++) go(q, seatPos[q], 1);
+  for (let i = 0; i < NH; i++) for (let k = 0; k < 1 + Math.min(2, Math.floor(hostW[i] / wmax * 3)); k++) go(i + 5000, hostPos[i], k + 2);
+}
+function tags(t) {
+  // what the copies did, beside where they landed; counts are means a layer at the timed prompt
+  if (after(t) && t < S_LANES) {
+    const a1 = NA > 0 ? clamp((t - flights[0].t1) / .3) : 0;
+    if (a1 > 0) { ctx.save(); ctx.globalAlpha *= a1; blot(200, 172, 8, AMBER, 991); hand(`+${fmt(NA)} seated · they stay`, 216, 186, 38, INK, { font: 'Brush', seed: 992 }); ctx.restore(); }
+  }
+  if (!after(t) && t > B_WAIT + .2) {
+    const s = 'waiting' + '.'.repeat(1 + Math.floor(t / .4) % 3);
+    ctx.save(); ctx.globalAlpha *= clamp((t - B_WAIT - .2) / .3);
+    hand(s, RC[0] - 90, RC[1] + 20, 64, PAPER, { font: 'Brush', seed: 994, outline: INK, ow: 9 });
+    ctx.restore();
+  }
+}
+function band(t) {                                                  // the numbers under the stage
+  ctx.save();
+  const a = clamp((t - (B_WORK + .1)) / .3) * (1 - clamp((t - (S_LANES + .2)) / .3));
+  if (a <= 0) { ctx.restore(); return; }
+  ctx.globalAlpha *= a;
+  const lab = 'CPU jobs a layer (token × expert)';
+  hand(lab, 70, 812, fitSize(lab, 38, 500, 'Brush'), DGRAY, { font: 'Brush', seed: 1001 });
+  const sw = clamp((t - (A_COPY + .3)) / .5);
+  if (!after(t) || sw <= 0) hand(fmt(HB), 70, 878, 72, INK, { font: 'Brush', seed: 1002 });
+  else {
+    const old = fmt(HB), size = lerp(72, 44, io(sw)), w = measure(old, size, 'Brush');
+    hand(old, 70, 878, size, lerp(0, 1, sw) > .5 ? GRAY : INK, { font: 'Brush', seed: 1002 });
+    line(64, 864, 64 + w * io(sw) + 6, 858, 5, HOT, 1003, { dry: 0 });
+    hand(fmt(HA), 70 + w + 26, 878, 72, HOT, { font: 'Brush', seed: 1004, reveal: (sw - .4) / .6 });
+  }
+  hand('the GPU', 640, 812, 38, DGRAY, { font: 'Brush', seed: 1005 });
+  const idle = !after(t) && t >= B_WAIT;
+  hand(idle ? 'waiting' : 'working', 640, 878, 68, idle ? GRAY : INK, { font: 'Brush', seed: 1006 + (idle ? 1 : 0) });
+  ctx.restore();
+}
+function stage(t) {
+  const rev = clamp((t - S_BEFORE) / 1.1);
+  rooms(t, rev);
+  seats(t, rev);
+  ring(t);
+  hostBlots(t, rev);
+  const cpuEnd = after(t) ? schedA.end : schedB.end;
+  const cs = t < (after(t) ? A_COPY : B_WORK) ? 'wait' : t < cpuEnd ? 'work' : 'done';
+  const mont = t >= A_MONT && ((t - (t < A_FF ? A_MONT : A_FF)) % (t < A_FF ? .547 : .07)) < (t < A_FF ? .2 : .035);   // each later layer's small rest
+  chip(t, rev, after(t) && t < A_COPY ? '' : t >= A_MONT ? (mont ? 'pulse' : '') : cs);
+  pick(t);
+  montagePipe(t);
+  flightsDraw(t);
+  promptStrip(t);
+  routing(t);
+  tags(t);
+  // the layer counter
+  const n = layerNo(t), s = `layer ${n} of ${NLY}`;
+  hand(s, 1012, 104, 40, INK, { font: 'Brush', align: 'right', seed: 1010 + (n > 1 ? 1 : 0), reveal: (rev - .5) / .4, still: n > 1 });
+  band(t);
+}
+
+// ---- act 3: one layer, side by side --------------------------------------------------------------------------------
+function lanes(t) {
+  const a = fadeIO(t, S_LANES + .35, S_RACE + .3, .4, .3); if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha *= a;
+  const LX = 232, LMAX = 750, tb = P / PPB / NLY, ta = P / PPA / NLY, tm = Math.max(tb, ta);
+  const LA = LMAX * tb / tm, LB = LMAX * ta / tm, c = (LMAX + 80) * clamp((t - (S_LANES + .8)) / 3.2);
+  hand(`one layer of the ${fmt(P)}-token prompt · time →`, 540, 184, fitSize(`one layer of the ${fmt(P)}-token prompt · time →`, 44, 940, 'Brush'), INK, { font: 'Brush', align: 'center', seed: 1100, reveal: write(t, S_LANES + .5, 'x'.repeat(40), 50) });
+  // schematic split inside each row, anchored to one rule: the CPU's time scales with its jobs, the front and back
+  // of a layer (attention, routing, the merge) take the same time in both rows
+  const fb = .24, bb = .05, front = Math.min(fb * LA, .38 * LB), back = Math.min(bb * LA, .07 * LB);
+  const cpuA = Math.min((1 - fb - bb) * LA * HA / HB, LB - front - back);
+  const rows = [
+    { name: D.before_label, col: DGRAY, y: 268, L: LA, segs: {
+      GPU: [[0, fb * LA, 'w'], [fb * LA, (fb + .09) * LA, 'w'], [(fb + .09) * LA, (1 - bb) * LA, 'idle'], [(1 - bb) * LA, LA, 'w']],
+      PCIe: [], CPU: [[0, fb * LA, 'idle'], [fb * LA, (1 - bb) * LA, 'c']] } },
+    { name: D.after_label, col: HOT, y: 536, L: LB, segs: {
+      GPU: [[0, front, 'w'], [front, LB - back, 'w'], [LB - back, LB, 'w']],
+      PCIe: [0, 1, 2, 3, 4].map(k => { const w0 = front + 4 + k * (LB - back - front) * .12, w1 = w0 + (LB - back - front) * .08; return [w0, w1, 'p']; }),
+      CPU: [[0, front, 'idle'], [front, front + cpuA, 'c']] } },
+  ];
+  rows.forEach((R, ri) => {
+    hand(R.name, 70, R.y - 12, fitSize(R.name, 54, 600, 'Brush'), R.col, { font: 'Brush', seed: 1110 + ri });
+    ['GPU', 'PCIe', 'CPU'].forEach((ln, li) => {
+      const y = R.y + 30 + li * 48;
+      hand(ln, LX - 18, y + 12, 36, INK, { align: 'right', seed: 1120 + ri * 3 + li });
+      for (const [s0, s1, kind] of R.segs[ln]) {
+        const e = Math.min(s1, c); if (e <= s0) continue;
+        if (kind === 'idle') { for (let x = s0; x < e - 4; x += 16) line(LX + x, y, LX + Math.min(x + 7, e), y, 3, GRAY, 1130 + x | 0, { dry: 0, still: true }); continue; }
+        const col = kind === 'c' ? BLUE : kind === 'p' ? HOT : INK;
+        brush([[LX + s0, y], [LX + e, y]], kind === 'p' ? 14 : 24, col, 1140 + ri * 40 + li * 10 + (s0 | 0) % 7, { dry: 0, flat: true, jit: .1 });
+      }
+    });
+    if (c >= R.L) {                                                  // the layer's end
+      const u = clamp((c - R.L) / 60);
+      line(LX + R.L + 8, R.y + 8, LX + R.L + 10, R.y + 140, 5, R.col, 1150 + ri, { p: u, dry: 0 });
+    }
+  });
+  // where the time goes
+  const u1 = clamp((c - (rows[0].segs.GPU[2][0] + 120)) / 80);
+  if (u1 > 0) { ctx.save(); ctx.globalAlpha *= u1; hand('the GPU waits', LX + (fb + .09) * LA + 90, 268 + 14, 38, DGRAY, { font: 'Brush', seed: 1160, outline: PAPER, ow: 7 }); ctx.restore(); }
+  const u2 = clamp((c - LB) / 60);
+  if (u2 > 0) {
+    ctx.save(); ctx.globalAlpha *= u2;
+    const x0 = LX + front, x1 = LX + LB - back;
+    ctx.fillStyle = 'rgba(242,184,59,.18)'; ctx.fillRect(x0, 536 + 8, x1 - x0, 140);
+    hand('at the same time', (x0 + x1) / 2, 536 + 182, fitSize('at the same time', 40, Math.max(240, x1 - x0 + 120), 'Brush'), INK, { font: 'Brush', align: 'center', seed: 1161 });
+    ctx.restore();
+  }
+  const u3 = clamp((t - (S_LANES + 4.0)) / .3);
+  if (u3 > 0) {
+    ctx.save(); ctx.globalAlpha *= u3;
+    const p1 = `${D.before_label}: the CPU sets the layer's pace`, p2 = `${D.after_label}: the GPU does`;
+    hand(p1, 70, 776, fitSize(p1, 44, 940, 'Brush'), BLUE, { font: 'Brush', seed: 1162, reveal: write(t, S_LANES + 4.0, 'x'.repeat(36), 60) });
+    hand(p2, 70, 828, fitSize(p2, 44, 940, 'Brush'), HOT, { font: 'Brush', seed: 1163, reveal: write(t, S_LANES + 4.25, 'x'.repeat(20), 60) });
+    ctx.restore();
+  }
+  footer(t, [`row length: measured prompt time ÷ ${NLY} · inside: schematic`, D.conditions], 1);
+  ctx.restore();
+}
+
+// ---- act 4: the prompt, raced by the three arms ---------------------------------------------------------------------
+function race(t) {
+  const a = fadeIO(t, S_RACE + .3, S_BARS + .3, .4, .3); if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha *= a;
+  const t0 = S_RACE + .85, budget = (S_BARS - .85) - t0;
+  const real = ARMS.map(A => P / A.pp4096), slow = Math.max(...real), f = slow > budget * 1.08 ? slow / budget : 1;   // near 1: real time, a little past the budget
+  const head = `a ${fmt(P)}-token prompt · ` + (f === 1 ? 'real time' : `played ${f.toFixed(1)}× faster than real`);
+  hand(head, 540, 182, fitSize(head, 46, 960, 'Brush'), INK, { font: 'Brush', align: 'center', seed: 1200, reveal: write(t, S_RACE + .4, head, 60) });
+  const el = Math.max(0, (t - t0) * f);
+  ARMS.forEach((A, k) => {
+    const y = 258 + k * 178, done = el >= real[k], sec = Math.min(el, real[k]);
+    const lw = hand(A.label, 70, y, fitSize(A.label, 46, 680, 'Brush'), A.col, { font: 'Brush', seed: 1210 + k });
+    hand(`${fmt(A.gb)} GB`, 70 + lw + 16, y, FLOOR, DGRAY, { seed: 1213 + k });
+    if (t >= t0) hand(sec.toFixed(1) + ' s' + (done ? ' ✓' : ''), 1010, y, 46, done ? A.col : INK, { font: 'Brush', align: 'right', seed: 1216 + k, still: true });
+    const x0 = 70, x1 = 1010, y0 = y + 14, y1 = y + 80, prog = clamp(el / real[k]);
+    roughPoly([[x0, y0], [x1, y0 - 3], [x1 + 2, y1], [x0 - 2, y1 + 2]], CARD, 1220 + k, 1.5);
+    ctx.save(); ctx.beginPath(); ctx.rect(x0, y0 - 4, (x1 - x0) * prog, y1 - y0 + 8); ctx.clip();
+    for (let j = -4; j < 72; j++) line(x0 + j * 14 + (hsh(j, k) - .5) * 5, y1 + 4, x0 + j * 14 + 40, y0 - 4, 7, A.fill, 1230 + k * 100 + j, { dry: 0, jit: .12 });
+    ctx.restore();
+    for (let x = x0 + 8; x < x1 - 4; x += 9) { ctx.fillStyle = 'rgba(23,20,15,.12)'; ctx.fillRect(x, y1 - 14, 1.2, 8); }   // tokens, as ticks
+    box(x0, y0, x1, y1, 1240 + k, 4);
+    if (done) {
+      const rv = (t - (t0 + real[k] / f)) * 4, nw = hand(`${fmt1(A.pp4096)} tok/s`, 70, y + 130, 52, A.col, { font: 'Brush', seed: 1250 + k, reveal: rv });
+      const cx = 70 + nw + 24;
+      wrap(A.caption, FLOOR, 1010 - cx).forEach((s, j) => hand(s, cx, y + 120 + j * 34, FLOOR, DGRAY, { seed: 1255 + k * 3 + j, reveal: rv - .3 }));
+    }
+  });
+  footer(t, [D.conditions], 1);
+  ctx.restore();
+}
+
+// ---- act 5: the numbers, grouped -------------------------------------------------------------------------------------
+function bars(t) {
+  const a = fadeIO(t, S_BARS + .25, S_EXTRA + .3, .35, .3); if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha *= a;
+  hand('tok/s · higher is faster', 540, 176, 44, INK, { font: 'Brush', align: 'center', seed: 1300 });
+  ARMS.forEach((A, k) => {                                           // the legend
+    const y = 230 + k * 40;
+    blot(86, y - 11, 10, A.fill, 1301 + k);
+    hand(`${A.label} · ${fmt(A.gb)} GB`, 108, y, FLOOR, A.col, { seed: 1304 + k });
+  });
+  const groups = [['prompt', '512 tokens', 'pp512'], ['prompt', `${fmt(P)} tokens`, 'pp4096'], ['decode', 'after the prompt', 'decode']];
+  const base = 630, hmax = 250, bw = 78, gap = 14;
+  groups.forEach(([t1, t2, key], g) => {                             // each group's bars scale to its own largest arm
+    const gx = 70 + g * 320, mx = Math.max(...ARMS.map(A => A[key])), xs = gx + (300 - (3 * bw + 2 * gap)) / 2;
+    line(gx, base + 2, gx + 300, base + 3, 4, INK, 1310 + g, { p: out((t - S_BARS - .4) / .4), dry: 0 });
+    hand(t1, gx + 150, base + 44, 40, INK, { font: 'Brush', align: 'center', seed: 1313 + g });
+    hand(t2, gx + 150, base + 80, FLOOR, DGRAY, { align: 'center', seed: 1316 + g });
+    ARMS.forEach((A, k) => {
+      const v = A[key], u = out((t - (S_BARS + .55 + g * .3 + k * .1)) / .6), h = hmax * v / mx * u, x0 = xs + k * (bw + gap);
+      if (u <= 0) return;
+      ctx.save(); ctx.beginPath(); ctx.rect(x0, base - h, bw, h); ctx.clip();
+      for (let j = -20; j < 30; j++) line(x0 - 4, base - j * 13, x0 + bw + 4, base - j * 13 - 40, 6, A.fill, 1330 + g * 90 + k * 30 + j, { dry: 0, jit: .12 });
+      ctx.restore();
+      brush([[x0, base], [x0, base - h], [x0 + bw, base - h], [x0 + bw, base]], 4, INK, 1360 + g * 3 + k, { dry: 0, flat: true, jit: .2 });
+      if (u > .85) { const s = fmt1(v); hand(s, x0 + bw / 2, base - h - 12, fitSize(s, 40, bw + gap, 'Brush'), A.col, { font: 'Brush', align: 'center', seed: 1370 + g * 3 + k }); }
+    });
+  });
+  const ga = clamp((t - (S_BARS + 2.0)) / .35);
+  if (ga > 0) {
+    ctx.save(); ctx.globalAlpha *= ga;
+    const g = (DA / DB - 1) * 100, s1 = `same file: ${fmt(P)}-token prompts ${RATIO.toFixed(2)}× · answers ${g >= 0 ? '+' : '−'}${Math.abs(Math.round(g))}%${tagged()}`;
+    hand(s1, 70, 782, fitSize(s1, 48, 940, 'Brush'), HOT, { font: 'Brush', seed: 1380, reveal: write(t, S_BARS + 2.0, s1, 50) });
+    wrap(`${D.after_label} against ${D.before_label}`, FLOOR, 940).forEach((s, k) => hand(s, 70, 820 + k * 36, FLOOR, DGRAY, { seed: 1381 + k }));
+    const ns = fitSize(D.decode_note, 38, 940, 'Brush'), note = wrap(D.decode_note, ns, 940, 'Brush'), rv = writeLines(t, S_BARS + 2.6, note, 55);   // one line down to the floor, then wrap
+    note.forEach((s, k) => hand(s, 70, 864 + k * 42, ns, INK, { font: 'Brush', seed: 1384 + k, reveal: rv[k] }));
+    ctx.restore();
+  }
+  footer(t, [D.decode_conditions, D.conditions], 1);
+  ctx.restore();
+}
+
+// ---- act 6: two more lines -----------------------------------------------------------------------------------------
+function extras(t) {
+  const a = fadeIO(t, S_EXTRA + .25, S_END + .4, .35, .3); if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha *= a;
+  const sides = [D.side1, D.side2].filter(s => s);
+  sides.forEach((s, k) => {
+    const y0 = sides.length === 1 ? 380 : 230 + k * 300, u = out((t - (S_EXTRA + .5 + k * .7)) / .5); if (u <= 0) return;
+    const x = lerp(-300, 0, u);
+    ctx.save(); ctx.translate(x, 0);
+    roughPoly([[70, y0], [1010, y0 - 4], [1012, y0 + 220], [68, y0 + 224]], CARD, 1400 + k, 2);
+    box(70, y0, 1010, y0 + 222, 1405 + k, 4);
+    blot(140, y0 + 110, 34, k ? BLUE : HOT, 1410 + k, { spikes: 5, spk: .5 });
+    blot(140, y0 + 110, 13, AMBER, 1412 + k);
+    const ls = wrap(s, 50, 780, 'Brush');
+    const top = y0 + 112 - (ls.length - 1) * 30 + 16;
+    const rv = writeLines(t, S_EXTRA + .7 + k * .7, ls, 55);
+    ls.forEach((l, j) => hand(l, 210, top + j * 60, 50, INK, { font: 'Brush', seed: 1420 + k * 5 + j, reveal: rv[j] }));
+    ctx.restore();
+  });
+  ctx.restore();
+}
+
+// ---- act 7: the end card ------------------------------------------------------------------------------------------
+function finale(t) {
+  if (t < S_END) return;
+  const u = clamp((t - S_END) / .55);
+  for (let k = 0; k < 26; k++) {
+    const ang = k / 26 * 6.283 + hsh(k, 3) * .2, l = 900 * out(u * 1.2 - hsh(k, 4) * .25);
+    if (l > 5) brush([[540, 540], [540 + Math.cos(ang) * l, 540 + Math.sin(ang) * l]], 150 + hsh(k, 5) * 120, INK, 900 + k, { dry: .5 });
+  }
+  blot(540, 540, 170 * out(u * 1.5), INK, 950, { spikes: 12, spk: 1.2 });
+  const f = clamp((t - S_END - .45) / .25);
+  if (f > 0) { ctx.save(); ctx.globalAlpha = f; ctx.fillStyle = INK; ctx.fillRect(0, 0, W, H); ctx.restore(); }
+  const t0 = S_END + .6, name = `bloomery ${D.version}`;
+  hand(name, 540, 340, 120, PAPER, { font: 'Brush', align: 'center', reveal: write(t, t0, name, 28), seed: 960 });
+  line(250, 370, 830, 364, 9, HOT, 962, { p: clamp((t - t0 - .5) / .4), gap: INK });
+  const g = Math.round((DA / DB - 1) * 100);
+  const s1 = `prompts ${RATIO.toFixed(2)}× · answers ${g >= 0 ? '+' : '−'}${Math.abs(g)}%${tagged()}`;
+  hand(s1, 540, 466, fitSize(s1, 62, 920, 'Brush'), LIGHT, { font: 'Brush', align: 'center', reveal: write(t, t0 + .7, s1, 40), seed: 963 });
+  const s2 = [...wrap(`${D.after_label} against ${D.before_label}`, 38, 940), `same file, ${fmt(P)}-token prompt`];
+  s2.forEach((s, k) => hand(s, 540, 516 + k * 40, 38, DIMP, { align: 'center', reveal: write(t, t0 + 1.1 + k * .3, s, 50), seed: 964 + k }));
+  const A3 = ARMS[2], l3 = [A3.label, ...wrap(A3.caption, 42, 940, 'Brush')], r3 = writeLines(t, t0 + 1.6, l3, 60), y3 = 516 + s2.length * 40 + 48;
+  l3.forEach((s, k) => hand(s, 540, y3 + k * 48, 42, LBLUE, { font: 'Brush', align: 'center', reveal: r3[k], seed: 966 + k }));
+  const lines = [D.conditions, D.decode_conditions, D.method_line].filter(Boolean).flatMap(s => wrap(s, FLOOR, 980, 'Hand')), yc = y3 + l3.length * 48 + 30;
+  lines.forEach((s, k) => hand(s, 540, yc + k * 38, FLOOR, DIMP, { align: 'center', reveal: write(t, t0 + 2.0, 'x'.repeat(30), 60), seed: 970 + k }));
+  hand(D.repo, 540, Math.max(900, yc + lines.length * 38 + 40), 48, AMBER, { align: 'center', reveal: write(t, t0 + 2.3, 'x'.repeat(30), 60), seed: 975 });
+}
+
+// ---- scene ----------------------------------------------------------------------------------------------------
+function scene(t) {
+  BF = Math.floor((t * 60 + .5) / 5);                 // 12 boils a second, changing between frames, never inside one
+  ctx.globalAlpha = 1; ctx.drawImage(bg, 0, 0);
+  if (D.fault) { hand('data.json: ' + D.fault, 540, 540, 36, STAMP, { align: 'center', still: true }); frame(); return; }
+  title(t);
+  if (t >= 2.9 && t < S_BEFORE + .4) wipe(t, 2.9);            // the title goes under paper, then the stage draws in
+  if (t >= S_BEFORE - .1 && t < S_LANES + .8) stage(t);
+  if (t >= S_AFTER && t < S_AFTER + .6) rewindFX(t, S_AFTER, S_AFTER + .6);
+  if (t >= S_LANES) { wipe(t, S_LANES); lanes(t); }
+  if (t >= S_RACE) { wipe(t, S_RACE); race(t); }
+  if (t >= S_BARS) { wipe(t, S_BARS); bars(t); }
+  if (t >= S_EXTRA) { wipe(t, S_EXTRA); extras(t); }
+  caption(t, D.before_label, S_BEFORE + .3, S_AFTER - .05, 119);
+  caption(t, `${D.after_label} · the prompt path`, S_AFTER + .15, S_LANES + .1, 120);
+  caption(t, 'one layer, side by side', S_LANES + .35, S_RACE + .1, 121);
+  caption(t, 'the prompt', S_RACE + .35, S_BARS + .1, 122);
+  caption(t, 'the numbers', S_BARS + .3, S_EXTRA + .1, 123);
+  caption(t, `also in ${D.version}`, S_EXTRA + .3, S_END + .2, 124);
+  const SUBS = [
+    [S_BEFORE + .6, B_PROMPT - .05, 'one layer: some experts on the GPU, the rest in host RAM'],
+    [B_PROMPT, B_WORK - .1, `every token picks ${K} of ${NE} experts, in each of ${NLY} layers`],
+    [B_WORK, B_WAIT + .9, 'jobs for experts in host RAM go to the CPU'],
+    [B_WAIT + 1.0, S_AFTER - .05, 'the GPU finishes its share first, then waits'],
+    [S_AFTER + .4, A_COPY - .05, 'first it picks the host experts with the most jobs'],
+    [A_COPY, tRun - .1, 'copies them into GPU seats; the CPU keeps the small rest'],
+    [tRun, A_MONT - .05, 'once they land, the GPU runs them'],
+    [A_MONT, S_LANES - .05, SL > 0 ? `each layer picks its own; the ring adds ${fmt(NS)} more in ${SL} of ${NLY}` : 'each layer picks its own'],
+  ];
+  for (const [a0, a1, s, col] of SUBS) if (a1 > a0) subtitle(t, s, a0, a1, col);
+  const fa = clamp((t - (S_BEFORE + 1.2)) / .4) * (1 - clamp((t - (S_LANES + .1)) / .3));
+  if (fa > 0) footer(t, [`means a layer of a ${fmt(P)}-token prompt, ${ARMS[1].file} · ${D.conditions}`], fa);
+  finale(t);
+  frame();
+  stamp();
+}
+function rewindFX(t, t0, t1) {
+  const a = fadeIO(t, t0, t1, .12, .25); if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha = a * .16; ctx.fillStyle = INK; ctx.fillRect(0, 0, W, H); ctx.restore();
+  ctx.save(); ctx.globalAlpha = a;
+  for (let k = 0; k < 12; k++) { const y = ((hsh(k, BF, 1) * H) | 0), x0 = hsh(k, BF, 2) * 400; brush([[x0, y], [x0 + 300 + hsh(k, BF, 3) * 500, y + 2]], 3, PAPER, 1400 + k + BF, { dry: 0 }); }
+  const cx = 820, cy = 330;
+  for (const dx of [-60, 30]) brush([[cx + dx + 70, cy - 60], [cx + dx, cy], [cx + dx + 70, cy + 60], [cx + dx + 70, cy - 60]], 16, INK, 1450 + dx, { dry: .5, flat: true });
+  hand('same layer, again', cx, cy + 98, 54, INK, { font: 'Brush', align: 'center', seed: 1460, outline: PAPER, ow: 10 });
+  ctx.restore();
+}
+
+window.seek = t => scene(t);
+(async () => {
+  const src = new URLSearchParams(location.search).get('data') || 'data.json';
+  D = await (await fetch(src, { cache: 'no-store' })).json();
+  await Promise.all([document.fonts.load('40px Brush'), document.fonts.load('40px Hand')]);
+  try { build(); } catch (e) { D = { fault: e.message, placeholder: true }; window.fault = e.message; }
+  window.seek(0); window.ready = true;
+})();
+</script>
+</body></html>
