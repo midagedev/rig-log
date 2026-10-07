@@ -4,6 +4,11 @@
 #   tools/fetch-gguf.sh unsloth/Qwen3.6-35B-A3B-GGUF Qwen3.6-35B-A3B-UD-Q6_K.gguf
 #   N=12 DEST=/models/my-dir tools/fetch-gguf.sh <repo> shard-1.gguf shard-2.gguf
 #   KEEP_TREE=1 DEST=/models/Z-Image-Turbo tools/fetch-gguf.sh <repo> transformer/config.json …
+#   REV=d7f376ea88c05e7bb1014dd5351a93df9dd8029e tools/fetch-gguf.sh <repo> <file>
+#
+# REV pins a commit instead of main (both the size lookup and the bytes). Needed 2026-10-07:
+# bartowski re-uploaded Cloudflare_clef-flash-GGUF in llama.cpp's `clef` layout on 10-05 and
+# bloomery 0.2.6 reads only the earlier `qwen35` files, which live on in the history.
 #
 # KEEP_TREE writes each file at its repo-relative path instead of flattening to DEST.
 # Default stays flat because that is what a GGUF loader wants — shards from a
@@ -28,7 +33,8 @@ set -u
 REPO=${1:?usage: fetch-gguf.sh <repo> <file>...}; shift
 DEST=${DEST:-/models/$(basename "$REPO" | sed 's/-GGUF$//')}
 N=${N:-8}
-API=https://huggingface.co/api/models/$REPO/tree/main
+REV=${REV:-main}
+API=https://huggingface.co/api/models/$REPO/tree/$REV
 mkdir -p "$DEST"
 say(){ echo "$(date +%H:%M:%S) $*"; }
 
@@ -96,7 +102,7 @@ else: print(0)" "$FILE")
   if [ -f "$DST" ] && [ "$(stat -c%s "$DST")" = "$TOTAL" ]; then
     say "$FILE: already here, $TOTAL bytes"; continue
   fi
-  URL=https://huggingface.co/$REPO/resolve/main/$FILE
+  URL=https://huggingface.co/$REPO/resolve/$REV/$FILE
   WORK=$DEST/.fetch/$(printf %s "$FILE" | tr / _)
   mkdir -p "$WORK"; : > "$WORK/pids"
   CHUNK=$(( (TOTAL + N - 1) / N ))
