@@ -42,6 +42,7 @@ import hmac
 import json
 import math
 import os
+import pwd
 import re
 import shlex
 import shutil
@@ -479,7 +480,8 @@ def unit_of(jid):
 
 
 # The daemon's own environment a job unit inherits (a transient unit starts with systemd's
-# bare PATH); a job's env overrides these.
+# bare PATH and no HOME); a job's env overrides these. HOME is the daemon user's home from
+# passwd: a system service has none in its environment, and ~/ paths in a job need it.
 PASS_ENV = ("LANG", "USER")
 
 # Signal names as systemd prints them in $EXIT_STATUS, with their Linux numbers.
@@ -620,7 +622,8 @@ class UnitRunner:
             else ["-p", "TimeoutStopSec=%d" % STOP_S]
         if bound_s:
             argv += ["-p", "RuntimeMaxSec=%d" % bound_s]
-        merged = {k: os.environ[k] for k in PASS_ENV if k in os.environ}
+        merged = {"HOME": pwd.getpwuid(os.getuid()).pw_dir}
+        merged.update({k: os.environ[k] for k in PASS_ENV if k in os.environ})
         merged.update(env)
         for name, value in merged.items():
             argv += ["--setenv", "%s=%s" % (name, value)]
@@ -677,7 +680,7 @@ def iso(dt):
 def log_files(jobdir):
     """A job's log files in reading order: the merged log of jobs made before stdout and
     stderr were split, then stdout, then stderr."""
-    return [os.path.join(jobdir, n) for n in ("log", "out", "err")]
+    return [os.path.join(jobdir, n) for n in ("log", "argv", "out", "err")]
 
 
 def read_tail(path, nbytes=None):
@@ -1097,7 +1100,8 @@ class Scheduler:
         extra_env["SIGNALBOX_CARD"] = card
         job.update(out=os.path.join(jobdir, "out"), err=os.path.join(jobdir, "err"),
                    rc_file=os.path.join(jobdir, "rc"))
-        with open(job["out"], "ab") as f:
+        # the command line goes beside the job's output, never into it: out is the job's stdout only
+        with open(os.path.join(jobdir, "argv"), "ab") as f:
             f.write(("[%s] argv: %s\n" % (iso(self.now()), " ".join(cmd))).encode())
         try:
             handle = self.runner.launch(job["id"], cmd, extra_env, jobdir,

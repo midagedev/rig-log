@@ -4,6 +4,7 @@ Run: python3 test_scheduler.py"""
 import configparser
 import json
 import os
+import pwd
 import shlex
 import signal
 import subprocess
@@ -606,7 +607,7 @@ want = ["systemd-run", "--unit", "sb-s1", "--collect", "--quiet",
         "-p", "StandardOutput=append:%s/out" % jd, "-p", "StandardError=append:%s/err" % jd,
         "-p", "WorkingDirectory=%s" % jd, "-p", "ExecStopPost=/bin/sh %s/post.sh" % jd,
         "-p", "TimeoutStopSec=30",
-        "--setenv", "A=1", "--setenv", "B=x y",
+        "--setenv", "HOME=" + pwd.getpwuid(os.getuid()).pw_dir, "--setenv", "A=1", "--setenv", "B=x y",
         "--setenv", "SIGNALBOX_CARD=a6000",     # the resolved lane, after the job's own env
         "/bin/bash", "%s/cmd.sh" % jd]
 check("runner: a started job went through the runner, one systemd-run", fk.systemd_runs() == [want],
@@ -954,10 +955,10 @@ try:
 finally:
     del os.environ["NOTIFY_SOCKET"]
 out_txt, err_txt = open(lg["out"]).read(), open(lg["err"]).read()
-out_body = out_txt.split("\n", 1)[1]
-check("logs: stdout goes to out (after the argv header), stderr to err, neither in the other",
-      out_txt.startswith("[") and "] argv: " in out_txt.split("\n", 1)[0]
-      and out_body == "to-out\n[][m1]\n" and err_txt == "to-err\n", (out_txt, err_txt))
+argv_txt = open(os.path.join(os.path.dirname(lg["out"]), "argv")).read()
+check("logs: out is the job's stdout alone, err its stderr; the argv header is in <jobdir>/argv",
+      out_txt == "to-out\n[][m1]\n" and err_txt == "to-err\n"
+      and argv_txt.startswith("[") and "] argv: " in argv_txt, (out_txt, err_txt, argv_txt))
 check("logs: a job gets its env and not the daemon's NOTIFY_SOCKET", "[][m1]" in out_txt, out_txt)
 check("logs: the rc file holds the rc of an ended job (PopenRunner too)",
       lg["status"] == "done" and open(lg["rc_file"]).read() == "0", (lg["status"], lg["rc_file"]))
