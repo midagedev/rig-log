@@ -24,11 +24,12 @@ for _k in D.PASS_ENV:
 
 
 class FakeProbes(D.Probes):
-    def __init__(self, lease=None, locks=(), holds=(), vram=None):
+    def __init__(self, lease=None, locks=(), holds=(), vram=None, hold_ages=None):
         super().__init__(gpu_order="/nonexistent", lease="/nonexistent",
                          lock_glob="/nonexistent/*", hold_glob="/nonexistent/*")
         self.lease_state, self.lock_state = lease, dict(locks)
         self.hold_state, self.vram_state = list(holds), dict(vram or {})
+        self.hold_age_state = dict(hold_ages or {})   # hold file name -> seconds since written
 
     def uuids(self):
         return {"a6000": "GPU-fake-a6000", "3090": "GPU-fake-3090"}
@@ -58,6 +59,9 @@ class FakeProbes(D.Probes):
 
     def bloomery_holds(self):
         return list(self.hold_state)
+
+    def hold_age_s(self, path):
+        return self.hold_age_state.get(os.path.basename(path))
 
 
 class FakeUnitRunner(D.UnitRunner):
@@ -122,13 +126,13 @@ class FakeUnitRunner(D.UnitRunner):
 
 
 def make_sched(lease=None, locks=(), holds=(), vram=None, windows=(), now=None,
-               fake=True, cooldown=0, runner=None, home=None):
+               fake=True, cooldown=0, runner=None, home=None, hold_ages=None):
     tmp = home or tempfile.mkdtemp(prefix="signalbox-test-")
     res_path = os.path.join(tmp, "reservations.json")
     with open(res_path, "w") as f:
         json.dump({"windows": list(windows), "cache_cooldown_s": cooldown}, f)
     clock = {"now": now or datetime(2026, 10, 3, 15, 0, 0)}
-    s = D.Scheduler(probes=FakeProbes(lease, locks, holds, vram), home=tmp,
+    s = D.Scheduler(probes=FakeProbes(lease, locks, holds, vram, hold_ages), home=tmp,
                     reservations=D.Reservations(res_path), fake=fake,
                     now_fn=lambda: clock["now"], runner=runner)
     return s, clock
@@ -602,7 +606,9 @@ want = ["systemd-run", "--unit", "sb-s1", "--collect", "--quiet",
         "-p", "StandardOutput=append:%s/out" % jd, "-p", "StandardError=append:%s/err" % jd,
         "-p", "WorkingDirectory=%s" % jd, "-p", "ExecStopPost=/bin/sh %s/post.sh" % jd,
         "-p", "TimeoutStopSec=30",
-        "--setenv", "A=1", "--setenv", "B=x y", "/bin/bash", "%s/cmd.sh" % jd]
+        "--setenv", "A=1", "--setenv", "B=x y",
+        "--setenv", "SIGNALBOX_CARD=a6000",     # the resolved lane, after the job's own env
+        "/bin/bash", "%s/cmd.sh" % jd]
 check("runner: a started job went through the runner, one systemd-run", fk.systemd_runs() == [want],
       fk.systemd_runs())
 print("     command job argv:", " ".join(shlex.quote(a) for a in fk.systemd_runs()[0]))
@@ -650,6 +656,14 @@ for k, v in _saved.items():
         os.environ[k] = v
 check("argv: the daemon's LANG and USER reach the unit, and the job's env overrides them",
       "LANG=C.UTF-8" in _pa and "USER=job" in _pa and "USER=root" not in _pa, _pa)
+_s, _ = make_sched()
+_refused = []
+for _c in ("both", "none", "any"):
+    try:
+        _s.submit({"kind": "comfy-session", "name": "cw-" + _c, "owner": "t", "card": _c, "env": {"MINUTES": "5"}})
+    except ValueError as e:
+        _refused.append(_c if "one card" in str(e) else "?")
+check("comfy: a comfy window on both, none or any is refused by name", _refused == ["both", "none", "any"], _refused)
 check("argv: no RuntimeMaxSec unless the job carries bound_s",
       not any("RuntimeMaxSec" in a for c in fk.systemd_runs() for a in c))
 
@@ -1097,6 +1111,560 @@ check("service: it says jobs are transient units re-adopted by unit and rc file,
       "transient unit" in unit_text and "rc file" in unit_text and "by pid" not in unit_text)
 check("service: configs/signalbox.service is the only copy of the unit in the repo",
       not os.path.exists(os.path.join(here, "signalbox.service")))
+
+# ---------------------------------------------------------------- S2a: classes, lanes, sitting, media, eta
+def new_sched(**kw):
+    fk = FakeUnitRunner()
+    s, clock = make_sched(runner=fk, **kw)
+    return s, clock, fk
+
+
+def why(j):
+    return j["wait_reason"] or ""
+
+
+def later(clock, seconds):
+    clock["now"] += D.timedelta(seconds=seconds)
+
+
+NEW_CLASSES = ("media", "sitting", "lead", "round", "fill")
+
+# -- 1. classes and priority
+s, _, fk = new_sched()
+got = {c: unit_job(s, "c-" + c, job_class=c)["priority"] for c in NEW_CLASSES}
+check("class: media, sitting, lead, round and fill set the priority 950, 900, 700, 400 and -500",
+      got == {"media": 950, "sitting": 900, "lead": 700, "round": 400, "fill": -500}, got)
+kept = {c: unit_job(s, "k-" + c, job_class=c, priority=7)["priority"] for c in ("normal", "host", "solo")}
+plain, clamped = unit_job(s, "plain"), unit_job(s, "clamped", priority=5000)
+check("class: normal, host and solo keep the body's priority (default 0, clamped to 1000)",
+      kept == {"normal": 7, "host": 7, "solo": 7} and plain["job_class"] == "normal"
+      and (plain["priority"], clamped["priority"]) == (0, 1000), (kept, plain["priority"], clamped["priority"]))
+mk = unit_job(s, "mk", kind="media-take", script="img", job_class="round")
+ck = unit_job(s, "ck", kind="comfy-session", job_class="fill", card="3090")
+pk = unit_job(s, "pk", kind="media-take", script="img", priority=-9)
+check("class: media-take and comfy-session are always class media at 950, whatever the body says",
+      all((j["job_class"], j["priority"]) == ("media", 950) for j in (mk, ck, pk)),
+      [(j["job_class"], j["priority"]) for j in (mk, ck, pk)])
+bad = []
+for c in NEW_CLASSES:
+    for pr in (0, 5):
+        try:
+            unit_job(s, "cp-%s-%d" % (c, pr), job_class=c, priority=pr)
+            bad.append((c, pr, "accepted"))
+        except ValueError as e:
+            if not (c in str(e) and '"priority"' in str(e)):
+                bad.append((c, pr, str(e)))
+check("class: a body that names one of the five classes and carries priority is refused, by name",
+      not bad, bad)
+refused_other = []
+for v in ("vip", None, 5):
+    try:
+        unit_job(s, "vip", job_class=v)
+        refused_other.append(v)
+    except ValueError:
+        pass
+check("class: an unknown or null job_class is still refused", not refused_other, refused_other)
+lead_job = unit_job(s, "leadjob", job_class="lead")
+try:
+    s.set_priority(lead_job["id"], 5)
+    set_ok = True
+except ValueError as e:
+    set_ok = False
+check("class: /priority is refused on a job whose class sets it, and the priority is unchanged",
+      not set_ok and lead_job["priority"] == 700, lead_job["priority"])
+
+# -- 2. lanes: both and none
+s, clock, fk = new_sched()
+a = unit_job(s, "a", card="a6000", job_class="round", expected_s=600)
+s.tick()
+b = unit_job(s, "b", card="both", job_class="lead")
+s.tick()
+check("lanes: a both job waits while one lane is busy",
+      b["status"] == "queued" and why(b) == "lanes busy", (b["status"], why(b)))
+fk.finish(a, 0)
+s.tick()
+check("lanes: a both job starts when both lanes are free, holds both, resolves to both",
+      b["status"] == "running" and b["resolved_card"] == "both"
+      and s.lane_busy("a6000") and s.lane_busy("3090"), (b["status"], b["resolved_card"]))
+c1 = unit_job(s, "c1", card="a6000")
+c2 = unit_job(s, "c2", card="3090")
+c3 = unit_job(s, "c3", card="any")
+s.tick()
+check("lanes: a running both job keeps a job on either card, and an any job, waiting",
+      [j["status"] for j in (c1, c2, c3)] == ["queued"] * 3, [j["status"] for j in (c1, c2, c3)])
+for lock_name, card_name in (("bloomery-gate-a6000.lock", "a6000"), ("bloomery-gate.lock", "3090")):
+    s, _, fk = new_sched(fake=False, locks={lock_name: "held"})
+    b = unit_job(s, "b", card="both", job_class="lead")
+    s.tick()
+    check("lanes: a both job needs %s's reasons empty too (%s held)" % (card_name, lock_name),
+          b["status"] == "queued" and lock_name in why(b), (b["status"], why(b)))
+s, _, fk = new_sched(fake=False, locks={"bloomery-gate-a6000.lock": "held"},
+                     vram={"a6000": 24000})
+busy_a = unit_job(s, "busy", card="3090", job_class="round", expected_s=600)
+host = unit_job(s, "host", card="none", job_class="round")
+s.tick()
+t3090 = unit_job(s, "t3090", card="3090")
+s.tick()
+check("lanes: a none job runs beside a busy lane and past a card's lock and VRAM, holding no lane",
+      host["status"] == "running" and host["resolved_card"] == "none"
+      and not s.lane_busy("a6000") and s.lane_busy("3090")
+      and busy_a["status"] == "running" and t3090["status"] == "queued", (host["status"], why(host)))
+s, _, fk = new_sched(fake=False, holds=["bloomery-03-hold"], hold_ages={"bloomery-03-hold": 12})
+host = unit_job(s, "host", card="none", job_class="lead")
+s.tick()
+check("lanes: a none job waits on a bloomery hold",
+      host["status"] == "queued" and "bloomery-03-hold" in why(host), (host["status"], why(host)))
+s, _, fk = new_sched(fake=False, lease={"tag": "ltx-x", "pid": os.getpid()})
+host = unit_job(s, "host", card="none", job_class="lead")
+s.tick()
+check("lanes: a none job waits on the gpu-lease (timing)",
+      host["status"] == "queued" and "gpu-lease" in why(host), (host["status"], why(host)))
+
+# -- 3. sitting: solo semantics and the drain barrier
+s, clock, fk = new_sched()
+a = unit_job(s, "a", card="a6000", job_class="round", expected_s=300)
+b = unit_job(s, "b", card="3090", job_class="round", expected_s=300)
+s.tick()
+sit = unit_job(s, "sit", card="both", job_class="sitting", expected_s=900)
+r = unit_job(s, "r", card="a6000", job_class="round")
+n = unit_job(s, "n", card="none", job_class="fill")
+s.tick()
+check("sitting: a queued sitting starts only on an empty box",
+      sit["status"] == "queued" and "empty box" in why(sit), (sit["status"], why(sit)))
+check("sitting: while it is queued a later round and a none job of lower priority are not admitted",
+      r["status"] == "queued" and "sitting sit" in why(r)
+      and n["status"] == "queued" and "sitting sit" in why(n), (why(r), why(n)))
+fk.finish(a, 0)
+s.tick()
+check("sitting: ...even on a lane that has drained, while one job still runs",
+      sit["status"] == "queued" and r["status"] == "queued" and b["status"] == "running",
+      (sit["status"], r["status"]))
+fk.finish(b, 0)
+s.tick()
+check("sitting: it starts on the empty box; the round and a none job wait for it, it is solo",
+      sit["status"] == "running" and r["status"] == "queued" and "a sitting job owns the box" in why(r)
+      and n["status"] == "queued", (sit["status"], r["status"], why(r), n["status"]))
+fk.finish(sit, 0)
+s.tick()
+check("sitting: the round starts once the sitting has run", r["status"] == "running", r["status"])
+s, clock, fk = new_sched()
+a = unit_job(s, "a", card="a6000", job_class="round", expected_s=300)
+b = unit_job(s, "b", card="3090", job_class="round", expected_s=300)
+s.tick()
+sit = unit_job(s, "sit", card="both", job_class="sitting", expected_s=900)
+m = unit_job(s, "m", kind="media-take", script="img")
+fk.finish(a, 0)
+s.tick()
+check("sitting: a queued sitting does not hold media, which has the higher priority",
+      m["status"] == "running" and sit["status"] == "queued", (m["status"], sit["status"]))
+
+# -- 4. media: ahead of the queue, never preempting, holding its card
+s, clock, fk = new_sched()
+x = unit_job(s, "x", job_class="round", card="a6000", expected_s=600)
+s.tick()
+lead = unit_job(s, "lead", job_class="lead", card="a6000")
+m = unit_job(s, "m", kind="media-take", script="img")
+s.tick()
+fk.finish(x, 0)
+s.tick()
+check("media: started at 950 ahead of a queued lead at 700 on the a6000",
+      m["status"] == "running" and lead["status"] == "queued", (m["status"], lead["status"]))
+s, clock, fk = new_sched()
+x = unit_job(s, "x", job_class="round", card="a6000", expected_s=600)
+s.tick()
+m = unit_job(s, "m", kind="media-take", script="img")
+s.tick()
+s.tick()
+check("media: a running round is not preempted by a queued media job, nothing is stopped",
+      x["status"] == "running" and m["status"] == "queued" and why(m) == "lanes busy"
+      and not any(c[:2] == ["systemctl", "stop"] for c in fk.calls), (x["status"], m["status"], why(m)))
+s, clock, fk = new_sched(fake=False, vram={"a6000": 24000})
+m = unit_job(s, "m", kind="media-take", script="img")
+lead = unit_job(s, "lead", job_class="lead", card="a6000")
+s.tick()
+check("media: with media queued on the a6000 (blocked by VRAM) a lead there waits for it, by name",
+      m["status"] == "queued" and "above" in why(m) and lead["status"] == "queued"
+      and "media job m is queued for a6000" in why(lead), (why(m), why(lead)))
+s, clock, fk = new_sched(windows=[train], now=datetime(2026, 10, 3, 12, 45))
+m = unit_job(s, "m", kind="media-take", script="img", expected_s=1800)
+lead = unit_job(s, "lead", job_class="lead", card="a6000")
+n = unit_job(s, "n", card="none")
+t = unit_job(s, "t", card="3090")
+s.tick()
+check("media: a lane that is free and a media job blocked on its own (a window) still holds the lead off",
+      m["status"] == "queued" and "would cross" in why(m) and lead["status"] == "queued"
+      and "media job m" in why(lead), (why(m), lead["status"], why(lead)))
+check("media: ...and holds nothing on the 3090 or a job with no card",
+      n["status"] == "running" and t["status"] == "running", (n["status"], t["status"]))
+s, clock, fk = new_sched(windows=[train], now=datetime(2026, 10, 3, 12, 45))
+m = unit_job(s, "m", kind="media-take", script="img", expected_s=1800)
+anyj = unit_job(s, "anyj", card="any")
+s.tick()
+check("media: an any job goes to the 3090 while media is queued for the a6000",
+      anyj["status"] == "running" and anyj["resolved_card"] == "3090", (anyj["status"], anyj["resolved_card"]))
+
+seen = []
+for cls, card in (("sitting", "3090"), ("solo", "none")):
+    s, clock, fk = new_sched(windows=[train], now=datetime(2026, 10, 3, 12, 45))
+    m = unit_job(s, "m", kind="media-take", script="img", expected_s=1800)
+    ex = unit_job(s, "ex", card=card, job_class=cls, expected_s=100)
+    s.tick()
+    seen.append((m["status"], ex["status"], why(ex)))
+check("media: a sitting or solo job naming the 3090 or no card takes every card once it starts, "
+      "so media queued for the a6000 goes first",
+      all(m_st == ex_st == "queued" and "media job m" in w for m_st, ex_st, w in seen), seen)
+
+# cache groups reach only between media jobs, and only between bloomery jobs
+s, clock, fk = new_sched(cooldown=60)
+g = unit_job(s, "g", card="3090", cache_group="glm", job_class="round")
+s.tick()
+m = unit_job(s, "m", kind="media-take", script="img")
+s.tick()
+check("cache: media is not held by a bloomery cache group that is running",
+      m["status"] == "running", why(m))
+fk.finish(m, 0); fk.finish(g, 0)
+s.tick()
+m2 = unit_job(s, "m2", kind="media-take", script="img")
+s.tick()
+check("cache: media takes no cooldown from a bloomery group that just left",
+      m2["status"] == "running", why(m2))
+s, clock, fk = new_sched(cooldown=60)
+m = unit_job(s, "m", kind="media-take", script="img")
+s.tick()
+g = unit_job(s, "g", card="3090", cache_group="glm", job_class="round")
+s.tick()
+check("cache: a bloomery cache group is not held by a media job that is running",
+      g["status"] == "running", why(g))
+fk.finish(m, 0)
+s.tick()
+q = unit_job(s, "q", card="a6000", cache_group="glm", job_class="round")
+s.tick()
+check("cache: a bloomery job takes no cooldown from the media group that just left",
+      q["status"] == "running", why(q))
+s, clock, fk = new_sched(cooldown=60)
+m1 = unit_job(s, "m1", kind="media-take", script="img")
+s.tick()
+cs = unit_job(s, "cs", kind="comfy-session", card="3090", cache_group="other")
+s.tick()
+check("cache: the exclusion still holds between media jobs",
+      cs["status"] == "queued" and "cache group media running" in why(cs), (cs["status"], why(cs)))
+fk.finish(m1, 0)
+s.tick()
+check("cache: ...and so does the cooldown after one leaves",
+      cs["status"] == "queued" and "cooldown" in why(cs), (cs["status"], why(cs)))
+later(clock, 61)
+s.tick()
+check("cache: ...until it expires", cs["status"] == "running", (cs["status"], why(cs)))
+
+# -- 5. expected_s
+s, clock, fk = new_sched()
+vals = [unit_job(s, "e1", expected_s=90)["expected_s"], unit_job(s, "e2", expected_min=2)["expected_s"],
+        unit_job(s, "e3")["expected_s"], unit_job(s, "e4", expected_min=2, expected_s=45)["expected_s"],
+        unit_job(s, "e5", expected_s=None, expected_min=1)["expected_s"]]
+check("expected_s: the job's value, else expected_min x 60, else 0 (unknown); null is absent",
+      vals == [90, 120, 0, 45, 60], vals)
+bad = []
+for v in (0, 604801, True, "5", 1.5, -3, [1]):
+    try:
+        unit_job(s, "bad%d" % len(bad), expected_s=v)
+        bad.append(v)
+    except ValueError:
+        pass
+edges = [unit_job(s, "lo", expected_s=1)["expected_s"], unit_job(s, "hi", expected_s=604800)["expected_s"]]
+check("expected_s: 0, 604801, a bool, a string, a float, a negative and a list are refused; 1 and 604800 pass",
+      not bad and edges == [1, 604800], (bad, edges))
+s, clock, fk = new_sched()
+r = unit_job(s, "r", card="a6000", job_class="round", expected_s=300)
+s.tick()
+q = unit_job(s, "q", card="a6000", job_class="round")
+check("expected_s: eta counts the running job's remaining expected_s (no expected_min given)",
+      s.eta_seconds(q) == 300, s.eta_seconds(q))
+later(clock, 100)
+check("expected_s: ...less what has run", s.eta_seconds(q) == 200, s.eta_seconds(q))
+s, clock, fk = new_sched(windows=[train], now=datetime(2026, 10, 3, 12, 45))
+long_j = unit_job(s, "long", expected_s=1800)
+short_j = unit_job(s, "short", card="3090", expected_s=300)
+s.tick()
+check("expected_s: a job that would run into a window is held by its expected_s alone",
+      long_j["status"] == "queued" and "would cross" in why(long_j) and short_j["status"] == "running",
+      (long_j["status"], why(long_j), short_j["status"]))
+
+# -- 6. eta honesty
+s, clock, fk = new_sched(fake=False, locks={"bloomery-gate-a6000.lock": "held"})
+j = unit_job(s, "j", card="a6000", job_class="lead")
+s.tick()
+check("eta: behind an external lock on a free lane it is unknown (None), never 0",
+      j["status"] == "queued" and "bloomery-gate-a6000.lock" in why(j) and s.eta_seconds(j) is None,
+      (why(j), s.eta_seconds(j)))
+s, clock, fk = new_sched(fake=False, holds=["bloomery-03-hold"], hold_ages={"bloomery-03-hold": 125.7})
+j = unit_job(s, "j", card="a6000", job_class="lead")
+s.tick()
+check("eta: a hold that is not a queue job puts its age in the wait reason, `hold <name> up <s> s`",
+      "hold bloomery-03-hold up 125 s" in why(j) and s.eta_seconds(j) is None, (why(j), s.eta_seconds(j)))
+hold_dir = tempfile.mkdtemp(prefix="signalbox-holds-")
+hold_file = os.path.join(hold_dir, "bloomery-t-hold")
+open(hold_file, "w").close()
+os.utime(hold_file, (time.time() - 120, time.time() - 120))
+s, clock, fk = new_sched(fake=False)
+s.probes = D.Probes(gpu_order="/nonexistent", lease="/nonexistent", lock_glob="/nonexistent/*",
+                    hold_glob=hold_dir + "/bloomery-*-hold")
+age, reasons = s.probes.hold_age_s(hold_file), s.hold_reasons()
+check("hold: the real probe reads a hold file's age from its mtime (120 s), the reason is `hold <name> up <s> s`",
+      119 <= age <= 125 and reasons in (["hold bloomery-t-hold up %d s" % n] for n in range(119, 126)),
+      (age, reasons))
+check("hold: a hold file that is gone has no age", s.probes.hold_age_s(hold_dir + "/nope") is None)
+s, clock, fk = new_sched(fake=False)
+sit = unit_job(s, "sit", job_class="sitting", card="both", expected_s=600)
+s.tick()
+s.probes.hold_state = ["bloomery-03-hold"]
+s.probes.hold_age_state = {"bloomery-03-hold": 30}
+s.probes.lock_state = {"bloomery-gate.lock": "held", "bloomery-gate-a6000.lock": "held"}
+later(clock, 100)
+r = unit_job(s, "r", job_class="round", card="a6000")
+n = unit_job(s, "n", job_class="lead", card="none")
+s.tick()
+check("eta: behind a running sitting it is the sitting's remaining expected_s (600 - 100)",
+      sit["status"] == "running" and s.eta_seconds(r) == 500 and s.eta_seconds(n) == 500
+      and "a sitting job owns the box" in why(r), (s.eta_seconds(r), s.eta_seconds(n), why(r)))
+later(clock, 300)
+check("eta: ...less what has run since", s.eta_seconds(r) == 200, s.eta_seconds(r))
+later(clock, 300)
+check("eta: a sitting past its estimate is unknown, never 0", s.eta_seconds(r) is None, s.eta_seconds(r))
+s, clock, fk = new_sched(fake=False)
+sit = unit_job(s, "sit", job_class="sitting", card="both")
+s.tick()
+s.probes.hold_state = ["bloomery-03-hold"]
+r = unit_job(s, "r", job_class="round", card="a6000")
+s.tick()
+check("eta: a running sitting with no estimate is unknown", s.eta_seconds(r) is None, s.eta_seconds(r))
+etas = []
+for card in ("both", "any"):
+    s, clock, fk = new_sched()
+    unit_job(s, "x", card="a6000", expected_s=100)
+    unit_job(s, "y", card="3090", expected_s=300)
+    s.tick()
+    etas.append(s.eta_seconds(unit_job(s, "q", card=card, job_class="round")))
+check("eta: a both job waits for the later lane (300 s), an any job for the earlier (100 s)",
+      etas == [300, 100], etas)
+s, clock, fk = new_sched()
+bj = unit_job(s, "bj", card="both", job_class="lead", expected_s=300)
+s.tick()
+qa, qb = unit_job(s, "qa", card="a6000"), unit_job(s, "qb", card="3090")
+check("eta: a running both job counts on each card",
+      s.eta_seconds(qa) == 300 and s.eta_seconds(qb) == 300, (s.eta_seconds(qa), s.eta_seconds(qb)))
+free_j = unit_job(s, "fj", card="none")
+check("eta: 0 when the job could start now", s.eta_seconds(free_j) == 0, s.eta_seconds(free_j))
+
+
+def scenario_lock():
+    s, clock, fk = new_sched(fake=False, locks={"bloomery-gate-a6000.lock": "held"})
+    return s, unit_job(s, "j", card="a6000")
+
+
+def scenario_hold():
+    s, clock, fk = new_sched(fake=False, holds=["bloomery-03-hold"], hold_ages={"bloomery-03-hold": 5})
+    return s, unit_job(s, "j", card="a6000")
+
+
+def scenario_lease():
+    s, clock, fk = new_sched(fake=False, lease={"tag": "img-x", "pid": os.getpid()})
+    return s, unit_job(s, "j", card="a6000")
+
+
+def scenario_vram():
+    s, clock, fk = new_sched(fake=False, vram={"a6000": 24000})
+    return s, unit_job(s, "j", card="a6000")
+
+
+def scenario_reservation():
+    s, clock, fk = new_sched(fake=False, windows=[train], now=datetime(2026, 10, 3, 13, 30))
+    return s, unit_job(s, "j", card="a6000")
+
+
+def scenario_crossing():
+    s, clock, fk = new_sched(windows=[train], now=datetime(2026, 10, 3, 12, 45))
+    return s, unit_job(s, "j", card="a6000", expected_s=1800)
+
+
+def scenario_lane_known():
+    s, clock, fk = new_sched()
+    unit_job(s, "r", card="a6000", expected_s=600)
+    s.tick()
+    return s, unit_job(s, "j", card="a6000")
+
+
+def scenario_lane_unknown():
+    s, clock, fk = new_sched()
+    unit_job(s, "r", card="a6000")
+    s.tick()
+    return s, unit_job(s, "j", card="a6000")
+
+
+def scenario_owner():
+    s, clock, fk = new_sched()
+    unit_job(s, "r", job_class="solo", expected_s=100)
+    s.tick()
+    return s, unit_job(s, "j", card="3090")
+
+
+def scenario_barrier():
+    s, clock, fk = new_sched()
+    unit_job(s, "r", card="a6000", expected_s=50)
+    s.tick()
+    unit_job(s, "sit", job_class="sitting", card="both", expected_s=100)
+    return s, unit_job(s, "j", card="3090", job_class="round")
+
+
+def scenario_media_queued():
+    s, clock, fk = new_sched(windows=[train], now=datetime(2026, 10, 3, 12, 45))
+    unit_job(s, "m", kind="media-take", script="img", expected_s=1800)
+    return s, unit_job(s, "j", card="a6000", job_class="lead")
+
+
+def scenario_cache_running():
+    s, clock, fk = new_sched(cooldown=60)
+    unit_job(s, "g", card="3090", cache_group="glm", expected_s=100)
+    s.tick()
+    return s, unit_job(s, "j", card="a6000", cache_group="qwen")
+
+
+def scenario_cache_cooling():
+    s, clock, fk = new_sched(cooldown=60)
+    g = unit_job(s, "g", card="3090", cache_group="glm", expected_s=100)
+    s.tick()
+    fk.finish(g, 0)
+    s.tick()
+    return s, unit_job(s, "j", card="a6000", cache_group="qwen")
+
+
+s, j = scenario_barrier()
+check("eta: behind a queued sitting it is the box's drain (50 s) plus the sitting's expected time (100 s)",
+      s.eta_seconds(j) == 150, s.eta_seconds(j))
+leaks = []
+for name, build in sorted(globals().items()):
+    if not name.startswith("scenario_"):
+        continue
+    s, j = build()
+    s.tick()
+    lane, reason = s.can_start(j)
+    eta = s.eta_seconds(j)
+    if lane is not None or not (eta is None or eta > 0):
+        leaks.append((name, lane, reason, eta))
+check("eta: for every blocker (lock, hold, lease, VRAM, reservation, window, lane, owner, barrier, "
+      "queued media, cache group) a blocked job's eta is None or above 0, never 0", not leaks, leaks)
+
+# -- 7. SIGNALBOX_CARD in the unit's environment
+s, clock, fk = new_sched(fake=False, locks={"bloomery-gate-a6000.lock": "held"})
+unit_job(s, "ca", card="3090", env={"SIGNALBOX_CARD": "set-by-the-body"})
+unit_job(s, "cn", card="none")
+s.tick()
+cards_seen = [[a for a in c if a.startswith("SIGNALBOX_CARD=")] for c in fk.systemd_runs()]
+check("env: the job's env carries SIGNALBOX_CARD=<lane> once, the daemon's value over the body's",
+      sorted(cards_seen) == [["SIGNALBOX_CARD=3090"], ["SIGNALBOX_CARD=none"]]
+      and all(c[c.index(seen[0]) - 1] == "--setenv"
+              for c, seen in zip(fk.systemd_runs(), cards_seen) if seen), cards_seen)
+s, clock, fk = new_sched()
+a = unit_job(s, "a", card="a6000", job_class="round", expected_s=300)
+s.tick()
+unit_job(s, "b", card="both", job_class="lead")
+fk.finish(a, 0)
+s.tick()
+check("env: a both job runs with SIGNALBOX_CARD=both",
+      any("SIGNALBOX_CARD=both" in c for c in fk.systemd_runs()), fk.systemd_runs())
+s, clock, fk = new_sched(fake=False, locks={"bloomery-gate-a6000.lock": "held"})
+anyj = unit_job(s, "anyj", card="any", job_class="lead")
+s.tick()
+check("env: an any job's SIGNALBOX_CARD is the card it resolved to (3090) and the job records it",
+      any("SIGNALBOX_CARD=3090" in c for c in fk.systemd_runs()) and anyj["resolved_card"] == "3090",
+      (fk.systemd_runs(), anyj["resolved_card"]))
+
+# -- 8. any tries every card
+s, clock, fk = new_sched(fake=False, locks={"bloomery-gate-a6000.lock": "held"})
+a_any = unit_job(s, "a", card="any", job_class="lead")
+s.tick()
+check("any: starts on the 3090 while the a6000 has a lock reason",
+      a_any["status"] == "running" and a_any["resolved_card"] == "3090", (a_any["status"], why(a_any)))
+s, clock, fk = new_sched(fake=False, vram={"a6000": 24000})
+a_any = unit_job(s, "a", card="any", job_class="lead")
+s.tick()
+check("any: ...and while the a6000 is above the VRAM line", a_any["resolved_card"] == "3090", why(a_any))
+s, clock, fk = new_sched(fake=False)
+a_any = unit_job(s, "a", card="any", job_class="lead")
+s.tick()
+check("any: takes the first card in CARDS order when both qualify", a_any["resolved_card"] == "a6000",
+      a_any["resolved_card"])
+s, clock, fk = new_sched(fake=False, locks={"bloomery-gate-a6000.lock": "held", "bloomery-gate.lock": "held"})
+a_any = unit_job(s, "a", card="any", job_class="lead")
+s.tick()
+check("any: when no card qualifies the wait reason names each card's reasons",
+      a_any["status"] == "queued"
+      and "a6000: bloomery-gate-a6000.lock: held" in why(a_any)
+      and "3090: bloomery-gate.lock: held" in why(a_any), why(a_any))
+
+# -- 9. the wire: fields the client reads, refusals as rc 64
+s, clock, fk = new_sched()
+D.Handler.sched = s
+httpd2 = http.server.ThreadingHTTPServer(("127.0.0.1", 0), D.Handler)
+threading.Thread(target=httpd2.serve_forever, daemon=True).start()
+BASE = "http://127.0.0.1:%d" % httpd2.server_address[1]
+WIRE = ("id", "status", "rc", "wait_reason", "eta_s", "out", "err", "rc_file", "resolved_card")
+old_home = tempfile.mkdtemp(prefix="signalbox-oldstate-")
+with open(os.path.join(old_home, "state.json"), "w") as f:
+    json.dump({"seq": 1, "events": [], "jobs": [{
+        "id": "s1", "owner": "t", "name": "old", "title": "", "expected_min": 5, "kind": "command",
+        "job_class": "normal", "priority": 0, "script": "", "card": "a6000", "cache_group": "",
+        "env": {}, "argv": "true", "bound_s": None, "status": "queued",
+        "submitted": "2026-10-10T20:00:00", "started": None, "finished": None, "rc": None,
+        "sentinel": None, "pid": None, "wait_reason": None, "artifacts": []}]}, f)
+old_s, _ = make_sched(home=old_home)
+old_view = old_s.job_view(old_s.by_id("s1"))
+check("wire: a queued job written before the wire fields existed answers with all of them, "
+      "its expected_s from expected_min", all(k in old_view for k in WIRE)
+      and old_view["expected_s"] == 300 and old_view["eta_s"] == 0, old_view)
+body = {"kind": "command", "argv": "true", "owner": "t", "card": "a6000", "wait": 0}
+code, out = call("POST", "/jobs", dict(body, name="w1", job_class="lead", expected_s=60))
+check("wire: POST /jobs of a queued job is 201 with every field the client reads, class and priority set",
+      code == 201 and all(k in out for k in WIRE) and out["status"] == "queued"
+      and (out["job_class"], out["priority"], out["expected_s"], out["eta_s"]) == ("lead", 700, 60, 0),
+      (code, out))
+s.tick()
+code, out = call("GET", "/jobs/w1")
+check("wire: GET /jobs/<id> of a running job carries them too, with absolute out, err, rc_file",
+      code == 200 and all(k in out for k in WIRE) and out["status"] == "running"
+      and out["resolved_card"] == "a6000" and out["eta_s"] == 0
+      and all(os.path.isabs(out[k]) for k in ("out", "err", "rc_file")), (code, out))
+code, out = call("POST", "/jobs", dict(body, name="w2", job_class="round", expected_s=30))
+s.tick()
+code2, out2 = call("GET", "/jobs/w2")
+check("wire: a queued job behind it reports eta_s (the running job's remaining 60 s) and why it waits",
+      code == 201 and out.get("eta_s") == 60 and out2.get("eta_s") == 60
+      and out2.get("wait_reason") == "lanes busy",
+      (out, out2))
+s.fake = False
+s.probes.lock_state = {"bloomery-gate.lock": "held"}
+code, out = call("POST", "/jobs", dict(body, name="w3", card="3090", job_class="round"))
+s.tick()
+code2, out2 = call("GET", "/jobs/w3")
+check("wire: behind an external lock eta_s is null (not 0) and wait_reason names the lock",
+      code == 201 and out.get("eta_s", "missing") is None and out2.get("eta_s", "missing") is None
+      and "bloomery-gate.lock: held" in (out2.get("wait_reason") or ""), (out, out2))
+before = len(s.jobs)
+code, out = call("POST", "/jobs", dict(body, name="w4", job_class="lead", priority=5))
+check("wire: a body naming a class and carrying priority is 400 with rc 64, by name, and queues nothing",
+      code == 400 and out.get("rc") == 64 and "lead" in out["error"] and "priority" in out["error"]
+      and len(s.jobs) == before, (code, out))
+code, out = call("POST", "/jobs/w1/priority", {"priority": 1})
+check("wire: /jobs/<id>/priority on a class job is 400 with rc 64",
+      code == 400 and out.get("rc") == 64 and s.by_id("w1")["priority"] == 700, (code, out))
+code, out = call("POST", "/jobs", dict(body, name="w5", expected_s=0))
+check("wire: expected_s 0 is 400 with rc 64", code == 400 and out.get("rc") == 64, (code, out))
+code, listing = call("GET", "/jobs")
+check("wire: GET /jobs lists job_class, expected_s and resolved_card",
+      code == 200 and {"job_class", "expected_s", "resolved_card"} <= set(listing[0]), listing[0])
+code, out = call("POST", "/gen/image", {"prompt": "a red kite", "priority": 3, "wait": 0})
+check("wire: a /gen body's priority is not read: the job is media at 950",
+      code == 201 and (out["job_class"], out["priority"]) == ("media", 950), (code, out))
+httpd2.shutdown()
 
 print("\n%d passed, %d failed" % (PASS, FAIL))
 sys.exit(1 if FAIL else 0)

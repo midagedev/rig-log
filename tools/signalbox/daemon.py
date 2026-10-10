@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""signalbox — the box's job dispatcher. One lane per card, cache groups, reservation
-windows, and an HTTP face on loopback for the tailnet.
+"""signalbox — the box's job dispatcher. One lane per card, job classes, cache groups,
+reservation windows, and an HTTP face on loopback for the tailnet.
 
 The laws it obeys (each from an incident recorded in rig-log):
 
@@ -25,6 +25,12 @@ The laws it obeys (each from an incident recorded in rig-log):
     config for whoever wants them, never the default basis — the box's rhythm is requests
     arriving, not the clock (2026-10-03: webuta's night window outlived webuta itself, which
     had ended 09-21; a stale window refused jobs for eight hours a night for nothing).
+  - A job class other than normal, host and solo sets the priority (CLASS_PRIORITY). A
+    sitting owns the box and is a drain barrier: while one is queued no job of lower priority
+    starts, and nothing running is preempted. Media goes ahead of every queued job, preempts
+    nothing, and while one is queued for a card no other job starts on that card. A cache
+    group separates media jobs from each other and bloomery jobs from each other, never the
+    two kinds.
 
 stdlib only, like logproxy and mrs-shim before it. State under /home/user/signalbox/.
 """
@@ -34,6 +40,7 @@ import fcntl
 import glob as globmod
 import hmac
 import json
+import math
 import os
 import re
 import shlex
@@ -48,6 +55,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections import namedtuple
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -92,7 +100,16 @@ CARDS = ("a6000", "3090")
 VRAM_IDLE_MIB = 2000
 QUEUE_HISTORY = 500
 KINDS = ("media-take", "comfy-session", "command", "fake")
-CLASSES = ("normal", "host", "solo")
+# normal, host and solo take their priority from the body; every other class sets it, and a
+# body that names one carries no priority.
+CLASSES = ("normal", "host", "solo", "media", "sitting", "lead", "round", "fill")
+CLASS_PRIORITY = {"media": 950, "sitting": 900, "lead": 700, "round": 400, "fill": -500}
+CLASS_SET = tuple(CLASS_PRIORITY)
+# A job of these classes starts only on an empty box and nothing starts beside it.
+EXCLUSIVE_CLASSES = ("host", "solo", "sitting")
+# `any` is the first card that can take the job, `both` needs both, `none` holds no card.
+CARD_CHOICES = CARDS + ("any", "both", "none")
+EXPECTED_S_MAX = 604800
 MEDIA_KINDS = ("media-take", "comfy-session")
 BOUND_S_MAX = 86400
 TAIL_LINE_BYTES = 1024
@@ -371,6 +388,13 @@ class Probes:
 
     def bloomery_holds(self):
         return sorted(p for p in globmod.glob(self.hold_glob) if os.path.exists(p))
+
+    def hold_age_s(self, path):
+        """Seconds since the hold file was last written; None when it cannot be read."""
+        try:
+            return max(0.0, time.time() - os.path.getmtime(path))
+        except OSError:
+            return None
 
 
 # ---------------------------------------------------------------- reservations
@@ -668,6 +692,9 @@ def read_tail(path, nbytes=None):
         return b""
 
 
+Verdict = namedtuple("Verdict", "lane reason external")
+
+
 class Scheduler:
     def __init__(self, probes=None, home=HOME, reservations=None, fake=FAKE,
                  now_fn=datetime.now, runner=None):
@@ -682,7 +709,8 @@ class Scheduler:
         self.events = []
         self.lock = threading.RLock()
         self.procs = {}          # id -> the runner's handle of a running job
-        self.cache_free = {}     # cache_group -> datetime it last finished
+        self.cache_free = {}     # bloomery cache_group -> datetime it last finished
+        self.media_cache_free = {}  # the same for media jobs: a group never reaches across
         os.makedirs(os.path.join(home, "jobs"), exist_ok=True)
         self.load()
 
@@ -701,6 +729,10 @@ class Scheduler:
         self.jobs = data.get("jobs", [])
         self.events = data.get("events", [])[-100:]
         for job in self.jobs:
+            # a job written before these fields existed still answers with every wire key
+            for key in ("out", "err", "rc_file", "resolved_card"):
+                job.setdefault(key, None)
+            job.setdefault("expected_s", self.expected_s_of(job))
             if job["status"] == "running":
                 # a job whose unit is still up, or whose rc file is written, is still ours
                 handle = self.runner.handle_of(job)
@@ -734,19 +766,38 @@ class Scheduler:
     def submit(self, spec):
         with self.lock:
             self.seq += 1
+            kind = spec.get("kind", "command")
+            named = spec.get("job_class", "normal")
+            if named not in CLASSES:
+                raise ValueError("job_class must be one of %s" % (CLASSES,))
+            if named in CLASS_SET and "priority" in spec:
+                raise ValueError('job_class %s sets the priority (%d): a body that names a class '
+                                 'must not carry "priority"' % (named, CLASS_PRIORITY[named]))
+            # a media kind is always class media; its body priority is not read
+            job_class = "media" if kind in MEDIA_KINDS else named
+            priority = (CLASS_PRIORITY[job_class] if job_class in CLASS_SET
+                        else max(-1000, min(1000, int(spec.get("priority", 0)))))
+            expected_min = int(spec.get("expected_min", 0))
+            expected_s = spec.get("expected_s")
+            if expected_s is None:
+                expected_s = max(0, expected_min * 60)
+            elif not (isinstance(expected_s, int) and not isinstance(expected_s, bool)
+                      and 1 <= expected_s <= EXPECTED_S_MAX):
+                raise ValueError("expected_s must be an integer 1..%d" % EXPECTED_S_MAX)
             job = {
                 "id": "s%d" % self.seq,
                 "owner": spec.get("owner", "anon"),
                 "name": spec.get("name") or "job%d" % self.seq,
                 "title": spec.get("title", ""),
-                "expected_min": int(spec.get("expected_min", 0)),
-                "kind": spec.get("kind", "command"),
-                "job_class": spec.get("job_class", "normal"),
-                "priority": max(-1000, min(1000, int(spec.get("priority", 0)))),
+                "expected_min": expected_min,
+                "expected_s": expected_s,
+                "kind": kind,
+                "job_class": job_class,
+                "priority": priority,
                 "script": spec.get("script", ""),
                 "card": spec.get("card", "a6000"),
                 "cache_group": spec.get("cache_group",
-                                        "media" if spec.get("kind") in MEDIA_KINDS else ""),
+                                        "media" if kind in MEDIA_KINDS else ""),
                 "env": {str(k): str(v) for k, v in (spec.get("env") or {}).items()},
                 "argv": spec.get("argv", ""),
                 "bound_s": spec.get("bound_s"),
@@ -754,17 +805,18 @@ class Scheduler:
                 "submitted": iso(self.now()),
                 "started": None, "finished": None, "rc": None, "sentinel": None,
                 "pid": None, "wait_reason": None, "artifacts": [],
+                "out": None, "err": None, "rc_file": None, "resolved_card": None,
             }
             if job["kind"] not in KINDS:
                 raise ValueError("kind must be one of %s" % (KINDS,))
-            if job["job_class"] not in CLASSES:
-                raise ValueError("job_class must be one of %s" % (CLASSES,))
             if job["kind"] == "media-take" and job["script"] not in RUNNERS:
                 raise ValueError("script must be one of %s" % (sorted(RUNNERS),))
-            if job["card"] not in CARDS + ("any",):
-                raise ValueError("card must be a6000, 3090 or any")
+            if job["card"] not in CARD_CHOICES:
+                raise ValueError("card must be a6000, 3090, any, both or none")
             if job["kind"] == "media-take" and job["card"] != MEDIA_CARD:
                 raise ValueError("media runs on the A6000 only (card %s)" % job["card"])
+            if job["kind"] == "comfy-session" and job["card"] not in CARDS:
+                raise ValueError("a comfy window holds one card: a6000 or 3090 (card %s)" % job["card"])
             if not re.match(r"^[A-Za-z0-9._-]+$", job["name"]):
                 raise ValueError("name must be [A-Za-z0-9._-]+")
             bound = job["bound_s"]
@@ -821,27 +873,69 @@ class Scheduler:
     def lane_of(self, job):
         return job.get("resolved_card") or job["card"]
 
-    def lane_busy(self, card):
-        return any(self.lane_of(j) == card for j in self.running_jobs())
+    @staticmethod
+    def cards_of(card):
+        """The cards a job with this `card` value may hold: the one named, either for `any`,
+        both for `both`, none for `none`."""
+        if card in CARDS:
+            return (card,)
+        return CARDS if card in ("any", "both") else ()
 
-    def card_reasons(self, card, owner):
-        """Hardware+lease+reservation reasons this card may not take a job now."""
+    @staticmethod
+    def alternatives(card):
+        """The sets of cards a job with this `card` value could start on, in the order they
+        are tried: `any` is a choice of one card, `both` is one set of two, `none` holds none."""
+        if card in CARDS:
+            return [(card,)]
+        if card == "any":
+            return [(c,) for c in CARDS]
+        return [CARDS] if card == "both" else [()]
+
+    @staticmethod
+    def lane_name(alt):
+        return "both" if len(alt) == len(CARDS) else (alt[0] if alt else "none")
+
+    def lanes_held(self, job):
+        """The cards a running job holds the lane of."""
+        lane = self.lane_of(job)
+        if lane == "both":
+            return CARDS
+        return (lane,) if lane in CARDS else ()
+
+    def lane_busy(self, card):
+        return any(card in self.lanes_held(j) for j in self.running_jobs())
+
+    def lease_reasons(self):
         reasons = []
         lease = self.probes.gpu_lease()
         if lease:
             if lease["live"]:
                 reasons.append("gpu-lease held by %s (pid %s)" % (lease["tag"], lease["pid"]))
-            else:
-                if self.probes.clear_stale_lease(lease):
-                    self.event("cleared stale gpu-lease: %s (pid %s dead)"
-                               % (lease["tag"], lease["pid"]))
-        locks = self.probes.bloomery_locks()
-        for path, state in locks.items():
-            cards = LOCK_CARDS.get(os.path.basename(path), CARDS)
-            if card in cards:
-                reasons.append("%s: %s" % (os.path.basename(path), state))
+            elif self.probes.clear_stale_lease(lease):
+                self.event("cleared stale gpu-lease: %s (pid %s dead)"
+                           % (lease["tag"], lease["pid"]))
+        return reasons
+
+    def hold_reasons(self):
+        reasons = []
         for hold in self.probes.bloomery_holds():
-            reasons.append("bloomery hold up: %s" % os.path.basename(hold))
+            age = self.probes.hold_age_s(hold)
+            reasons.append("hold %s up %s" % (os.path.basename(hold),
+                                              "%d s" % age if age is not None else "(age unknown)"))
+        return reasons
+
+    def host_reasons(self):
+        """Why a job that holds no card may not start: the timing lease and a bloomery hold
+        are a quiet machine's; a host build disturbs it."""
+        return self.lease_reasons() + self.hold_reasons()
+
+    def card_reasons(self, card, owner):
+        """Hardware+lease+reservation reasons this card may not take a job now."""
+        reasons = self.lease_reasons()
+        for path, state in self.probes.bloomery_locks().items():
+            if card in LOCK_CARDS.get(os.path.basename(path), CARDS):
+                reasons.append("%s: %s" % (os.path.basename(path), state))
+        reasons += self.hold_reasons()
         if self.probes.vram_mib(card) >= VRAM_IDLE_MIB:
             reasons.append("card %s above %d MiB" % (card, VRAM_IDLE_MIB))
         w = self.reservations.active(self.now(), card, owner)
@@ -850,48 +944,121 @@ class Scheduler:
                            % (w.get("name"), w.get("owner")))
         return reasons
 
-    def can_start(self, job):
-        """(card, None) when the job may start on that lane now, else (None, reason)."""
+    @staticmethod
+    def expected_s_of(job):
+        return job.get("expected_s") or max(0, job.get("expected_min", 0) * 60)
+
+    def sitting_ahead(self, job):
+        """A queued sitting of higher priority: the drain barrier in front of this job."""
+        return next((q for q in self.jobs if q["status"] == "queued"
+                     and q["job_class"] == "sitting" and q["priority"] > job["priority"]), None)
+
+    def media_queued_for(self, q, cards):
+        """Is q a queued media job for one of these cards?"""
+        return (q["status"] == "queued" and q["job_class"] == "media"
+                and bool(set(self.cards_of(q["card"])) & set(cards)))
+
+    def media_ahead(self, job, cards):
+        """A queued media job for one of these cards, which holds every other job off them.
+        An exclusive job takes every card once it starts, whichever card it names."""
+        if job["job_class"] == "media":
+            return None
+        if job["job_class"] in EXCLUSIVE_CLASSES:
+            cards = CARDS
+        return next((q for q in self.jobs if q is not job and self.media_queued_for(q, cards)),
+                    None)
+
+    def cache_holds(self, job, now):
+        """What the cache groups hold this job back for: ("running", job) for a job of another
+        group on the same side, ("cooling", group, age, cooldown) for one that left age seconds
+        ago. Media jobs are one side and every other job the other; a group never reaches
+        across."""
+        if not job["cache_group"]:
+            return
+        media = job["job_class"] == "media"
+        for r in self.running_jobs():
+            if ((r["job_class"] == "media") == media and r["cache_group"]
+                    and r["cache_group"] != job["cache_group"]):
+                yield "running", r
+        cool = self.reservations.cooldown_s
+        for group, freed in list((self.media_cache_free if media else self.cache_free).items()):
+            age = (now - freed).total_seconds()
+            if group != job["cache_group"] and 0 <= age < cool:
+                yield "cooling", group, age, cool
+
+    def alt_reasons(self, job, alt, now):
+        """External reasons the job may not start on this set of cards. The --fake rehearsal
+        skips the hardware probes, a fake *job* does not: a scheduler smoke on the box must
+        still meet the real lease and locks. A job is also held back from a window it could
+        not finish before; one with no estimate is the caller's reckoning."""
+        if not alt:
+            return [] if self.fake else self.host_reasons()
+        reasons = [] if self.fake else list(dict.fromkeys(
+            r for c in alt for r in self.card_reasons(c, job["owner"])))
+        if not reasons and self.expected_s_of(job) > 0:
+            est_end = now + timedelta(seconds=self.expected_s_of(job))
+            for c in alt:
+                w = self.reservations.crossed_before(now, c, job["owner"], est_end)
+                if w:
+                    return ["would cross reservation %s (owner %s)"
+                            % (w.get("name"), w.get("owner"))]
+        return reasons
+
+    def admit(self, job):
+        """Verdict(lane, reason, external): the lane (a6000, 3090, both or none) the job may
+        start on now, else why it may not. `external` lists the card sets whose blocker is
+        outside the queue (lease, lock, hold, VRAM, reservation)."""
         now = self.now()
         running = self.running_jobs()
-        if job["job_class"] in ("host", "solo") and running:
-            return None, "class %s waits for an empty box" % job["job_class"]
-        if any(r["job_class"] in ("host", "solo") for r in running):
-            return None, "a %s job owns the box" % running[0]["job_class"]
-        # card / lane
-        order = [job["card"]] if job["card"] in CARDS else list(CARDS)
-        chosen = None
-        for card in order:
-            if not self.lane_busy(card):
-                chosen = card
-                break
-        if chosen is None:
-            return None, "lanes busy"
+        if job["job_class"] in EXCLUSIVE_CLASSES and running:
+            return Verdict(None, "class %s waits for an empty box" % job["job_class"], ())
+        owner = next((r for r in running if r["job_class"] in EXCLUSIVE_CLASSES), None)
+        if owner:
+            return Verdict(None, "a %s job owns the box" % owner["job_class"], ())
+        sitting = self.sitting_ahead(job)
+        if sitting:
+            return Verdict(None, "sitting %s is queued: no job of lower priority starts first"
+                           % sitting["name"], ())
+        alts = self.alternatives(job["card"])
+        texts, open_alts = {}, []
+        for alt in alts:
+            if any(self.lane_busy(c) for c in alt):
+                texts[alt] = "lanes busy"
+                continue
+            media = self.media_ahead(job, alt)
+            if media:
+                texts[alt] = "media job %s is queued for %s" % (media["name"], media["card"])
+            else:
+                open_alts.append(alt)
+        if not open_alts:
+            return Verdict(None, self.blocked_text(alts, texts), ())
         # cache warmth: a different group running, or one that just left (the GLM load that
         # evicts 186 GB of page cache and makes the next sitting cold — box-calendar law)
-        if job["cache_group"]:
-            for r in running:
-                if r["cache_group"] and r["cache_group"] != job["cache_group"]:
-                    return None, "cache group %s running" % r["cache_group"]
-            cool = self.reservations.cooldown_s
-            for group, freed in self.cache_free.items():
-                if group != job["cache_group"]:
-                    age = (now - freed).total_seconds()
-                    if 0 <= age < cool:
-                        return None, "cache group %s left %.0f s ago (cooldown %d s)" % (group, age, cool)
-        # hardware gates; the --fake rehearsal skips them, a fake *job* does not — a
-        # scheduler smoke on the box must still meet the real lease and locks
-        reasons = [] if self.fake else self.card_reasons(chosen, job["owner"])
-        if reasons:
-            return None, "; ".join(reasons)
-        # do not start what cannot finish before the next window (expected_min is the
-        # calendar's 예상 분 column; unbounded jobs are the caller's reckoning)
-        if job["expected_min"] > 0:
-            est_end = now + timedelta(minutes=job["expected_min"])
-            w = self.reservations.crossed_before(now, chosen, job["owner"], est_end)
-            if w:
-                return None, "would cross reservation %s (owner %s)" % (w.get("name"), w.get("owner"))
-        return chosen, None
+        for hold in self.cache_holds(job, now):
+            if hold[0] == "running":
+                return Verdict(None, "cache group %s running" % hold[1]["cache_group"], ())
+            return Verdict(None, "cache group %s left %.0f s ago (cooldown %d s)"
+                           % (hold[1], hold[2], hold[3]), ())
+        external = []
+        for alt in open_alts:
+            reasons = self.alt_reasons(job, alt, now)
+            if not reasons:
+                return Verdict(self.lane_name(alt), None, ())
+            texts[alt] = "; ".join(reasons)
+            external.append(alt)
+        return Verdict(None, self.blocked_text(alts, texts), tuple(external))
+
+    def blocked_text(self, alts, texts):
+        """The wait reason of a job every alternative of which is blocked: the one text when
+        they agree or there is one, else each card's own."""
+        if len(alts) == 1 or len(set(texts.values())) == 1:
+            return texts[alts[0]]
+        return " | ".join("%s: %s" % (self.lane_name(a), texts[a]) for a in alts)
+
+    def can_start(self, job):
+        """(lane, None) when the job may start on that lane now, else (None, reason)."""
+        verdict = self.admit(job)
+        return verdict.lane, verdict.reason
 
     def build_cmd(self, job, jobdir):
         """(argv, env additions). Env flows only through what is returned here."""
@@ -916,6 +1083,8 @@ class Scheduler:
         return ["bash", snap, job["name"]], env
 
     def start(self, job, card):
+        """Start the job on lane `card` (a6000, 3090, both or none): the lane is in its
+        environment as SIGNALBOX_CARD, whatever the body set."""
         jobdir = os.path.abspath(os.path.join(self.home, "jobs", job["id"]))
         os.makedirs(jobdir, exist_ok=True)
         try:
@@ -925,6 +1094,7 @@ class Scheduler:
             job["rc"], job["sentinel"] = 64, str(e)
             self.event("job %s refused build: %s" % (job["id"], e))
             return
+        extra_env["SIGNALBOX_CARD"] = card
         job.update(out=os.path.join(jobdir, "out"), err=os.path.join(jobdir, "err"),
                    rc_file=os.path.join(jobdir, "rc"))
         with open(job["out"], "ab") as f:
@@ -996,7 +1166,8 @@ class Scheduler:
                 job["status"] = "done" if rc == 0 else "failed"
             job["finished"] = iso(self.now())
             if job["cache_group"]:
-                self.cache_free[job["cache_group"]] = self.now()
+                freed = self.media_cache_free if job["job_class"] == "media" else self.cache_free
+                freed[job["cache_group"]] = self.now()
             self.procs.pop(jid, None)
             self.event("job %s %s rc=%s sentinel=%s" % (jid, job["status"], rc, job["sentinel"]))
 
@@ -1025,50 +1196,95 @@ class Scheduler:
             if job["status"] != "queued":
                 raise ValueError("priority applies to queued jobs only (this one is %s)"
                                  % job["status"])
+            if job["job_class"] in CLASS_SET:
+                raise ValueError("job %s is class %s: the class sets its priority (%d)"
+                                 % (jid, job["job_class"], job["priority"]))
             job["priority"] = max(-1000, min(1000, int(priority)))
             self.event("job %s priority -> %d" % (jid, job["priority"]))
             self.persist()
             return job
 
+    def remaining_s(self, job, now):
+        """Seconds a running job has left of its expected time; None when it carries no
+        estimate or has outrun it."""
+        expected = self.expected_s_of(job)
+        if not expected:
+            return None
+        started = datetime.fromisoformat(job["started"]) if job.get("started") else now
+        left = expected - (now - started).total_seconds()
+        return left if left > 0 else None
+
+    def cache_wait_s(self, job, now):
+        """Seconds the cache groups still hold the job back, 0 when they do not; None when a
+        job of another group that holds it has no estimate."""
+        wait = 0.0
+        for hold in self.cache_holds(job, now):
+            if hold[0] == "cooling":
+                wait = max(wait, hold[3] - hold[2])
+                continue
+            left = self.remaining_s(hold[1], now)
+            if left is None:
+                return None
+            wait = max(wait, left + self.reservations.cooldown_s)
+        return wait
+
     def eta_seconds(self, job):
-        """First-order estimate of seconds until this job could start: 0 when it could start
-        this tick, else the blocker's remaining expected time plus the expected durations of
-        queued jobs that would go first on the same lane. None when a blocker has no
-        expected_min — an honest "unknown" beats a made-up number. Gate-bound waits (a lease,
-        bloomery locks) are not modelled."""
-        card, _ = self.can_start(job)
-        if card is not None:
+        """Seconds until this job could start: 0 only when it could start now. Otherwise the
+        longest remaining expected time of what holds its lanes (a `both` job holds each of
+        its cards) and of the cache groups, plus the expected times of the queued jobs that
+        go first on those lanes, a first-order sum; the shortest of a card's own for `any`.
+        None when a blocker has no estimate or has outrun it, and when the wait is behind
+        something outside the queue (lease, lock, hold, VRAM, reservation): an honest unknown
+        beats a number that ignores it. A running sitting is a blocker inside the queue: it
+        owns the box, so its remaining expected time is the wait."""
+        verdict = self.admit(job)
+        if verdict.lane is not None:
             return 0
         now = self.now()
-        lanes = [job["card"]] if job["card"] in CARDS else list(CARDS)
-        # arrival order is list order (submit appends); timestamps can tie at 1 s granularity
+        running = self.running_jobs()
+        mine = set(CARDS if job["job_class"] in EXCLUSIVE_CLASSES else self.cards_of(job["card"]))
         idx = {j["id"]: i for i, j in enumerate(self.jobs)}
-        ahead = [q for q in self.jobs if q["status"] == "queued"
+        # arrival order is list order (submit appends); timestamps can tie at 1 s granularity
+        ahead = [q for q in self.jobs if q["status"] == "queued" and q is not job
                  and (q["priority"] > job["priority"]
-                      or (q["priority"] == job["priority"]
-                          and idx[q["id"]] < idx[job["id"]]))]
+                      or (q["priority"] == job["priority"] and idx[q["id"]] < idx[job["id"]])
+                      or (job["job_class"] != "media" and self.media_queued_for(q, mine)))]
+        # an exclusive job in line, or this one being exclusive, needs the whole box drained
+        exclusive = (job["job_class"] in EXCLUSIVE_CLASSES
+                     or any(q["job_class"] in EXCLUSIVE_CLASSES for q in ahead))
+        cache = self.cache_wait_s(job, now)
         best = None
-        for lane in lanes:
-            seconds = 0.0
-            for r in [r for r in self.running_jobs() if self.lane_of(r) == lane]:
-                if not r["expected_min"]:
-                    seconds = None
-                    break
-                started = datetime.fromisoformat(r["started"]) if r.get("started") else now
-                seconds = max(seconds,
-                              (started - now).total_seconds() + r["expected_min"] * 60)
+        for alt in self.alternatives(job["card"]):
+            if cache is None or alt in verdict.external:
+                continue
+            seconds = cache
+            for r in running:
+                if (exclusive or r["job_class"] in EXCLUSIVE_CLASSES
+                        or set(self.lanes_held(r)) & set(alt)):
+                    left = self.remaining_s(r, now)
+                    if left is None:
+                        seconds = None
+                        break
+                    seconds = max(seconds, left)
             if seconds is None:
                 continue
             for q in ahead:
-                if q["card"] in (lane, "any"):
-                    if not q["expected_min"]:
+                if (exclusive or q["job_class"] in EXCLUSIVE_CLASSES
+                        or set(self.cards_of(q["card"])) & set(alt)):
+                    if not self.expected_s_of(q):
                         seconds = None
                         break
-                    seconds += q["expected_min"] * 60
+                    seconds += self.expected_s_of(q)
             if seconds is None:
                 continue
             best = seconds if best is None else min(best, seconds)
-        return best
+        return None if best is None else math.ceil(best)
+
+    def job_view(self, job):
+        """The job as the wire shows it: its record and eta_s, 0 for a job that is not queued."""
+        view = dict(job)
+        view["eta_s"] = self.eta_seconds(job) if job["status"] == "queued" else 0
+        return view
 
     # -- views --------------------------------------------------------------
 
@@ -1093,7 +1309,7 @@ class Scheduler:
             lines.append("| %s | %s | %s | %s | %s | %s%s | %s | %s |" % (
                 j["submitted"][11:19] if j.get("submitted") else "",
                 j["owner"], j["name"], model,
-                j["expected_min"] or "—", j["title"] or "—", wait,
+                math.ceil(self.expected_s_of(j) / 60) or "—", j["title"] or "—", wait,
                 pos, end))
         return "\n".join(lines) + "\n"
 
@@ -1115,7 +1331,8 @@ class Scheduler:
             "reservations_file": self.reservations.path,
             "jobs": [{k: j.get(k) for k in ("id", "owner", "name", "title", "status",
                                             "kind", "script", "card", "resolved_card",
-                                            "priority", "expected_min", "submitted", "started",
+                                            "job_class", "priority", "expected_min",
+                                            "expected_s", "submitted", "started",
                                             "finished", "rc", "sentinel", "wait_reason")}
                      for j in self.jobs],
             "events": self.events[-20:],
@@ -1270,15 +1487,17 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/jobs":
             return self.send_json([{k: j.get(k) for k in ("id", "owner", "name", "status",
                                                           "kind", "script", "card",
-                                                          "priority", "submitted", "started",
-                                                          "finished", "rc", "wait_reason")}
+                                                          "resolved_card", "job_class",
+                                                          "priority", "expected_s", "submitted",
+                                                          "started", "finished", "rc",
+                                                          "wait_reason")}
                                    for j in s.jobs])
         m = re.match(r"^/jobs/([A-Za-z0-9._-]+)$", path)
         if m:
             job = s.by_id(m.group(1))
             if not job:
                 return self.send_json({"error": "no such job"}, 404)
-            detail = dict(job)
+            detail = s.job_view(job)
             detail["log_tail"] = self.tail(s, m.group(1), 40)
             return self.send_json(detail)
         m = re.match(r"^/jobs/([A-Za-z0-9._-]+)/log$", path)
@@ -1350,10 +1569,7 @@ class Handler(BaseHTTPRequestHandler):
                 if eta is None or eta > deadline - time.time():
                     break
                 time.sleep(1)
-        job = s.by_id(job["id"]) or job
-        view = dict(job)
-        view["eta_s"] = s.eta_seconds(job) if job["status"] == "queued" else 0
-        return view
+        return s.job_view(s.by_id(job["id"]) or job)
 
     def do_POST(self):
         path = urllib.parse.urlparse(self.path).path
@@ -1464,6 +1680,8 @@ class Handler(BaseHTTPRequestHandler):
             "card": body.get("card", "a6000"),
             "env": env,
         }
+        if body.get("expected_s") is not None:
+            spec["expected_s"] = body["expected_s"]
         return spec
 
     def comfy_batch(self, body):
