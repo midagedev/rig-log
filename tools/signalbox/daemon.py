@@ -16,7 +16,11 @@ The laws it obeys (each from an incident recorded in rig-log):
     keep working exactly as before; signalbox steps around them.
   - Jobs are bash runner scripts exec'd from a per-job snapshot, so deploying over a running
     script cannot change what a job does mid-statement (the chain-s lesson, 2026-09-16).
-  - Stop is SIGTERM to the recorded pid, waited on; never a blind escalation.
+  - A job is a systemd transient unit (sb-<id>), not the daemon's child: a daemon restart
+    never touches it, and stop is `systemctl stop` — TERM to the job's processes (a media
+    unit signals only its runner, which tears down lawfully), KILL only after the unit's
+    TimeoutStopSec. The job's rc is a file the unit's ExecStopPost writes, so a restarted
+    daemon re-adopts a job by its unit and that file.
   - Scheduling is priority-first: higher priority, then older. Time windows are an optional
     config for whoever wants them, never the default basis — the box's rhythm is requests
     arriving, not the clock (2026-10-03: webuta's night window outlived webuta itself, which
@@ -32,7 +36,9 @@ import hmac
 import json
 import os
 import re
+import shlex
 import shutil
+import signal
 import socket
 import stat
 import subprocess
@@ -87,6 +93,18 @@ VRAM_IDLE_MIB = 2000
 QUEUE_HISTORY = 500
 KINDS = ("media-take", "comfy-session", "command", "fake")
 CLASSES = ("normal", "host", "solo")
+MEDIA_KINDS = ("media-take", "comfy-session")
+BOUND_S_MAX = 86400
+TAIL_LINE_BYTES = 1024
+# A job unit's stop timeout. A media runner's finish() waits up to 60 + 15 + 10 + 45 * 2 =
+# 175 s (the take scripts' loops), so its unit gets 240 s before the KILL.
+STOP_S = 30
+MEDIA_STOP_S = 240
+# Seconds between ticks, between watchdog pings, and the oldest finished tick that still
+# earns a ping: a tick wedged longer than that lets WatchdogSec kill a hung daemon.
+TICK_S = 2
+WATCHDOG_INTERVAL_S = 5
+TICK_MAX_AGE_S = 60
 # The owner every job a tailnet request creates carries: the token's holder. A body never
 # sets it, and cancel from the tailnet reaches only jobs that carry it.
 TAILNET_OWNER = "hermes"
@@ -422,16 +440,239 @@ class Reservations:
         return None
 
 
+# ---------------------------------------------------------------- runners
+
+class RunnerError(Exception):
+    """A runner could not do what was asked. rc is the exit code a job refused for it carries."""
+
+    def __init__(self, msg, rc=70):
+        super().__init__(msg)
+        self.rc = rc
+
+
+def unit_of(jid):
+    return "sb-%s" % jid
+
+
+# The daemon's own environment a job unit inherits (a transient unit starts with systemd's
+# bare PATH); a job's env overrides these.
+PASS_ENV = ("LANG", "USER")
+
+# Signal names as systemd prints them in $EXIT_STATUS, with their Linux numbers.
+SIGNALS = {
+    "HUP": 1, "INT": 2, "QUIT": 3, "ILL": 4, "TRAP": 5, "ABRT": 6, "BUS": 7, "FPE": 8,
+    "KILL": 9, "USR1": 10, "SEGV": 11, "USR2": 12, "PIPE": 13, "ALRM": 14, "TERM": 15,
+    "STKFLT": 16, "CHLD": 17, "CONT": 18, "STOP": 19, "TSTP": 20, "TTIN": 21, "TTOU": 22,
+    "URG": 23, "XCPU": 24, "XFSZ": 25, "VTALRM": 26, "PROF": 27, "WINCH": 28, "IO": 29,
+    "POLL": 29, "PWR": 30, "SYS": 31,
+}
+
+
+def write_scripts(jobdir, argv):
+    """The two scripts of a job unit. <jobdir>/cmd.sh only execs argv, so the unit's main
+    process is the job itself and every stop signal reaches it. <jobdir>/post.sh is the
+    unit's ExecStopPost: it turns systemd's $EXIT_CODE and $EXIT_STATUS into the rc file
+    (exited: the number; killed or dumped: 128 + the signal's number; anything it cannot
+    read: 70), through tmp + mv so a reader never sees half a file."""
+    rc_file = os.path.join(jobdir, "rc")
+    tmp = shlex.quote(rc_file + ".tmp")
+    arms = "\n".join("      %s) n=%d;;" % kv for kv in SIGNALS.items())
+    post = "\n".join([
+        "#!/bin/sh",
+        'rc=70',
+        'case "$EXIT_CODE" in',
+        "  exited)",
+        '    case "$EXIT_STATUS" in',
+        "      ''|*[!0-9]*) ;;",
+        '      *) rc=$EXIT_STATUS;;',
+        "    esac;;",
+        "  killed|dumped)",
+        "    n=",
+        '    case "$EXIT_STATUS" in',
+        arms,
+        "    esac",
+        '    [ -n "$n" ] && rc=$((128 + n));;',
+        "esac",
+        'printf %%s "$rc" > %s && mv %s %s' % (tmp, tmp, shlex.quote(rc_file)),
+    ]) + "\n"
+    cmd = "#!/bin/bash\nexec %s\n" % " ".join(shlex.quote(a) for a in argv)
+    for name, text in (("cmd.sh", cmd), ("post.sh", post)):
+        with open(os.path.join(jobdir, name), "w") as f:
+            f.write(text)
+
+
+class PopenRunner:
+    """--fake and the tests: the argv as a child of the daemon in its own process group. Stop
+    is SIGTERM to that group. It writes <jobdir>/rc when it sees the job end. A restart
+    cannot re-adopt such a job, and bound_s is not enforced."""
+
+    def launch(self, jid, argv, env, jobdir, media, bound_s=None):
+        full = {k: v for k, v in os.environ.items()
+                if k not in ("NOTIFY_SOCKET", "WATCHDOG_PID", "WATCHDOG_USEC")}
+        full.update(env)
+        try:
+            with open(os.path.join(jobdir, "out"), "ab") as out, \
+                    open(os.path.join(jobdir, "err"), "ab") as err:
+                proc = subprocess.Popen(argv, stdout=out, stderr=err,
+                                        stdin=subprocess.DEVNULL, start_new_session=True,
+                                        env=full, cwd=jobdir)
+        except OSError as e:
+            raise RunnerError("cannot start %s: %s" % (argv[0], e))
+        proc.rc_file = os.path.join(jobdir, "rc")
+        return proc
+
+    def stop(self, proc):
+        # a leader that has exited and been reaped no longer holds its pgid: never signal it
+        if proc.poll() is None:
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+
+    def state(self, proc):
+        rc = proc.poll()
+        if rc is None:
+            return "running"
+        if not os.path.exists(proc.rc_file):
+            with open(proc.rc_file + ".tmp", "w") as f:
+                f.write(str(rc))
+            os.replace(proc.rc_file + ".tmp", proc.rc_file)
+        return ("exited", rc)
+
+    def handle_of(self, job):
+        return None
+
+    def describe(self, proc):
+        return {"pid": proc.pid}
+
+
+class UnitHandle:
+    def __init__(self, unit, rc_file):
+        self.unit, self.rc_file = unit, rc_file
+
+
+class UnitRunner:
+    """Production: one transient unit `sb-<id>` per job. A job outlives the daemon, `systemctl
+    stop` reaches every process of the job's tree, and the rc is read from <jobdir>/rc, which
+    the unit's ExecStopPost writes even for a job that was killed.
+    No memory property and no OOMPolicy are set: each unit keeps systemd's own defaults.
+    Everything that talks to systemd goes through _run, the one seam tests replace."""
+
+    ACTIVE = ("active", "activating", "deactivating", "reloading", "refreshing")
+    ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+    def __init__(self, systemd_run="systemd-run", systemctl="systemctl"):
+        self.systemd_run, self.systemctl = systemd_run, systemctl
+
+    def _run(self, argv, timeout=30):
+        """(rc, stdout+stderr) of one command; an unrunnable command is a RunnerError."""
+        try:
+            p = subprocess.run(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT, text=True, timeout=timeout)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            raise RunnerError("%s: %s" % (argv[0], e))
+        return p.returncode, p.stdout
+
+    def _props(self, unit):
+        rc, text = self._run([self.systemctl, "show", unit,
+                              "-p", "LoadState", "-p", "ActiveState"])
+        props = dict(line.split("=", 1) for line in text.splitlines() if "=" in line)
+        if rc != 0 or "ActiveState" not in props or "LoadState" not in props:
+            raise RunnerError("systemctl show %s: rc=%d %s" % (unit, rc, text.strip()[:200]))
+        return props
+
+    def run_argv(self, jid, env, jobdir, media, bound_s=None):
+        """The systemd-run command line of one job."""
+        for name in env:
+            if not self.ENV_NAME.fullmatch(name):
+                raise RunnerError("env name %r is not a variable name" % name, rc=64)
+        argv = [self.systemd_run, "--unit", unit_of(jid), "--collect", "--quiet",
+                "-p", "StandardOutput=append:" + os.path.join(jobdir, "out"),
+                "-p", "StandardError=append:" + os.path.join(jobdir, "err"),
+                "-p", "WorkingDirectory=" + jobdir,
+                "-p", "ExecStopPost=/bin/sh " + shlex.quote(os.path.join(jobdir, "post.sh"))]
+        # a media runner's own teardown (trap finish INT TERM) needs the longer stop
+        argv += ["-p", "KillMode=mixed", "-p", "TimeoutStopSec=%d" % MEDIA_STOP_S] if media \
+            else ["-p", "TimeoutStopSec=%d" % STOP_S]
+        if bound_s:
+            argv += ["-p", "RuntimeMaxSec=%d" % bound_s]
+        merged = {k: os.environ[k] for k in PASS_ENV if k in os.environ}
+        merged.update(env)
+        for name, value in merged.items():
+            argv += ["--setenv", "%s=%s" % (name, value)]
+        return argv + ["/bin/bash", os.path.join(jobdir, "cmd.sh")]
+
+    def launch(self, jid, argv, env, jobdir, media, bound_s=None):
+        unit = unit_of(jid)
+        rc_file = os.path.join(jobdir, "rc")
+        if self._props(unit)["LoadState"] != "not-found":
+            raise RunnerError("unit %s exists" % unit, rc=64)
+        if os.path.exists(rc_file):
+            raise RunnerError("%s exists: job id %s was used before" % (rc_file, jid), rc=64)
+        cmd = self.run_argv(jid, env, jobdir, media, bound_s)
+        write_scripts(jobdir, argv)
+        rc, text = self._run(cmd)
+        if rc != 0:
+            raise RunnerError("systemd-run rc=%d: %s" % (rc, text.strip()[:300]))
+        return UnitHandle(unit, rc_file)
+
+    def stop(self, handle):
+        rc, text = self._run([self.systemctl, "stop", "--no-block", handle.unit])
+        # a unit that is already gone has nothing left to stop
+        if rc != 0 and self._props(handle.unit)["LoadState"] != "not-found":
+            raise RunnerError("systemctl stop %s: rc=%d %s" % (handle.unit, rc, text.strip()[:200]))
+
+    def state(self, handle):
+        """"running" while the unit is in any active state (ExecStopPost included), even when rc
+        exists: the lane stays busy until the job's whole tree is gone. Then ("exited", rc)
+        from the rc file, and "gone" for a unit that left none."""
+        props = self._props(handle.unit)
+        if props["ActiveState"] in self.ACTIVE:
+            return "running"
+        try:
+            with open(handle.rc_file) as f:
+                return ("exited", int(f.read().strip()))
+        except FileNotFoundError:
+            return "gone"
+        except (OSError, ValueError):
+            return ("exited", 70)
+
+    def handle_of(self, job):
+        return UnitHandle(unit_of(job["id"]), job["rc_file"]) if job.get("rc_file") else None
+
+    def describe(self, handle):
+        return {"unit": handle.unit}
+
+
 # ---------------------------------------------------------------- scheduler
 
 def iso(dt):
     return dt.strftime("%Y-%m-%dT%H:%M:%S")
 
 
+def log_files(jobdir):
+    """A job's log files in reading order: the merged log of jobs made before stdout and
+    stderr were split, then stdout, then stderr."""
+    return [os.path.join(jobdir, n) for n in ("log", "out", "err")]
+
+
+def read_tail(path, nbytes=None):
+    """The file's bytes, or only its last nbytes; b"" when it is not there."""
+    try:
+        with open(path, "rb") as f:
+            if nbytes is not None:
+                f.seek(0, os.SEEK_END)
+                f.seek(max(0, f.tell() - nbytes))
+            return f.read()
+    except OSError:
+        return b""
+
+
 class Scheduler:
     def __init__(self, probes=None, home=HOME, reservations=None, fake=FAKE,
-                 now_fn=datetime.now):
+                 now_fn=datetime.now, runner=None):
         self.probes = probes or Probes()
+        self.runner = runner or PopenRunner()
         self.home = home
         self.reservations = reservations or Reservations(os.path.join(home, "reservations.json"))
         self.fake = fake
@@ -440,7 +681,7 @@ class Scheduler:
         self.seq = 0
         self.events = []
         self.lock = threading.RLock()
-        self.procs = {}          # id -> Popen (None for pidfile-watched comfy runs)
+        self.procs = {}          # id -> the runner's handle of a running job
         self.cache_free = {}     # cache_group -> datetime it last finished
         os.makedirs(os.path.join(home, "jobs"), exist_ok=True)
         self.load()
@@ -461,17 +702,21 @@ class Scheduler:
         self.events = data.get("events", [])[-100:]
         for job in self.jobs:
             if job["status"] == "running":
-                pid = job.get("pid")
-                if pid:
+                # a job whose unit is still up, or whose rc file is written, is still ours
+                handle = self.runner.handle_of(job)
+                if handle is not None:
                     try:
-                        os.kill(pid, 0)
-                        self.procs[job["id"]] = None  # re-adopted; reap polls os.kill
+                        alive = self.runner.state(handle) != "gone"
+                    except RunnerError as e:
+                        log("job %s: cannot ask the runner (%s); kept, reap asks again"
+                            % (job["id"], e))
+                        alive = True
+                    if alive:
+                        self.procs[job["id"]] = handle
                         continue
-                    except OSError:
-                        pass
                 job["status"] = "lost"
                 job["finished"] = iso(self.now())
-                self.event("job %s lost (daemon restart, pid gone)" % job["id"])
+                self.event("job %s lost (no unit, no rc file)" % job["id"])
 
     def persist(self):
         data = {"seq": self.seq, "jobs": self.jobs[-QUEUE_HISTORY:],
@@ -501,9 +746,10 @@ class Scheduler:
                 "script": spec.get("script", ""),
                 "card": spec.get("card", "a6000"),
                 "cache_group": spec.get("cache_group",
-                                        "media" if spec.get("kind") in ("media-take", "comfy-session") else ""),
+                                        "media" if spec.get("kind") in MEDIA_KINDS else ""),
                 "env": {str(k): str(v) for k, v in (spec.get("env") or {}).items()},
                 "argv": spec.get("argv", ""),
+                "bound_s": spec.get("bound_s"),
                 "status": "queued",
                 "submitted": iso(self.now()),
                 "started": None, "finished": None, "rc": None, "sentinel": None,
@@ -521,6 +767,10 @@ class Scheduler:
                 raise ValueError("media runs on the A6000 only (card %s)" % job["card"])
             if not re.match(r"^[A-Za-z0-9._-]+$", job["name"]):
                 raise ValueError("name must be [A-Za-z0-9._-]+")
+            bound = job["bound_s"]
+            if bound is not None and not (isinstance(bound, int) and not isinstance(bound, bool)
+                                          and 1 <= bound <= BOUND_S_MAX):
+                raise ValueError("bound_s must be an integer 1..%d" % BOUND_S_MAX)
             self.jobs.append(job)
             self.persist()
             return job
@@ -546,17 +796,18 @@ class Scheduler:
                 self.persist()
                 return job
             if job["status"] == "running":
-                # SIGTERM to the runner we recorded; the runner's own finish() does the
-                # lawful teardown (VRAM wait, lease release-or-keep).
-                self.event("job %s cancel: SIGTERM to pid %s" % (jid, job.get("pid")))
-                proc = self.procs.get(jid)
-                if proc:
-                    proc.terminate()
-                elif job.get("pid"):
+                # The runner stops the whole job tree; TERM reaches the media runner's own
+                # finish() for its lawful teardown (VRAM wait, lease release-or-keep). The
+                # job stays running until reap sees it end.
+                self.event("job %s cancel: stop requested" % jid)
+                handle = self.procs.get(jid)
+                if handle is not None:
                     try:
-                        os.kill(job["pid"], 15)
-                    except OSError:
-                        pass
+                        self.runner.stop(handle)
+                    except RunnerError as e:
+                        self.event("job %s stop failed: %s" % (jid, e))
+                        self.persist()
+                        return job
                 job["cancel_requested"] = True
                 self.persist()
                 return job
@@ -665,7 +916,7 @@ class Scheduler:
         return ["bash", snap, job["name"]], env
 
     def start(self, job, card):
-        jobdir = os.path.join(self.home, "jobs", job["id"])
+        jobdir = os.path.abspath(os.path.join(self.home, "jobs", job["id"]))
         os.makedirs(jobdir, exist_ok=True)
         try:
             cmd, extra_env = self.build_cmd(job, jobdir)
@@ -674,29 +925,33 @@ class Scheduler:
             job["rc"], job["sentinel"] = 64, str(e)
             self.event("job %s refused build: %s" % (job["id"], e))
             return
-        env = dict(os.environ)
-        env.update(extra_env)
-        logf = open(os.path.join(jobdir, "log"), "ab")
-        logf.write(("[%s] argv: %s\n" % (iso(self.now()), " ".join(cmd))).encode())
-        proc = subprocess.Popen(cmd, stdout=logf, stderr=subprocess.STDOUT,
-                                 stdin=subprocess.DEVNULL, start_new_session=True, env=env,
-                                 cwd=jobdir)
-        job.update(status="running", started=iso(self.now()), pid=proc.pid,
-                   resolved_card=card, wait_reason=None)
-        self.procs[job["id"]] = proc
-        self.event("job %s started on %s (pid %d)" % (job["id"], card, proc.pid))
+        job.update(out=os.path.join(jobdir, "out"), err=os.path.join(jobdir, "err"),
+                   rc_file=os.path.join(jobdir, "rc"))
+        with open(job["out"], "ab") as f:
+            f.write(("[%s] argv: %s\n" % (iso(self.now()), " ".join(cmd))).encode())
+        try:
+            handle = self.runner.launch(job["id"], cmd, extra_env, jobdir,
+                                        job["kind"] in MEDIA_KINDS, bound_s=job.get("bound_s"))
+        except RunnerError as e:
+            job["status"], job["finished"] = "failed", iso(self.now())
+            job["rc"], job["sentinel"] = e.rc, str(e)
+            self.event("job %s refused launch: %s" % (job["id"], e))
+            return
+        where = self.runner.describe(handle)
+        job.update(status="running", started=iso(self.now()), resolved_card=card,
+                   wait_reason=None, **where)
+        self.procs[job["id"]] = handle
+        self.event("job %s started on %s (%s)"
+                   % (job["id"], card, ", ".join("%s %s" % kv for kv in where.items())))
 
     def sentinel_of(self, job, jobdir):
         if job["kind"] != "media-take":
             return None
         want = SENTINELS.get(job["script"], ())
-        try:
-            with open(os.path.join(jobdir, "log"), "rb") as f:
-                tail = f.read()[-8192:].decode(errors="replace")
-        except OSError:
-            return None
+        # each file's own tail, so a long stderr cannot push a stdout sentinel out of view
+        tails = [read_tail(p, 8192).decode(errors="replace") for p in log_files(jobdir)]
         for s in want:
-            if s in tail:
+            if any(s in t for t in tails):
                 return s
         return None
 
@@ -716,27 +971,24 @@ class Scheduler:
     def reap(self):
         for job in list(self.running_jobs()):
             jid = job["id"]
-            proc = self.procs.get(jid)
-            if proc is not None:
-                rc = proc.poll()
-                if rc is None:
-                    continue
-            else:
-                # re-adopted job: watch the recorded pid
-                try:
-                    os.kill(job.get("pid") or -1, 0)
-                    continue
-                except OSError:
-                    rc = job.get("rc", 0)
+            handle = self.procs.get(jid)
+            try:
+                st = self.runner.state(handle) if handle is not None else "gone"
+            except RunnerError as e:
+                log("job %s: cannot ask the runner (%s); asked again next tick" % (jid, e))
+                continue
+            if st == "running":
+                continue
             jobdir = os.path.join(self.home, "jobs", jid)
+            rc = None if st == "gone" else st[1]
             job["rc"] = rc
             job["sentinel"] = self.sentinel_of(job, jobdir)
             job["artifacts"] = self.artifacts_of(job)
             if job.pop("cancel_requested", False):
                 job["status"] = "cancelled"
-            elif proc is None:
-                # a re-adopted job whose pid went away across a daemon restart: rc unknowable
-                job["status"], job["rc"] = "lost", None
+            elif st == "gone":
+                # no unit and no rc file: how it ended is unknowable
+                job["status"] = "lost"
             elif job["kind"] == "media-take":
                 done_sentinel = SENTINELS.get(job["script"], ("?", "?"))[0]
                 job["status"] = "done" if (rc == 0 and job["sentinel"] == done_sentinel) else "failed"
@@ -1066,13 +1318,19 @@ class Handler(BaseHTTPRequestHandler):
 
     @staticmethod
     def tail(s, jid, nlines):
-        path = os.path.join(s.home, "jobs", jid, "log")
-        try:
-            with open(path, "rb") as f:
-                data = f.read()
-        except OSError:
+        """The last nlines lines of a job's logs, the job found by id or by name. Each file is
+        read from its last TAIL_LINE_BYTES * nlines bytes, a cut first line dropped."""
+        job = s.by_id(jid)
+        if not job:
             return ""
-        return b"\n".join(data.splitlines()[-nlines:]).decode(errors="replace")
+        window = TAIL_LINE_BYTES * max(nlines, 1)
+        lines = []
+        for path in log_files(os.path.join(s.home, "jobs", job["id"])):
+            data = read_tail(path, window + 1)
+            if len(data) > window:
+                data = data.partition(b"\n")[2]
+            lines += data.splitlines()
+        return b"\n".join(lines[-nlines:]).decode(errors="replace")
 
     # -- submission with the caller's bargain: wait up to `wait` seconds (default 60) for
     # -- allocation when the estimate says it can happen in time; otherwise answer at once
@@ -1140,7 +1398,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.submit_and_maybe_wait(self.owned(spec), body.get("wait", 60)), 201)
             if path == "/comfy/stop":
                 # the documented convenience for ending a session window by its tag
-                # (or the only running one); the lawful teardown is cancel's SIGTERM
+                # (or the only running one); the lawful teardown is what cancel's stop starts
                 running = [j for j in self.sched.running_jobs()
                            if j["kind"] == "comfy-session"]
                 if not running:
@@ -1266,6 +1524,50 @@ def sd_notify(msg):
         pass
 
 
+class Heartbeat:
+    """When the ticker last finished a tick; the age is read by the watchdog thread alone."""
+
+    def __init__(self, clock=time.monotonic):
+        self.clock = clock
+        self.last = clock()
+
+    def beat(self):
+        self.last = self.clock()
+
+    def age(self):
+        return self.clock() - self.last
+
+
+def run_ticker(sched, beat, stop, interval=TICK_S):
+    while not stop.is_set():
+        try:
+            sched.tick()
+        except Exception as e:  # a dispatcher must outlive a bad tick
+            log("tick error: %s" % e)
+        beat.beat()
+        stop.wait(interval)
+
+
+def run_watchdog(beat, stop, notify, interval=WATCHDOG_INTERVAL_S, max_age=TICK_MAX_AGE_S):
+    """WATCHDOG=1 every interval while the last finished tick is younger than max_age. It
+    takes no lock and runs no probe: a slow nvidia-smi inside a tick cannot starve it, a
+    tick wedged past max_age does."""
+    while not stop.is_set():
+        if beat.age() < max_age:
+            notify("WATCHDOG=1")
+        stop.wait(interval)
+
+
+def start_threads(sched, notify=sd_notify, beat=None, tick_s=TICK_S,
+                  interval=WATCHDOG_INTERVAL_S, max_age=TICK_MAX_AGE_S):
+    """The ticker and the watchdog, each on its own thread. Returns the event that stops both."""
+    stop, beat = threading.Event(), beat or Heartbeat()
+    threading.Thread(target=run_ticker, args=(sched, beat, stop, tick_s), daemon=True).start()
+    threading.Thread(target=run_watchdog, args=(beat, stop, notify, interval, max_age),
+                     daemon=True).start()
+    return stop
+
+
 def main():
     ap = argparse.ArgumentParser(description="signalbox dispatcher")
     ap.add_argument("--port", type=int, default=PORT)
@@ -1275,7 +1577,8 @@ def main():
     ap.add_argument("--fake", action="store_true",
                     help="fake jobs and no hardware gates: scheduler rehearsal")
     args = ap.parse_args()
-    sched = Scheduler(home=args.home, fake=args.fake or FAKE)
+    fake = args.fake or FAKE
+    sched = Scheduler(home=args.home, fake=fake, runner=PopenRunner() if fake else UnitRunner())
     Handler.sched = sched
     Handler.token_file = args.token_file
     _, why = read_token(args.token_file)
@@ -1283,19 +1586,11 @@ def main():
         log("token file %s %s: every tailnet request is refused (503) until it is fixed"
             % (args.token_file, why))
 
-    def ticker():
-        while True:
-            try:
-                sched.tick()
-            except Exception as e:  # a dispatcher must outlive a bad tick
-                log("tick error: %s" % e)
-            sd_notify("WATCHDOG=1")
-            time.sleep(2)
-
-    threading.Thread(target=ticker, daemon=True).start()
+    start_threads(sched)
     httpd = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     sd_notify("READY=1")
-    log("listening on 127.0.0.1:%d (home %s, fake=%s)" % (args.port, args.home, args.fake or FAKE))
+    log("listening on 127.0.0.1:%d (home %s, fake=%s, runner=%s)"
+        % (args.port, args.home, fake, type(sched.runner).__name__))
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

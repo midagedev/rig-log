@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Scheduler policy tests with a fake clock and fake probes — no GPU, no box.
 Run: python3 test_scheduler.py"""
+import configparser
 import json
 import os
+import shlex
+import signal
 import subprocess
 import sys
 import tempfile
@@ -14,6 +17,10 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import daemon as D
+
+# The exact argv checks expect a unit to inherit nothing from the test's own environment.
+for _k in D.PASS_ENV:
+    os.environ.pop(_k, None)
 
 
 class FakeProbes(D.Probes):
@@ -53,16 +60,77 @@ class FakeProbes(D.Probes):
         return list(self.hold_state)
 
 
+class FakeUnitRunner(D.UnitRunner):
+    """The real UnitRunner with only _run replaced: it records every argv UnitRunner would run
+    and answers from a table of units, so argv building, state parsing and rc-file reading are
+    the production code. end() ends a unit the way systemd does: it runs the unit's own
+    ExecStopPost command, for real, with $EXIT_CODE and $EXIT_STATUS set, then unloads it."""
+    GONE = {"LoadState": "not-found", "ActiveState": "inactive"}
+
+    def __init__(self):
+        super().__init__()
+        self.calls, self.units, self.posts = [], {}, {}
+        self.run_fails = self.stop_fails = None   # (rc, text) the command answers instead
+        self.show_fails = False
+
+    def _run(self, argv, timeout=30):
+        self.calls.append(list(argv))
+        if argv[0] == self.systemd_run:
+            if self.run_fails:
+                return self.run_fails
+            unit = argv[argv.index("--unit") + 1]
+            self.units[unit] = {"LoadState": "loaded", "ActiveState": "active"}
+            props = [argv[i + 1] for i, a in enumerate(argv) if a == "-p"]
+            post = [p[len("ExecStopPost="):] for p in props if p.startswith("ExecStopPost=")]
+            wd = [p[len("WorkingDirectory="):] for p in props if p.startswith("WorkingDirectory=")]
+            self.posts[unit] = (shlex.split(post[0]), wd[0]) if post else None
+            return 0, ""
+        if argv[:2] == [self.systemctl, "show"]:
+            if self.show_fails:
+                return 1, "Failed to connect to bus"
+            p = self.units.get(argv[2], self.GONE)
+            return 0, "".join("%s=%s\n" % kv for kv in p.items())
+        if argv[:2] == [self.systemctl, "stop"]:
+            if self.stop_fails:
+                return self.stop_fails
+            unit = argv[-1]
+            if unit not in self.units:
+                return 5, "Unit %s.service not loaded." % unit
+            self.units[unit]["ActiveState"] = "deactivating"
+            return 0, ""
+        raise AssertionError("unexpected command %r" % (argv,))
+
+    def systemd_runs(self):
+        return [c for c in self.calls if c[0] == self.systemd_run]
+
+    def end(self, job, exit_code, exit_status):
+        """The job's main process ended as systemd reports it, ExecStopPost ran, --collect
+        unloaded the unit."""
+        unit = D.unit_of(job["id"])
+        if self.posts[unit]:     # a unit without an ExecStopPost leaves no rc
+            argv, wd = self.posts[unit]
+            env = {"PATH": os.environ["PATH"]}
+            if exit_code is not None:
+                env["EXIT_CODE"] = exit_code
+            if exit_status is not None:
+                env["EXIT_STATUS"] = exit_status
+            subprocess.run(argv, cwd=wd, env=env, check=True)
+        self.units.pop(unit, None)
+
+    def finish(self, job, rc):
+        self.end(job, "exited", str(rc))
+
+
 def make_sched(lease=None, locks=(), holds=(), vram=None, windows=(), now=None,
-               fake=True, cooldown=0):
-    tmp = tempfile.mkdtemp(prefix="signalbox-test-")
+               fake=True, cooldown=0, runner=None, home=None):
+    tmp = home or tempfile.mkdtemp(prefix="signalbox-test-")
     res_path = os.path.join(tmp, "reservations.json")
     with open(res_path, "w") as f:
         json.dump({"windows": list(windows), "cache_cooldown_s": cooldown}, f)
     clock = {"now": now or datetime(2026, 10, 3, 15, 0, 0)}
     s = D.Scheduler(probes=FakeProbes(lease, locks, holds, vram), home=tmp,
                     reservations=D.Reservations(res_path), fake=fake,
-                    now_fn=lambda: clock["now"])
+                    now_fn=lambda: clock["now"], runner=runner)
     return s, clock
 
 
@@ -490,6 +558,545 @@ check("door: a missing token file and a 0644 token file are both 503 naming the 
       and tok_path in out_open["error"] and local_gone == 200 and local_open == 200,
       (code_gone, code_open, local_gone, local_open))
 httpd.shutdown()
+
+# ---------------------------------------------------------------- units: runner seam, argv, reap
+def wait_for(pred, timeout=5.0, step=0.02):
+    end = time.time() + timeout
+    while time.time() < end:
+        if pred():
+            return True
+        time.sleep(step)
+    return pred()
+
+
+def pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def unit_job(s, name="u", **kw):
+    spec = {"kind": "command", "argv": "true", "name": name, "owner": "t"}
+    spec.update(kw)
+    return s.submit(spec)
+
+
+# a stand-in for a media runner script: build_cmd copies it, the box's own scripts are not here
+media_dir = tempfile.mkdtemp(prefix="signalbox-media-")
+media_script = os.path.join(media_dir, "img-take.sh")
+with open(media_script, "w") as f:
+    f.write("echo IMG_DONE\n")
+D.RUNNERS = dict(D.RUNNERS, img=media_script)
+D.COMFY_SESSION = media_script
+
+fk = FakeUnitRunner()
+s, _ = make_sched(runner=fk)
+jd = os.path.join(os.path.abspath(s.home), "jobs", "s1")
+cmd_job = unit_job(s, "cmdjob", env={"A": "1", "B": "x y"})
+s.tick()
+want = ["systemd-run", "--unit", "sb-s1", "--collect", "--quiet",
+        "-p", "StandardOutput=append:%s/out" % jd, "-p", "StandardError=append:%s/err" % jd,
+        "-p", "WorkingDirectory=%s" % jd, "-p", "ExecStopPost=/bin/sh %s/post.sh" % jd,
+        "-p", "TimeoutStopSec=30",
+        "--setenv", "A=1", "--setenv", "B=x y", "/bin/bash", "%s/cmd.sh" % jd]
+check("runner: a started job went through the runner, one systemd-run", fk.systemd_runs() == [want],
+      fk.systemd_runs())
+print("     command job argv:", " ".join(shlex.quote(a) for a in fk.systemd_runs()[0]))
+check("runner: the job is running, with its unit recorded",
+      cmd_job["status"] == "running" and cmd_job["unit"] == "sb-s1", cmd_job)
+check("logs: the job JSON carries out, err and rc_file as absolute paths in its jobdir",
+      (cmd_job["out"], cmd_job["err"], cmd_job["rc_file"])
+      == (jd + "/out", jd + "/err", jd + "/rc"), cmd_job)
+check("runner: cmd.sh was written for the unit", os.path.isfile(jd + "/cmd.sh"))
+check("scripts: cmd.sh only execs the argv (the unit's main process is the job itself)",
+      open(jd + "/cmd.sh").read() == "#!/bin/bash\nexec bash -c true\n", open(jd + "/cmd.sh").read())
+check("scripts: post.sh was written for the unit's ExecStopPost", os.path.isfile(jd + "/post.sh"))
+
+fk.finish(cmd_job, 0)
+s.tick()
+media_job = s.submit({"kind": "media-take", "script": "img", "name": "mjob", "owner": "t",
+                      "env": {"PROMPT": "a kite"}})
+s.tick()
+mrun = fk.systemd_runs()[1]
+mjd = os.path.join(os.path.abspath(s.home), "jobs", "s2")
+print("     media job argv:  ", " ".join(shlex.quote(a) for a in mrun))
+check("argv: media adds KillMode=mixed and the 240 s stop (a runner's finish() waits up to 175 s)",
+      "KillMode=mixed" in mrun and "TimeoutStopSec=240" in mrun and "TimeoutStopSec=30" not in mrun
+      and mrun[mrun.index("KillMode=mixed") - 1] == "-p", mrun)
+check("argv: a command job has neither KillMode nor the 240 s stop",
+      not any("KillMode" in a or a == "TimeoutStopSec=240" for a in want))
+check("argv: every job's unit ends through ExecStopPost=/bin/sh <jobdir>/post.sh",
+      "ExecStopPost=/bin/sh %s/post.sh" % mjd in mrun and "ExecStopPost=/bin/sh %s/post.sh" % jd in want)
+check("argv: the media job carries its env through --setenv and runs its own cmd.sh",
+      "PROMPT=a kite" in mrun and "TAG=mjob" in mrun and mrun[-2:] == ["/bin/bash", mjd + "/cmd.sh"], mrun)
+cs = s.submit({"kind": "comfy-session", "name": "cs1", "owner": "t", "card": "3090",
+               "env": {"MINUTES": "5"}})
+s.tick()
+check("argv: a comfy session is a media job too (KillMode=mixed)",
+      "KillMode=mixed" in fk.systemd_runs()[-1], fk.systemd_runs()[-1])
+check("argv: no memory property and no OOMPolicy in any job's command line",
+      not any("Memory" in a or "OOMPolicy" in a for c in fk.systemd_runs() for a in c))
+_saved = {k: os.environ.get(k) for k in D.PASS_ENV}
+os.environ["LANG"], os.environ["USER"] = "C.UTF-8", "root"
+_pa = D.UnitRunner().run_argv("s9", {"USER": "job"}, "/tmp/jd", False)
+for k, v in _saved.items():
+    if v is None:
+        os.environ.pop(k, None)
+    else:
+        os.environ[k] = v
+check("argv: the daemon's LANG and USER reach the unit, and the job's env overrides them",
+      "LANG=C.UTF-8" in _pa and "USER=job" in _pa and "USER=root" not in _pa, _pa)
+check("argv: no RuntimeMaxSec unless the job carries bound_s",
+      not any("RuntimeMaxSec" in a for c in fk.systemd_runs() for a in c))
+
+fk = FakeUnitRunner()
+s, _ = make_sched(runner=fk)
+unit_job(s, "bounded", bound_s=90)
+s.tick()
+bound_argv = fk.systemd_runs()[0]
+check("argv: bound_s=90 adds -p RuntimeMaxSec=90",
+      "RuntimeMaxSec=90" in bound_argv and bound_argv[bound_argv.index("RuntimeMaxSec=90") - 1] == "-p",
+      bound_argv)
+bad = []
+for v in (0, 86401, True, "5", 1.5, -3):
+    try:
+        unit_job(s, "bad%s" % len(bad), bound_s=v)
+        bad.append(v)
+    except ValueError:
+        pass
+check("bound_s: 0, 86401, a bool, a string, a float and a negative are refused", not bad, bad)
+ok_edges = [unit_job(s, "edge1", bound_s=1)["bound_s"], unit_job(s, "edge2", bound_s=86400)["bound_s"]]
+check("bound_s: 1 and 86400 are accepted", ok_edges == [1, 86400], ok_edges)
+
+# a unit that already exists is a named failure, never a reuse, never retried
+fk = FakeUnitRunner()
+s, _ = make_sched(runner=fk)
+fk.units["sb-s1"] = {"LoadState": "loaded", "ActiveState": "active"}
+j = unit_job(s, "dup")
+s.tick(); s.tick()
+check("launch: an existing unit sb-s1 fails the job, rc 64, named",
+      j["status"] == "failed" and j["rc"] == 64 and "unit sb-s1 exists" in (j["sentinel"] or ""), j)
+check("launch: ...and systemd-run never ran, on either tick", fk.systemd_runs() == [], fk.calls)
+fk = FakeUnitRunner()
+s, _ = make_sched(runner=fk)
+os.makedirs(os.path.join(s.home, "jobs", "s1"))
+with open(os.path.join(s.home, "jobs", "s1", "rc"), "w") as f:
+    f.write("0")
+j = unit_job(s, "stalerc")
+s.tick()
+check("launch: a jobdir that already holds an rc fails the job, rc 64 (a stale rc would end it at once)",
+      j["status"] == "failed" and j["rc"] == 64 and "was used before" in j["sentinel"]
+      and fk.systemd_runs() == [], j)
+fk = FakeUnitRunner()
+fk.run_fails = (1, "Failed to start transient service unit: Access denied")
+s, _ = make_sched(runner=fk)
+j = unit_job(s, "denied")
+s.tick(); s.tick()
+check("launch: systemd-run failing fails the job, rc 70, with its message, once",
+      j["status"] == "failed" and j["rc"] == 70 and "Access denied" in j["sentinel"]
+      and len(fk.systemd_runs()) == 1, j)
+fk = FakeUnitRunner()
+s, _ = make_sched(runner=fk)
+j = unit_job(s, "badenv", env={"BAD-NAME": "1"})
+s.tick()
+check("launch: an env name that is not a variable name fails the job, rc 64",
+      j["status"] == "failed" and j["rc"] == 64 and "BAD-NAME" in j["sentinel"]
+      and fk.systemd_runs() == [], j)
+
+# cancel = runner.stop, which is a non-blocking systemctl stop
+fk = FakeUnitRunner()
+s, _ = make_sched(runner=fk)
+j = unit_job(s, "cancelme")
+s.tick()
+s.cancel(j["id"])
+check("cancel: a running job's cancel is `systemctl stop --no-block sb-<id>`",
+      fk.calls[-1] == ["systemctl", "stop", "--no-block", "sb-s1"], fk.calls[-1])
+check("cancel: the job stays running with cancel_requested until the unit ends",
+      j["status"] == "running" and j.get("cancel_requested") is True, j)
+s.tick()
+check("cancel: an unit still deactivating keeps the job running", j["status"] == "running", j)
+fk.end(j, "killed", "TERM")
+s.tick()
+check("cancel: once the unit ends the job is cancelled, rc kept",
+      j["status"] == "cancelled" and j["rc"] == 143 and "cancel_requested" not in j, j)
+fk = FakeUnitRunner()
+s, _ = make_sched(runner=fk)
+j = unit_job(s, "cancelfail")
+s.tick()
+fk.stop_fails = (1, "Access denied")
+s.cancel(j["id"])
+check("cancel: a stop that failed is an event, and the job is not marked cancelled",
+      j["status"] == "running" and "cancel_requested" not in j
+      and any("stop failed" in e and "Access denied" in e for e in s.events), (j, s.events))
+
+# reap reads runner.state
+fk = FakeUnitRunner()
+s, _ = make_sched(runner=fk, cooldown=0)
+ok_job = unit_job(s, "ok1", card="a6000")
+bad_job = unit_job(s, "bad1", card="3090")
+s.tick()
+fk.finish(ok_job, 0); fk.finish(bad_job, 3)
+s.tick()
+check("reap: an exited unit's rc comes from its rc file (0 is done, 3 is failed with rc 3)",
+      ok_job["status"] == "done" and ok_job["rc"] == 0 and bad_job["status"] == "failed"
+      and bad_job["rc"] == 3, (ok_job["status"], bad_job["status"], bad_job["rc"]))
+fk = FakeUnitRunner()
+s, _ = make_sched(runner=fk)
+j = unit_job(s, "gone1")
+s.tick()
+fk.units.pop("sb-s1")
+s.tick()
+check("reap: no unit and no rc file is lost with rc None",
+      j["status"] == "lost" and j["rc"] is None, j)
+fk = FakeUnitRunner()
+s, _ = make_sched(runner=fk)
+j = unit_job(s, "killed1", card="a6000")
+j2 = unit_job(s, "odd1", card="3090")
+s.tick()
+fk.end(j, "killed", "KILL")
+fk.end(j2, "killed", "RTMIN+3")
+s.tick()
+check("reap: a job killed by KILL left rc 137 through ExecStopPost and is failed with it",
+      j["status"] == "failed" and j["rc"] == 137 and j["sentinel"] is None, j)
+check("reap: a job killed by a signal the table does not name left rc 70 and is failed",
+      j2["status"] == "failed" and j2["rc"] == 70, j2)
+fk = FakeUnitRunner()
+s, _ = make_sched(runner=fk)
+j = unit_job(s, "tail1")
+s.tick()
+with open(j["rc_file"], "w") as f:
+    f.write("0")
+s.tick()
+check("reap: a unit still active holds its lane even after rc is written", j["status"] == "running", j)
+fk.units.pop("sb-s1")
+s.tick()
+check("reap: ...and ends the job once the unit is gone", j["status"] == "done", j)
+fk = FakeUnitRunner()
+s, _ = make_sched(runner=fk)
+j = unit_job(s, "blind")
+s.tick()
+fk.show_fails = True
+try:
+    s.tick()
+    raised = False
+except Exception:
+    raised = True
+check("reap: systemctl failing leaves the job running and the tick standing",
+      not raised and j["status"] == "running")
+fk.show_fails = False
+fk.finish(j, 0)
+s.tick()
+check("reap: ...and the next tick that can ask reaps it", j["status"] == "done", j)
+fk = FakeUnitRunner()
+s, _ = make_sched(runner=fk)
+mj = s.submit({"kind": "media-take", "script": "img", "name": "mdone", "owner": "t"})
+mn = s.submit({"kind": "media-take", "script": "img", "name": "mnone", "owner": "t"})
+s.tick()
+check("reap: only one media job runs on the lane", mj["status"] == "running" and mn["status"] == "queued")
+with open(mj["out"], "a") as f:
+    f.write("12:00:00 take\nIMG_DONE\n")
+fk.finish(mj, 0)
+s.tick()
+check("reap: a media job with rc 0 and its sentinel in out is done",
+      mj["status"] == "done" and mj["sentinel"] == "IMG_DONE", mj)
+s.tick()
+fk.finish(mn, 0)
+s.tick()
+check("reap: a media job with rc 0 and no sentinel is failed", mn["status"] == "failed", mn)
+
+# ---------------------------------------------------------------- units: re-adoption
+fk = FakeUnitRunner()
+s1, _ = make_sched(runner=fk)
+home = s1.home
+act = unit_job(s1, "act")
+rco = unit_job(s1, "rconly", card="3090")
+nei = unit_job(s1, "neither", card="any")
+s1.tick()
+check("adopt: three jobs running before the restart",
+      [j["status"] for j in (act, rco, nei)] == ["running"] * 2 + ["queued"],
+      [j["status"] for j in (act, rco, nei)])
+nei2 = unit_job(s1, "neither2", card="3090")
+s1.cancel(nei["id"]); s1.cancel(nei2["id"])
+# the lane limit is one job per card: use a fresh pair for the third case below
+fk.finish(rco, 5)                       # the unit ended and left its rc while the daemon was down
+s2, _ = make_sched(runner=fk, home=home)
+a2, r2 = s2.by_id(act["id"]), s2.by_id(rco["id"])
+check("adopt: a job whose unit is active is still running after a restart, adopted",
+      a2["status"] == "running" and act["id"] in s2.procs, a2)
+check("adopt: a job whose rc file exists is still running at load (reaped on the next tick)",
+      r2["status"] == "running" and rco["id"] in s2.procs, r2)
+s2.tick()
+check("adopt: ...and that tick reaps it with the rc from the file",
+      r2["status"] == "failed" and r2["rc"] == 5 and a2["status"] == "running",
+      (r2["status"], r2["rc"], a2["status"]))
+fk.finish(a2, 0)
+s2.tick()
+check("adopt: the adopted active job ends with its own rc later", a2["status"] == "done", a2)
+fk = FakeUnitRunner()
+s1, _ = make_sched(runner=fk)
+lost = unit_job(s1, "lostone")
+s1.tick()
+fk.units.pop("sb-s1")                   # no unit, no rc file
+s2, _ = make_sched(runner=fk, home=s1.home)
+l2 = s2.by_id(lost["id"])
+check("adopt: neither a unit nor an rc file is lost at load, rc None",
+      l2["status"] == "lost" and l2["rc"] is None and "sb-s1" not in str(s2.procs)
+      and l2["id"] not in s2.procs, l2)
+fk = FakeUnitRunner()
+s1, _ = make_sched(runner=fk)
+kept = unit_job(s1, "keptone")
+s1.tick()
+fk.show_fails = True
+s2, _ = make_sched(runner=fk, home=s1.home)
+check("adopt: systemctl failing at load keeps the job (it is asked again by reap)",
+      s2.by_id(kept["id"])["status"] == "running" and kept["id"] in s2.procs)
+
+# ---------------------------------------------------------------- cmd.sh and post.sh, real processes
+wd = tempfile.mkdtemp(prefix="signalbox-scripts-")
+D.write_scripts(wd, ["bash", "-c", 'printf "%s|%s" "$0" "$1" > out.txt',
+                     "a'b \"c\" $HOME\nline2 `x`", "$(echo hi)"])
+subprocess.run(["/bin/bash", wd + "/cmd.sh"], cwd=wd)
+with open(wd + "/out.txt") as f:
+    got = f.read()
+check("scripts: an argv with quotes, $, backticks and a newline reaches the job untouched",
+      got == "a'b \"c\" $HOME\nline2 `x`|$(echo hi)", got)
+wd = tempfile.mkdtemp(prefix="signalbox-scripts-")
+D.write_scripts(wd, ["bash", "-c", "exit 7"])
+check("scripts: cmd.sh's exit code is the job's own (it execs, nothing stands in between)",
+      subprocess.run(["/bin/bash", wd + "/cmd.sh"], cwd=wd).returncode == 7)
+check("scripts: no TERM forwarding or trap anywhere: cmd.sh is the exec line alone",
+      "trap" not in open(wd + "/cmd.sh").read() and "kill" not in open(wd + "/cmd.sh").read())
+
+
+def post_rc(exit_code, exit_status):
+    """The rc post.sh writes for the way systemd reports the main process's end (None: the
+    variable is not set at all)."""
+    d = tempfile.mkdtemp(prefix="signalbox-post-")
+    D.write_scripts(d, ["true"])
+    env = {"PATH": os.environ["PATH"]}
+    if exit_code is not None:
+        env["EXIT_CODE"] = exit_code
+    if exit_status is not None:
+        env["EXIT_STATUS"] = exit_status
+    subprocess.run(["/bin/sh", d + "/post.sh"], cwd=d, env=env, check=True)
+    left = sorted(os.listdir(d))
+    return open(d + "/rc").read(), left
+
+
+got = [post_rc("exited", st)[0] for st in ("0", "3", "75", "255")]
+check("post: an exited main process's rc is its exit status", got == ["0", "3", "75", "255"], got)
+got = [post_rc(c, st)[0] for c, st in (("killed", "KILL"), ("killed", "TERM"), ("dumped", "SEGV"),
+                                      ("killed", "HUP"), ("dumped", "ABRT"))]
+check("post: killed or dumped is 128 + the signal's number from the fixed table",
+      got == ["137", "143", "139", "129", "134"], got)
+got = [post_rc(c, st)[0] for c, st in (("killed", "RTMIN+3"), ("killed", ""), ("killed", None),
+                                      ("exited", "abc"), ("exited", ""), ("exited", None),
+                                      ("weird", "9"), (None, None))]
+check("post: an unknown signal name, an odd status or missing variables is rc 70",
+      got == ["70"] * 8, got)
+rc_txt, left = post_rc("exited", "4")
+pd = tempfile.mkdtemp(prefix="signalbox-post-")
+D.write_scripts(pd, ["true"])
+post_text = open(pd + "/post.sh").read()
+check("post: rc is written through rc.tmp and mv; no rc.tmp is left",
+      "rc.tmp" in post_text and " && mv " in post_text and "rc.tmp" not in left, (post_text, left))
+check("post: every signal of the table maps to 128 + its Linux number",
+      all(post_rc("killed", n)[0] == str(128 + v) for n, v in D.SIGNALS.items()))
+
+# ---------------------------------------------------------------- the tree-kill clause (real processes)
+s, _ = make_sched(fake=False)
+tree_dir = tempfile.mkdtemp(prefix="signalbox-tree-")
+pidf = os.path.join(tree_dir, "child.pid")
+tj = s.submit({"kind": "command", "name": "tree", "owner": "t", "card": "a6000",
+               "argv": "sleep 300 & echo $! > %s; wait" % pidf})
+s.tick()
+child = None
+try:
+    started = wait_for(lambda: os.path.exists(pidf) and open(pidf).read().strip().isdigit())
+    child = int(open(pidf).read().strip()) if started else None
+    s.cancel(tj["id"])
+    gone = child is not None and wait_for(lambda: not pid_alive(child), 5)
+    check("tree-kill: cancel kills the job's whole process group; the backgrounded sleep is gone in 5 s",
+          started and gone, (started, child, gone))
+    wait_for(lambda: (s.tick(), tj["status"] != "running")[1])
+    check("tree-kill: ...and the job ends cancelled", tj["status"] == "cancelled", tj["status"])
+finally:
+    if child is not None and pid_alive(child):
+        os.kill(child, signal.SIGKILL)  # only the pid the job wrote to its own file
+
+# ---------------------------------------------------------------- logs: out, err, rc_file, legacy log
+s, _ = make_sched(fake=False)
+lg = s.submit({"kind": "command", "name": "lg", "owner": "t", "card": "a6000",
+               "argv": 'echo to-out; echo to-err >&2; echo "[$NOTIFY_SOCKET][$MARK]"',
+               "env": {"MARK": "m1"}})
+os.environ["NOTIFY_SOCKET"] = "/run/not-for-jobs"
+try:
+    s.tick()
+    wait_for(lambda: (s.tick(), lg["status"] != "running")[1])
+finally:
+    del os.environ["NOTIFY_SOCKET"]
+out_txt, err_txt = open(lg["out"]).read(), open(lg["err"]).read()
+out_body = out_txt.split("\n", 1)[1]
+check("logs: stdout goes to out (after the argv header), stderr to err, neither in the other",
+      out_txt.startswith("[") and "] argv: " in out_txt.split("\n", 1)[0]
+      and out_body == "to-out\n[][m1]\n" and err_txt == "to-err\n", (out_txt, err_txt))
+check("logs: a job gets its env and not the daemon's NOTIFY_SOCKET", "[][m1]" in out_txt, out_txt)
+check("logs: the rc file holds the rc of an ended job (PopenRunner too)",
+      lg["status"] == "done" and open(lg["rc_file"]).read() == "0", (lg["status"], lg["rc_file"]))
+check("logs: the tail reads out first, then err",
+      D.Handler.tail(s, lg["id"], 100).splitlines()[-2:] == ["[][m1]", "to-err"]
+      and D.Handler.tail(s, lg["id"], 100).index("to-out") < D.Handler.tail(s, lg["id"], 100).index("to-err"),
+      D.Handler.tail(s, lg["id"], 100))
+legacy = s.submit({"kind": "command", "name": "legacy", "argv": "true", "owner": "t"})
+old_dir = os.path.join(s.home, "jobs", legacy["id"])
+os.makedirs(old_dir)
+with open(os.path.join(old_dir, "log"), "w") as f:
+    f.write("legacy line 1\nIMG_DONE\n")
+check("logs: the merged <jobdir>/log of a job made before the split is still read",
+      D.Handler.tail(s, legacy["id"], 10) == "legacy line 1\nIMG_DONE")
+check("logs: sentinel_of still finds a sentinel in a legacy log",
+      s.sentinel_of({"kind": "media-take", "script": "img"}, old_dir) == "IMG_DONE")
+sent_dir = os.path.join(s.home, "jobs", "s78")
+os.makedirs(sent_dir)
+with open(os.path.join(sent_dir, "out"), "w") as f:
+    f.write("work\nIMG_DONE\n")
+with open(os.path.join(sent_dir, "err"), "w") as f:
+    f.write("x" * 20000)
+check("logs: a sentinel on stdout is found past 20 KB of stderr",
+      s.sentinel_of({"kind": "media-take", "script": "img"}, sent_dir) == "IMG_DONE")
+with open(os.path.join(sent_dir, "out"), "w") as f:
+    f.write("work\n")
+with open(os.path.join(sent_dir, "err"), "w") as f:
+    f.write("noise\nIMG_FAILED\n")
+check("logs: a sentinel on stderr is found too",
+      s.sentinel_of({"kind": "media-take", "script": "img"}, sent_dir) == "IMG_FAILED")
+check("logs: no sentinel in any file is None",
+      s.sentinel_of({"kind": "media-take", "script": "img"}, os.path.join(s.home, "jobs", "s79")) is None)
+
+# the tail finds a job by id or name and reads only the end of a long log
+tj = s.submit({"kind": "command", "name": "bigtail", "argv": "true", "owner": "t"})
+tdir = os.path.join(s.home, "jobs", tj["id"])
+os.makedirs(tdir)
+with open(os.path.join(tdir, "out"), "w") as f:
+    f.write("".join("line %d\n" % i for i in range(20000)))
+with open(os.path.join(tdir, "err"), "w") as f:
+    f.write("e1\ne2\n")
+sizes, real_read_tail = [], D.read_tail
+D.read_tail = lambda path, nbytes=None: (sizes.append(nbytes), real_read_tail(path, nbytes))[1]
+try:
+    by_name = D.Handler.tail(s, "bigtail", 5)
+    by_id = D.Handler.tail(s, tj["id"], 5)
+finally:
+    D.read_tail = real_read_tail
+check("tail: the job is found by its name as well as its id",
+      by_name == by_id == "line 19997\nline 19998\nline 19999\ne1\ne2", (by_name, by_id))
+check("tail: only the end of each file is read, never the whole log",
+      sizes and all(n is not None and n < 10000 for n in sizes), sizes)
+check("tail: an unknown job is an empty tail", D.Handler.tail(s, "no-such-job", 5) == "")
+with open(os.path.join(tdir, "out"), "w") as f:
+    f.write("".join("%04d%s\n" % (i, "x" * 2000) for i in range(50)))
+cut = D.Handler.tail(s, tj["id"], 40).splitlines()
+check("tail: a line the read window cut in half is dropped, every line returned is whole",
+      0 < len(cut) < 40 and all(len(l) == 2004 for l in cut[:-2]), [len(l) for l in cut])
+
+# ---------------------------------------------------------------- the watchdog on its own thread
+class Clock:
+    def __init__(self):
+        self.t = 0.0
+
+    def __call__(self):
+        return self.t
+
+
+clock_w = Clock()
+beat = D.Heartbeat(clock_w)
+check("watchdog: the heartbeat's age follows its clock and resets on a beat",
+      beat.age() == 0 and (clock_w.__setattr__("t", 7.0) or beat.age()) == 7.0
+      and (beat.beat() or beat.age()) == 0)
+
+
+class StuckSched:
+    """tick() blocks until released: a probe that does not come back."""
+    def __init__(self):
+        self.entered, self.release = threading.Event(), threading.Event()
+
+    def tick(self):
+        self.entered.set()
+        self.release.wait(20)
+
+
+clock_w = Clock()
+beat = D.Heartbeat(clock_w)
+sent = []
+stuck = StuckSched()
+stop = D.start_threads(stuck, notify=sent.append, beat=beat, tick_s=0.01, interval=0.02, max_age=60)
+try:
+    in_tick = stuck.entered.wait(5)
+    clock_w.t += 3.0                     # the tick has been running for 3 s
+    n0 = len(sent)
+    out_during = wait_for(lambda: len(sent) > n0 + 1, 3)
+    check("watchdog: WATCHDOG=1 keeps going out while a 3 s tick is still running",
+          in_tick and out_during and set(sent) == {"WATCHDOG=1"}, (in_tick, out_during, sent[:3]))
+    clock_w.t += 58.0                    # 61 s since the last finished tick
+    time.sleep(0.15)
+    n1 = len(sent)
+    time.sleep(0.2)
+    check("watchdog: a tick stuck past 60 s stops WATCHDOG=1", len(sent) == n1, (n1, len(sent)))
+    stuck.release.set()
+    resumed = wait_for(lambda: len(sent) > n1, 3)
+    check("watchdog: ...and the tick finishing brings it back", resumed)
+finally:
+    stuck.release.set()
+    stop.set()
+
+
+class RaisingSched:
+    def __init__(self):
+        self.n = 0
+
+    def tick(self):
+        self.n += 1
+        raise RuntimeError("probe blew up")
+
+
+clock_w = Clock()
+rs, sent = RaisingSched(), []
+stop = D.start_threads(rs, notify=sent.append, beat=D.Heartbeat(clock_w), tick_s=0.01,
+                       interval=0.02, max_age=60)
+wait_for(lambda: rs.n >= 3, 3)
+clock_w.t += 70                      # no tick has beaten for 70 s of this clock, but ticks keep finishing
+n_before = len(sent)
+check("watchdog: a tick that raised still counts as finished; the ticker keeps ticking",
+      rs.n >= 3 and wait_for(lambda: len(sent) > n_before, 3), (rs.n, len(sent)))
+stop.set()
+
+# ---------------------------------------------------------------- environment of the PopenRunner, unit file
+cfg = configparser.ConfigParser(interpolation=None, strict=False)
+here = os.path.dirname(os.path.abspath(__file__))
+unit_path = os.path.join(here, "..", "..", "configs", "signalbox.service")
+with open(unit_path) as f:
+    unit_text = f.read()
+cfg.read_string(unit_text)
+svc = cfg["Service"]
+check("service: KillMode=process, so a restart never touches the daemon's children",
+      svc.get("KillMode") == "process", dict(svc))
+check("service: the live unit's keys are kept (notify, WatchdogSec=30, restart policy, ExecStart)",
+      svc.get("Type") == "notify" and svc.get("WatchdogSec") == "30"
+      and svc.get("Restart") == "always" and svc.get("RestartSec") == "5"
+      and svc.get("TimeoutStopSec") == "10"
+      and svc.get("ExecStart") == "/usr/bin/python3 /home/user/signalbox/daemon.py --home /home/user/signalbox",
+      dict(svc))
+check("service: its header says how it is installed (cp to /etc/systemd/system, daemon-reload)",
+      "cp configs/signalbox.service /etc/systemd/system/" in unit_text
+      and "systemctl daemon-reload" in unit_text)
+check("service: it says jobs are transient units re-adopted by unit and rc file, not 'by pid'",
+      "transient unit" in unit_text and "rc file" in unit_text and "by pid" not in unit_text)
+check("service: configs/signalbox.service is the only copy of the unit in the repo",
+      not os.path.exists(os.path.join(here, "signalbox.service")))
 
 print("\n%d passed, %d failed" % (PASS, FAIL))
 sys.exit(1 if FAIL else 0)

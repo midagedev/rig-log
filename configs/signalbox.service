@@ -1,3 +1,6 @@
+# signalbox's systemd unit. Install on the box:
+#   cp configs/signalbox.service /etc/systemd/system/signalbox.service
+#   systemctl daemon-reload && systemctl restart signalbox
 [Unit]
 Description=signalbox — the box's job dispatcher (lease-aware, one lane per card)
 After=network.target
@@ -9,7 +12,11 @@ ExecStart=/usr/bin/python3 /home/user/signalbox/daemon.py --home /home/user/sign
 Restart=always
 RestartSec=5
 TimeoutStopSec=10
-# Jobs are setsid detached; they survive a restart and are re-adopted by pid.
+# Each job is its own transient unit (sb-<id>, started with systemd-run), not a process of
+# this unit: restarting or stopping this unit never touches a job. The daemon re-adopts the
+# running jobs by unit name and rc file. KillMode=process keeps the rest of the daemon's
+# children out of a stop's way too.
+KillMode=process
 
 [Install]
 WantedBy=multi-user.target
