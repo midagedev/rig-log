@@ -6,7 +6,10 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+import urllib.error
+import urllib.request
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -277,6 +280,216 @@ check("priority: bumped job dispatches ahead of newer same-priority",
       late["status"] == "running" and early["status"] == "queued",
       "%s / %s" % (late["status"], early["status"]))
 s4.procs[late["id"]].terminate()
+
+# ---------------------------------------------------------------- the tailnet door
+import http.server
+
+TOKEN = "door-test-token-0123456789"
+tok_dir = tempfile.mkdtemp(prefix="signalbox-token-")
+tok_path = os.path.join(tok_dir, "token")
+
+
+def write_token(text, mode=0o600):
+    with open(tok_path, "w") as f:
+        f.write(text)
+    os.chmod(tok_path, mode)
+
+
+write_token(TOKEN + "\n")
+sd, _ = make_sched()
+D.Handler.sched, D.Handler.token_file = sd, tok_path
+httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), D.Handler)
+threading.Thread(target=httpd.serve_forever, daemon=True).start()
+BASE = "http://127.0.0.1:%d" % httpd.server_address[1]
+TAILNET = {"X-Forwarded-For": "203.0.113.7"}
+AUTH = {"Authorization": "Bearer " + TOKEN}
+
+
+def call(method, path, body=None, headers=None):
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(BASE + path, data=data, method=method,
+                                 headers=dict(headers or {}))
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return r.status, json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read().decode())
+
+
+code, out = call("POST", "/jobs", {"kind": "fake", "name": "local1", "owner": "t", "wait": 0})
+check("door: local POST /jobs kind=fake, no token, is unchanged (201)",
+      code == 201 and out["kind"] == "fake", (code, out))
+
+code, out = call("GET", "/health", headers=TAILNET)
+check("door: tailnet GET /health without a token is 401", code == 401 and "rc" in out, (code, out))
+code, out = call("GET", "/health", headers={**TAILNET, **AUTH})
+check("door: tailnet GET /health with the token is 200", code == 200 and out == {"ok": True},
+      (code, out))
+
+code, _ = call("GET", "/health", headers={**TAILNET, "Authorization": "Bearer wrong-token"})
+code_prefix, _ = call("GET", "/health",
+                      headers={**TAILNET, "Authorization": "Bearer " + TOKEN[:-1]})
+check("door: a wrong token and a prefix of the right one are both 401",
+      code == 401 and code_prefix == 401, (code, code_prefix))
+
+before = len(sd.jobs)
+code, out = call("POST", "/jobs", {"kind": "command", "argv": "id", "wait": 0},
+                 headers={**TAILNET, **AUTH})
+check("door: tailnet POST /jobs kind=command is 403 and queues nothing",
+      code == 403 and "tailnet" in out["error"] and "/jobs" in out["error"]
+      and len(sd.jobs) == before, (code, out, len(sd.jobs) - before))
+
+victim = sd.submit({"kind": "fake", "name": "victim", "owner": "t", "priority": 3})
+code, out = call("POST", "/jobs/%s/priority" % victim["id"], {"priority": 900},
+                 headers={**TAILNET, **AUTH})
+check("door: tailnet POST /jobs/<id>/priority is 403 and the priority is unchanged",
+      code == 403 and "not open to the tailnet" in out["error"] and victim["priority"] == 3,
+      (code, out, victim["priority"]))
+
+before = len(sd.jobs)
+code, out = call("POST", "/gen/image", {"prompt": "a red kite", "wait": 0},
+                 headers={**TAILNET, **AUTH})
+check("door: tailnet POST /gen/image with the token is 201 and queues a media-take",
+      code == 201 and out["kind"] == "media-take" and len(sd.jobs) == before + 1, (code, out))
+
+before = len(sd.jobs)
+code, out = call("POST", "/gen/image", {"prompt": "a red kite", "wait": 0, "priority": 50},
+                 headers={**TAILNET, **AUTH})
+check("door: tailnet /gen/image carrying priority is 403 and queues nothing",
+      code == 403 and "priority" in out["error"] and len(sd.jobs) == before, (code, out))
+
+code, out = call("GET", "/health", headers={"Tailscale-User-Login": "someone@example.com"})
+check("door: Tailscale-* header alone marks a tailnet request (401 without a token)",
+      code == 401, (code, out))
+
+def refused(path, body, why_in_error):
+    """True when a tailnet POST with the token is 403, names `why_in_error`, queues nothing."""
+    before = len(sd.jobs)
+    code, out = call("POST", path, dict(body, wait=0), headers={**TAILNET, **AUTH})
+    return (code == 403 and why_in_error in out.get("error", "")
+            and len(sd.jobs) == before), (code, out)
+
+
+VIDEO = {"prompt": "a kite over a field", "frames": 49, "wh": "1024 576", "seed": 7}
+ok, det = refused("/gen/video", dict(VIDEO, extra="x --output-path /tmp/y"), "extra")
+check("knobs: tailnet extra is 403 by name and queues nothing", ok, det)
+ok, det = refused("/gen/music", {"style": "lofi", "lyrics_file": "/etc/passwd"}, "lyrics_file")
+check("knobs: tailnet lyrics_file is 403 by name", ok, det)
+ok, det = refused("/gen/video", dict(VIDEO, plim=100), "plim")
+check("knobs: tailnet plim is 403 by name", ok, det)
+ok, det = refused("/gen/audio", {"mode": "encode", "cache": "cache/x"}, "tailnet")
+check("knobs: tailnet /gen/audio is 403", ok, det)
+ok, det = refused("/gen/video", dict(VIDEO, wh="1024 --x"), "wh")
+check("knobs: tailnet wh \"1024 --x\" is 403 by name", ok, det)
+ok, det = refused("/gen/video", dict(VIDEO, seed="42\n"), "seed")
+check("knobs: a value with a trailing newline does not pass its format", ok, det)
+ok, det = refused("/gen/image", {"prompt": "--output-path /x"}, "prompt")
+check("knobs: tailnet text that starts with '-' is 403", ok, det)
+ok, det = refused("/gen/video", dict(VIDEO, owner="bloomery"), "owner")
+check("knobs: tailnet owner is 403 (it would pass a reservation window)", ok, det)
+
+before = len(sd.jobs)
+code, out = call("POST", "/gen/video", dict(VIDEO, wait=0), headers={**TAILNET, **AUTH})
+check("knobs: tailnet /gen/video with prompt, frames, wh, seed is 201",
+      code == 201 and out["kind"] == "media-take" and out["script"] == "ltx"
+      and out["env"]["WH"] == "1024 576" and len(sd.jobs) == before + 1, (code, out))
+code, out = call("POST", "/gen/music", {"style": "lofi", "lyrics": "la la", "seed": 3, "wait": 0},
+                 headers={**TAILNET, **AUTH})
+check("knobs: tailnet /gen/music with style, lyrics, seed is 201", code == 201, (code, out))
+code, out = call("POST", "/gen/video", dict(VIDEO, extra="--skip-stage-2", wait=0))
+check("knobs: local /gen/video with extra is unchanged (201)",
+      code == 201 and out["env"]["EXTRA"] == "--skip-stage-2", (code, out))
+
+# ---- v3: the tailnet owner, comfy session, own-job cancel, one media lane
+T = {**TAILNET, **AUTH}
+before = len(sd.jobs)
+code, out = call("POST", "/comfy/session", {"minutes": 30, "tag": "win1", "wait": 0}, headers=T)
+check("v3: tailnet /comfy/session minutes=30 is 201, kind comfy-session, owner hermes",
+      code == 201 and out["kind"] == "comfy-session" and out["owner"] == "hermes"
+      and out["card"] == "a6000" and out["env"]["MINUTES"] == "30" and out["env"]["TS_SERVE"] == "0"
+      and len(sd.jobs) == before + 1, (code, out))
+ok, det = refused("/comfy/session", {"minutes": 30, "ts_serve": 1}, "ts_serve")
+check("v3: tailnet /comfy/session ts_serve is 403 by name and queues nothing", ok, det)
+ok, det = refused("/comfy/session", {"minutes": 0}, "minutes")
+check("v3: tailnet /comfy/session minutes=0 is 403", ok, det)
+ok, det = refused("/comfy/session", {"minutes": 121}, "minutes")
+check("v3: tailnet /comfy/session minutes=121 is 403", ok, det)
+ok, det = refused("/comfy/session", {}, "minutes is required")
+check("v3: tailnet /comfy/session without minutes (unbounded) is 403", ok, det)
+ok, det = refused("/comfy/session", {"minutes": 30, "port": 22}, "port")
+check("v3: tailnet /comfy/session port=22 is 403", ok, det)
+ok, det = refused("/comfy/session", {"minutes": 30, "port": 8200}, "port")
+check("v3: tailnet /comfy/session port=8200 is 403", ok, det)
+ok, det = refused("/comfy/session", {"minutes": 30, "card": "3090"}, "card")
+check("v3: tailnet /comfy/session card=3090 is 403", ok, det)
+ok, det = refused("/comfy/session", {"minutes": 30, "owner": "bloomery"}, "owner")
+check("v3: tailnet /comfy/session owner is 403", ok, det)
+ok, det = refused("/comfy/session", {"minutes": 30, "tag": ".."}, "tag")
+check("v3: tailnet /comfy/session tag \"..\" (a directory name) is 403", ok, det)
+code, out = call("POST", "/comfy/session", {"minutes": 20, "port": 8190, "wait": 0}, headers=T)
+check("v3: tailnet /comfy/session port=8190 is 201 with PORT in its env",
+      code == 201 and out["env"].get("PORT") == "8190", (code, out))
+
+code, out = call("POST", "/gen/image", {"prompt": "a blue kite", "wait": 0}, headers=T)
+img = out
+check("v3: tailnet /gen/image creates a job owned by hermes",
+      code == 201 and out["owner"] == "hermes", (code, out))
+code, out = call("POST", "/jobs/%s/cancel" % img["id"], headers=T)
+check("v3: tailnet cancel of a hermes job is 200 and the job is cancelled",
+      code == 200 and sd.by_id(img["id"])["status"] == "cancelled", (code, out))
+
+local = sd.submit({"kind": "fake", "name": "local2", "owner": "t"})
+code, out = call("POST", "/jobs/%s/cancel" % local["id"], headers=T)
+check("v3: tailnet cancel of a locally submitted job is 403 by name and it stays queued",
+      code == 403 and local["id"] in out["error"] and "not the tailnet's" in out["error"]
+      and sd.by_id(local["id"])["status"] == "queued", (code, out))
+code, out = call("POST", "/jobs/local2/cancel", headers=T)
+check("v3: tailnet cancel by the name of a local job is 403 too",
+      code == 403 and sd.by_id(local["id"])["status"] == "queued", (code, out))
+code, out = call("POST", "/jobs/s9999/cancel", headers=T)
+check("v3: tailnet cancel of a missing id is 404", code == 404, (code, out))
+code, mine = call("POST", "/gen/image", {"prompt": "a green kite", "wait": 0}, headers=T)
+code, out = call("POST", "/jobs/%s/cancel" % mine["id"], {"tag": "x"}, headers=T)
+check("v3: tailnet cancel of its own job carrying a body key is 403 and the job stays queued",
+      code == 403 and "tag" in out["error"] and sd.by_id(mine["id"])["status"] == "queued",
+      (code, out))
+code, out = call("POST", "/jobs/%s/cancel" % local["id"])
+check("v3: local cancel of a local job is unchanged (200, cancelled)",
+      code == 200 and sd.by_id(local["id"])["status"] == "cancelled", (code, out))
+
+before = len(sd.jobs)
+code_s, out_s = call("POST", "/comfy/stop", {}, headers=T)
+code_b, out_b = call("POST", "/comfy/batch", {}, headers=T)
+check("v3: tailnet /comfy/stop and /comfy/batch are 403 and queue nothing",
+      code_s == 403 and code_b == 403 and len(sd.jobs) == before, (code_s, code_b))
+
+before = len(sd.jobs)
+code, out = call("POST", "/gen/music", {"style": "lofi", "card": "3090", "wait": 0})
+check("v3: local /gen/music card=3090 is 400 by name (A6000 only) and queues nothing",
+      code == 400 and "A6000 only" in out["error"] and len(sd.jobs) == before, (code, out))
+code, out = call("POST", "/gen/music", {"style": "lofi", "card": "any", "wait": 0})
+check("v3: local /gen/music card=any is 400 too", code == 400 and len(sd.jobs) == before, (code, out))
+code, out = call("POST", "/gen/music", {"style": "lofi", "wait": 0})
+check("v3: local /gen/music with no card is 201 on a6000, owner api (unchanged)",
+      code == 201 and out["card"] == "a6000" and out["owner"] == "api"
+      and len(sd.jobs) == before + 1, (code, out))
+ok, det = refused("/gen/music", {"style": "lofi", "card": "3090"}, "card")
+check("v3: tailnet /gen/music card=3090 is 403 by name", ok, det)
+code, out = call("POST", "/comfy/session", {"minutes": 0, "ts_serve": 1, "owner": "x", "wait": 0})
+check("v3: local /comfy/session keeps its rule (ts_serve, minutes=0, owner x pass)",
+      code == 201 and out["owner"] == "x" and out["env"]["TS_SERVE"] == "1", (code, out))
+
+os.remove(tok_path)
+code_gone, out_gone = call("GET", "/health", headers={**TAILNET, **AUTH})
+local_gone, _ = call("GET", "/health")
+write_token(TOKEN + "\n", mode=0o644)
+code_open, out_open = call("GET", "/health", headers={**TAILNET, **AUTH})
+local_open, _ = call("GET", "/health")
+check("door: a missing token file and a 0644 token file are both 503 naming the file; local works",
+      code_gone == 503 and code_open == 503 and tok_path in out_gone["error"]
+      and tok_path in out_open["error"] and local_gone == 200 and local_open == 200,
+      (code_gone, code_open, local_gone, local_open))
+httpd.shutdown()
 
 print("\n%d passed, %d failed" % (PASS, FAIL))
 sys.exit(1 if FAIL else 0)

@@ -28,11 +28,13 @@ stdlib only, like logproxy and mrs-shim before it. State under /home/user/signal
 import argparse
 import fcntl
 import glob as globmod
+import hmac
 import json
 import os
 import re
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import threading
@@ -50,6 +52,7 @@ GPU_ORDER_ENV = os.environ.get("SIGNALBOX_GPU_ORDER", "/home/user/gpu-order.env"
 BLOOMERY_LOCK_GLOB = os.environ.get("SIGNALBOX_BLOOMERY_LOCKS", "/root/bloomery-*.lock")
 BLOOMERY_HOLD_GLOB = os.environ.get("SIGNALBOX_BLOOMERY_HOLDS", "/root/bloomery-*-hold")
 FAKE = os.environ.get("SIGNALBOX_FAKE", "") == "1"
+TOKEN_FILE = os.environ.get("SIGNALBOX_TOKEN_FILE", "/etc/signalbox/token")
 
 # Which card a bloomery lock speaks for; everything unlisted is treated as box-wide, because
 # a timing lease or a v41 load can touch either card and a wrong guess costs a contaminated row.
@@ -84,11 +87,174 @@ VRAM_IDLE_MIB = 2000
 QUEUE_HISTORY = 500
 KINDS = ("media-take", "comfy-session", "command", "fake")
 CLASSES = ("normal", "host", "solo")
+# The owner every job a tailnet request creates carries: the token's holder. A body never
+# sets it, and cancel from the tailnet reaches only jobs that carry it.
+TAILNET_OWNER = "hermes"
+# Media runs on the A6000 only: every runner, and the ComfyUI window, is sized for it.
+MEDIA_CARD = "a6000"
+
+
+def _fmt(pattern):
+    return re.compile(pattern)
+
+
+# Value classes of the tailnet knob allowlists. A value is checked as the string gen() will
+# put in the runner's environment; only the classes below reach a runner.
+INT = _fmt(r"[0-9]{1,6}")
+FLOAT = _fmt(r"[0-9]{1,4}(\.[0-9]{1,4})?")
+WH = _fmt(r"[0-9]{2,5} [0-9]{2,5}")
+TEXT = "text"    # reaches the runner's argv inside double quotes; may not look like a flag
+LABEL = "label"  # a display string that never reaches a runner's argv
+TEXT_MAX, LABEL_MAX = 8000, 200
+
+class Span:
+    """An integer between lo and hi, both inclusive."""
+    def __init__(self, lo, hi):
+        self.lo, self.hi = lo, hi
+
+    def ok(self, text):
+        return INT.fullmatch(text) is not None and self.lo <= int(text) <= self.hi
+
+
+# Knobs a tailnet /gen/<medium> body may carry, with the class each value must fall in.
+# Every TEXT knob is double-quoted wherever its runner uses it. Left out on purpose: paths
+# and flag pass-throughs (extra, image, images, loras, vidcond, model, lyrics_file, abc,
+# plim) and mbs, which is a count with no enum.
+TAILNET_KNOBS = {
+    "video": {  # ltx-take.sh
+        "prompt": TEXT, "neg": TEXT,
+        "pipe": frozenset(("distilled", "dfr", "distilled_mgpu", "ti2vid_two_stages",
+                           "ti2vid_two_stages_hq")),
+        "frames": INT, "seed": INT, "steps": INT,
+        "cfg": FLOAT, "stg": FLOAT, "rescale": FLOAT, "a2v": FLOAT,
+        "wh": WH,                               # word-split in the runner on purpose
+        "offload": frozenset(("none", "cpu", "disk")),
+        "quant": frozenset(("fp8-cast",)),
+    },
+    "image": {  # img-take.sh
+        "prompt": TEXT, "neg": TEXT,
+        "wh": WH,                               # word-split in the runner on purpose
+        "steps": INT, "seed": INT, "count": INT,
+        "guidance": FLOAT,
+    },
+    "music": {  # music-take.sh
+        "style": TEXT, "lyrics": TEXT,
+        "seed": INT,
+        "cot": frozenset(("full", "melody")),
+        "plan_only": frozenset(("1",)),         # any non-empty value is the flag
+    },
+}
+# Body keys that steer the scheduler rather than a runner. owner is not among them: it
+# names a reservation window's owner, which lets a job through that window.
+TAILNET_META = {
+    "tag": _fmt(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}"),  # a directory name in the runners: no leading dot
+    "title": LABEL,
+    "expected_min": _fmt(r"[0-9]{1,4}"),
+    "card": frozenset((MEDIA_CARD,)),
+    "wait": _fmt(r"[0-9]{1,3}"),
+}
+# Knobs a tailnet /comfy/session body may carry. ts_serve is left out on purpose: with it
+# comfy-session.sh makes ComfyUI listen on the box's tailnet IP, which is the whole ComfyUI
+# API (workflow submit, upload) with no token and no allowlist. minutes is bounded because
+# the script reads 0 as "hold until stopped" and the tailnet has no stop route. port is only
+# ComfyUI's --port and the script's own health-check port; a window is held to the
+# 8188-8199 range.
+TAILNET_SESSION = {
+    "minutes": Span(1, 120),
+    "port": Span(8188, 8199),
+    **{k: TAILNET_META[k] for k in ("tag", "title", "card", "wait")},
+}
+# One table per tailnet POST route: the only routes a tailnet caller reaches, after the
+# bearer token passes. /gen/audio stays local: its required knobs (cache, request and
+# config paths) are paths the echo runner joins onto its repo. A cancel takes no body key.
+TAILNET_ROUTES = {
+    "/gen/video": {**TAILNET_KNOBS["video"], **TAILNET_META},
+    "/gen/image": {**TAILNET_KNOBS["image"], **TAILNET_META},
+    "/gen/music": {**TAILNET_KNOBS["music"], **TAILNET_META},
+    "/comfy/session": TAILNET_SESSION,
+    "/jobs/<id>/cancel": {},
+}
+# Keys a route refuses to default: absent, they would mean something the table forbids.
+TAILNET_REQUIRED = {"/comfy/session": ("minutes",)}
+CANCEL_RE = re.compile(r"^/jobs/([A-Za-z0-9._-]+)/cancel$")
+
+
+def _value_ok(kind, value):
+    if isinstance(value, bool) or value is None:
+        return False
+    if kind in (TEXT, LABEL):
+        if not isinstance(value, str):
+            return False
+        try:
+            value.encode("utf-8")  # a lone surrogate cannot go into an environment
+        except UnicodeEncodeError:
+            return False
+        if "\0" in value:
+            return False
+        if kind == LABEL:
+            return len(value) <= LABEL_MAX
+        return 0 < len(value) <= TEXT_MAX and not value.startswith("-")
+    if isinstance(value, (int, float)):
+        value = str(value)
+    elif not isinstance(value, str):
+        return False
+    if isinstance(kind, frozenset):
+        return value in kind
+    if isinstance(kind, Span):
+        return kind.ok(value)
+    return kind.fullmatch(value) is not None
+
+
+def tailnet_route(path):
+    """The TAILNET_ROUTES key a path falls under, or None."""
+    if path in TAILNET_ROUTES:
+        return path
+    return "/jobs/<id>/cancel" if CANCEL_RE.match(path) else None
+
+
+def tailnet_refusal(route, body):
+    """Why a tailnet body for this route is refused, or None. Every key must be in the
+    route's table, with a value in its class, and every required key must be present."""
+    table = TAILNET_ROUTES[route]
+    for key, value in body.items():
+        kind = table.get(key)
+        if kind is None:
+            return "tailnet %s: %s is not an allowed key" % (route, key)
+        if not _value_ok(kind, value):
+            return "tailnet %s: the value of %s is not in its allowed form" % (route, key)
+    for key in TAILNET_REQUIRED.get(route, ()):
+        if key not in body:
+            return "tailnet %s: %s is required" % (route, key)
+    return None
 
 
 def log(msg):
     sys.stderr.write("%s signalbox: %s\n" % (datetime.now().strftime("%H:%M:%S"), msg))
     sys.stderr.flush()
+
+
+def read_token(path):
+    """(token bytes, None), or (None, why) when the file cannot be trusted: missing, not a
+    regular file, empty, or readable by group or other. Read on every call, so a rotated
+    token takes effect without a restart."""
+    try:
+        fd = os.open(path, os.O_RDONLY)
+    except OSError as e:
+        return None, "is unreadable (%s)" % e.strerror
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            return None, "is not a regular file"
+        if st.st_mode & 0o077:
+            return None, "has mode %04o, readable by group or other" % (st.st_mode & 0o777)
+        token = os.read(fd, 4096).rstrip(b"\r\n")
+    except OSError as e:
+        return None, "is unreadable (%s)" % e.strerror
+    finally:
+        os.close(fd)
+    if not token:
+        return None, "is empty"
+    return token, None
 
 
 # ---------------------------------------------------------------- probes (injectable for tests)
@@ -351,6 +517,8 @@ class Scheduler:
                 raise ValueError("script must be one of %s" % (sorted(RUNNERS),))
             if job["card"] not in CARDS + ("any",):
                 raise ValueError("card must be a6000, 3090 or any")
+            if job["kind"] == "media-take" and job["card"] != MEDIA_CARD:
+                raise ValueError("media runs on the A6000 only (card %s)" % job["card"])
             if not re.match(r"^[A-Za-z0-9._-]+$", job["name"]):
                 raise ValueError("name must be [A-Za-z0-9._-]+")
             self.jobs.append(job)
@@ -707,6 +875,7 @@ class Scheduler:
 class Handler(BaseHTTPRequestHandler):
     server_version = "signalbox/0.1"
     sched = None  # set in main
+    token_file = TOKEN_FILE  # set in main
 
     def send_json(self, obj, code=200):
         body = json.dumps(obj, ensure_ascii=False, indent=1).encode()
@@ -756,8 +925,88 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         log("http " + (fmt % args))
 
+    def tailnet_request(self):
+        """tailscale serve's proxy adds X-Forwarded-For and Tailscale-* headers to every
+        request it forwards and the client cannot strip them; a request with none of them
+        came to the loopback port directly, from the box itself."""
+        return any(k.lower() == "x-forwarded-for" or k.lower().startswith("tailscale-")
+                   for k in self.headers.keys())
+
+    def bearer_ok(self, token):
+        scheme, _, cred = self.headers.get("Authorization", "").partition(" ")
+        return (scheme.lower() == "bearer"
+                and hmac.compare_digest(cred.strip().encode("latin-1", "replace"), token))
+
+    def door(self, method, path):
+        """The one gate in front of every route. Local requests pass untouched. A tailnet
+        request needs the bearer token (GET included), and a tailnet POST only reaches the
+        routes of TAILNET_ROUTES, with listed keys only, never a priority, and cancel only
+        for a job the tailnet owns. True means a refusal was already sent. For a POST the
+        parsed body is left in self.req_body, and a tailnet cancel's resolved job id in
+        self.cancel_id."""
+        tailnet = self.tailnet = self.tailnet_request()
+        self.cancel_id = None
+        route = None
+        if tailnet:
+            token, why = read_token(self.token_file)
+            if token is None:
+                self.send_json({"error": "tailnet access is closed: token file %s %s"
+                                % (self.token_file, why), "rc": 78}, 503)
+                return True
+            if not self.bearer_ok(token):
+                self.send_json({"error": "tailnet requests need Authorization: Bearer <token>",
+                                "rc": 77}, 401)
+                return True
+            if method == "POST":
+                route = tailnet_route(path)
+                if route is None:
+                    self.send_json({"error": "POST %s is not open to the tailnet" % path,
+                                    "rc": 77}, 403)
+                    return True
+        if method == "POST":
+            try:
+                self.req_body = self.body_json()
+            except ValueError as e:
+                self.send_json({"error": str(e), "rc": 64}, 400)
+                return True
+            if tailnet:
+                if not isinstance(self.req_body, dict):
+                    self.send_json({"error": "body must be a JSON object", "rc": 64}, 400)
+                    return True
+                if "priority" in self.req_body:
+                    self.send_json({"error": "priority is not set from the tailnet; "
+                                    "the dispatcher's rule applies", "rc": 77}, 403)
+                    return True
+                why = tailnet_refusal(route, self.req_body)
+                if why:
+                    self.send_json({"error": why, "rc": 77}, 403)
+                    return True
+                if route == "/jobs/<id>/cancel":
+                    # resolved once here, so the job checked is the job cancelled
+                    with self.sched.lock:
+                        job = self.sched.by_id(CANCEL_RE.match(path).group(1))
+                        jid, owner = (job["id"], job["owner"]) if job else (None, None)
+                    if jid is None:
+                        self.send_json({"error": "no such job"}, 404)
+                        return True
+                    if owner != TAILNET_OWNER:
+                        self.send_json({"error": "job %s is not the tailnet's" % jid,
+                                        "rc": 77}, 403)
+                        return True
+                    self.cancel_id = jid
+        return False
+
+    def owned(self, spec):
+        """A job a tailnet request creates belongs to the token's holder, whatever the
+        body says; a local request keeps the spec's own owner."""
+        if self.tailnet:
+            spec["owner"] = TAILNET_OWNER
+        return spec
+
     def do_GET(self):
         path = urllib.parse.urlparse(self.path).path
+        if self.door("GET", path):
+            return
         q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
         s = self.sched
         if path == "/health":
@@ -850,11 +1099,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urllib.parse.urlparse(self.path).path
+        if self.door("POST", path):
+            return
         s = self.sched
-        try:
-            body = self.body_json()
-        except ValueError as e:
-            return self.send_json({"error": str(e), "rc": 64}, 400)
+        body = self.req_body
         try:
             if path == "/jobs":
                 return self.send_json(self.submit_and_maybe_wait(body, body.get("wait", 60)), 201)
@@ -864,15 +1112,15 @@ class Handler(BaseHTTPRequestHandler):
                 if not job:
                     return self.send_json({"error": "no such job", "rc": 64}, 404)
                 return self.send_json(job)
-            m = re.match(r"^/jobs/([A-Za-z0-9._-]+)/cancel$", path)
+            m = CANCEL_RE.match(path)
             if m:
-                job = s.cancel(m.group(1))
+                job = s.cancel(self.cancel_id or m.group(1))
                 if not job:
                     return self.send_json({"error": "no such job"}, 404)
                 return self.send_json(job)
             if path in ("/gen/video", "/gen/image", "/gen/music", "/gen/audio"):
                 return self.send_json(
-                    self.submit_and_maybe_wait(self.gen(path.rsplit("/", 1)[1], body),
+                    self.submit_and_maybe_wait(self.owned(self.gen(path.rsplit("/", 1)[1], body)),
                                                body.get("wait", 60)), 201)
             if path == "/comfy/session":
                 spec = {
@@ -888,7 +1136,8 @@ class Handler(BaseHTTPRequestHandler):
                 }
                 if body.get("port"):
                     spec["env"]["PORT"] = str(body["port"])
-                return self.send_json(self.submit_and_maybe_wait(spec, body.get("wait", 60)), 201)
+                return self.send_json(
+                    self.submit_and_maybe_wait(self.owned(spec), body.get("wait", 60)), 201)
             if path == "/comfy/stop":
                 # the documented convenience for ending a session window by its tag
                 # (or the only running one); the lawful teardown is cancel's SIGTERM
@@ -1021,11 +1270,18 @@ def main():
     ap = argparse.ArgumentParser(description="signalbox dispatcher")
     ap.add_argument("--port", type=int, default=PORT)
     ap.add_argument("--home", default=HOME)
+    ap.add_argument("--token-file", default=TOKEN_FILE,
+                    help="bearer token every tailnet request must carry (root-only file)")
     ap.add_argument("--fake", action="store_true",
                     help="fake jobs and no hardware gates: scheduler rehearsal")
     args = ap.parse_args()
     sched = Scheduler(home=args.home, fake=args.fake or FAKE)
     Handler.sched = sched
+    Handler.token_file = args.token_file
+    _, why = read_token(args.token_file)
+    if why:
+        log("token file %s %s: every tailnet request is refused (503) until it is fixed"
+            % (args.token_file, why))
 
     def ticker():
         while True:
