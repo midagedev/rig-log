@@ -147,6 +147,18 @@ Open items the 10-11 sessions reported to the lead, grouped by source. Sizes are
 - `crates/vision/src/resample.rs:163` slices a hand-built Rgb8 by trusting its length (patchify's named refusal is the
   pattern). S. `image.rs:211` from_decoded `w*h*3` unchecked multiply. XS. `plan_image_grid` returns a plan for a
   0-sized image: assert or state the caller contract. XS.
+- Placed image clause (`gate_qwen3_serve`, placedimg 10-12): no clause holds the default image server (placed, 498
+  host experts at ctx 65536 on the 3090) to the oracle. `MARGIN_FLOOR` 0.5 cannot be its bound: c2's first difference
+  is gap 0.1596 normal and 0.2288 under the grid-swap mutant (c1 32/32 in both), so the floor passes the mutant. One run
+  each; a bound needs a derivation from the Q8_K host rule's error, or a check that is not a near-tie gap (the mutant
+  moves the first difference from step 26 to 19). Draft: worker1 `placedimg/clause-draft.patch`. M, design first.
+- `gate_qwen3_serve.rs:1721,2247,2428` read the plan line by prefix and `field_u64`; a missing record prints or
+  compares `None` instead of a named red. `Log::first(&PLAN38)`, as set F's precondition does now. ~30 lines.
+- `MARGIN_FLOOR` 0.5 is pinned twice (`gate_e2e.rs:125`, `gate_qwen3moe_e2e.rs:471`); one owner. ~10 lines.
+- GLM media slot drops its NextN draft (G3b turns it off per media slot): a media twin of `prompt_with` in
+  gpu-glm5next keeps it. M.
+- `tools/mac-remote.sh --self-test` failed 3 cases (track-lock wait, busy slot holders, freed slot) inside a live
+  remote-static on 10-12 and passed twice alone: timing under real slot contention. S.
 - qwen35moe NextN MTP: planned (attach table, oracle mainline 36a73916 `graph_mtp`, rounds M0–M3, ~12–16 h + gates);
   decided after the 0.3.0 cut.
 
