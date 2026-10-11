@@ -7,3 +7,5 @@ python3 "$root/tools/check-log.py" || exit 1
 if git diff --cached --name-only | grep -q '^assets/.*\.tape$'; then
   "$root/tools/check-tapes-sanitized.sh" || exit 1
 fi
+# 금지어 검사(사용자 2026-10-12): 단어는 이 리포에 없고 ~/.config/git/banned.sha256에 해시로만 있다. 없으면 지나간다.
+g="$HOME/.config/git/hooks/banned-check"; if [ -x "$g" ]; then "$g" staged || exit 1; fi

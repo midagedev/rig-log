@@ -1,0 +1,4 @@
+#!/bin/bash
+# 금지어 검사(사용자 2026-10-12)를 전역 훅에 넘긴다. core.hooksPath가 tools/hooks라 전역 훅이 직접 돌지 않기 때문이다.
+g="$HOME/.config/git/hooks/pre-push"; if [ -x "$g" ]; then exec "$g" "$@"; fi
+exit 0
