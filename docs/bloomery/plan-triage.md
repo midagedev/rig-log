@@ -111,6 +111,45 @@ Open items the 10-11 sessions reported to the lead, grouped by source. Sizes are
 - toktape `internal/card/card.go:454` divides by GiB but prints "GB" → toktape session.
 - toktape recorder: Qwen tape has no model.quant and file_bytes 0; fall back to the file name → toktape session.
 
+### vision
+- Set D (`/root/bloomery-data/clefvis/ref/images.jsonl`, `tools/ref/clef_ref.py images`) states no identity and has no
+  refset family row; `crates/decision/tests/clef.rs` `hw_clef_image_ids_equal_the_release` reads it raw beside the same
+  run's reference.jsonl (revision and ids), a substitute for the family check. Fix: the writer emits a node-dump MANIFEST
+  (`# model`, `# build`, `# complete`; clef_ref.py:308, ~25 lines), a refset Kind and family row (~150 lines), one A6000
+  re-dump that adds a request whose images split between `images` and state parts with different counts (D1/D2 are
+  host-test-only today), then the clause moves onto the reader. S + one dump.
+- `crates/app/src/arch/deepseek41/draft.rs:92-95`: the DSpark draft's resident is the card's free-bytes difference; a
+  foreign CUDA context (~280 MB) turned weekly-gpu-ds41-serve's bp arm red once (8910077952 B vs 8629780480 B reserved),
+  green alone. Sum the draft's own allocations. S–M.
+- `serve_seats/ds41.rs` open_encoder: `Encoder::load` → `bloomery_gpu_vision::open` (Box<dyn Tower>) makes the seat
+  tower-generic; place V4.1's own refusals. S.
+- `vision_seat::span_rows`: one synchronous readback per image; a second activation set would overlap feed i's readback
+  and splice under feed i+1's encode. M, term unmeasured.
+- `gate_ds41_serve.rs:1885` comment names `serve::media::expand_spans` (now `vision::media`). XS.
+- `crates/serve/src/media.rs` + `api.rs:2462`: MediaError's PlaceholderCount/EmptySpan duplicate ExpandError; one
+  `Expand(#[from] ExpandError)`. ~20 lines.
+- `tools/gate-paths.tsv`: no rows for `tools/ref/clefvis/requests.jsonl` and `clefvis.sh` (row 181, lev, the precedent);
+  confirm with reach. XS.
+- refset `clefvis.rs:1103`, `arch/qwen35moe/vis.rs:34`: `vis_families!` has no consumers parameter; the Qwen3.6 families
+  list `&[]`, none names gate-gpu-qwen35moe-media. ~8 lines.
+- `shared/qwen35_open.rs:62` refuses non-dense files; gate_qwen35_media's `open_moe` duplicates what a whole-only
+  `q3place::open_unplaced_qwen35` would do. ~20 lines.
+- `crates/gpu/src/model.rs:1502`: no accessor for the decode step's normed row (heads private); S4 uses layer taps plus a
+  host norm (~1e-7). A `step_hidden()`. ~10 lines.
+- `tools/gate-batch.sh` budget refusal (header :251-258): the times median folds in build time, so a re-run is refused
+  over budget; the times row already subtracts named waits. Split build from run in the median. S.
+- `crates/vision/src/mrope.rs`: R15 two subjects (MropeSeq positions, SeqRows table rewrite) → `mrope/{seq,rows}.rs`;
+  R14 push_spans:324/restore:365 build PastSequence twice. M.
+- `crates/gpu-vision/src/qwen3vl.rs:69-72,286`, `gemm_bf16.rs:41`: ff_padded recomputes vision's padded_ff; out_dim %
+  TILE_N rechecked; TILE_N in two crates. S, needs ptx-scan.
+- Two f32→bf16 RNE implementations (`gpu-vision lib.rs:63-68`, `vision preprocess::f32_to_bf16`), no gate holds them
+  equal. S.
+- `crates/vision/src/resample.rs:163` slices a hand-built Rgb8 by trusting its length (patchify's named refusal is the
+  pattern). S. `image.rs:211` from_decoded `w*h*3` unchecked multiply. XS. `plan_image_grid` returns a plan for a
+  0-sized image: assert or state the caller contract. XS.
+- qwen35moe NextN MTP: planned (attach table, oracle mainline 36a73916 `graph_mtp`, rounds M0–M3, ~12–16 h + gates);
+  decided after the 0.3.0 cut.
+
 ### Other
 - clef decide text-only: PrefillPath::Auto → Wide (a float-order change, needs its own prediction; dropped from worker1
   R4c).
