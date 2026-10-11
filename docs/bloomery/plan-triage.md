@@ -56,6 +56,71 @@ and no digging through old records (the user, 10-10).
 6. Vision gates; release pass.
 The GLM download (idle IO priority) ends ~09:00; a lease sitting waits on its IO pressure until then.
 
+## 0.3.0 day (2026-10-11, lead) — what the sessions left
+
+Open items the 10-11 sessions reported to the lead, grouped by source. Sizes are the sessions' own markers.
+
+### sparkplan
+- `serve_seats/qwen38.rs` ctx38/margin38: the default ctx counts only card expert bytes; on a unified machine there is
+  no pool headroom floor (Qwen3.8 UD-Q3_K_XL headroom 1.72 GB at 125.2 GB pool, 0.43 at 115.4 GiB, negative at #13's
+  111.7 GB; load's host_bound probably lowers ctx). S. Spark user-facing.
+- `gguf/src/lib.rs:553` refuses a set without split.tensors.count (apetersson V4.1 MixedQ2, arch deepseek4: not our
+  layout anyway). Named refusal; keep unless a real file needs it. S.
+- `qwen35moe/place.rs:312-318` describe reads room live; describe_in(split, room) makes a pure probe. S.
+- No pure plan bin taking --pool BYTES and a header dir; sparkplan needed an aarch64 container + scratch crate. M.
+  (probe sources: scratchpad/sparkplan/probe/src/bin/{plan,fetch}.rs)
+- `qwen35moe/place.rs:130` host_only_reason not in the plan record; type-forced host layers show only n_l 0. S.
+
+### sparkctx (out of its scope)
+- `gate_qwen38_serve.rs:3115-3135`: state shared with the seat.
+- Promote the ctx-chain probe to a tools/ bin (`--plan-ctx`), the same item as sparkplan's pure plan bin above
+  (sparkplan item 6).
+- `HostNeed` doc line on the unified pool (`workstation.rs:540`).
+
+### KV follow-ups (worker2)
+- `justfile:2221`: `&&` hides the drafted serve arm.
+- `genloop.rs:~571`: cache.best loads then resets on a drafted break-even miss.
+- promptcache covers cannot tell draft-only differences apart.
+
+### qsamask
+- `qsa.rs:887/1082/1265`: the kth-key three-pass is duplicated across three select kernels (~100 lines).
+- narrow-scan.sh cannot scan an uncommitted tree (doc/AGENTS says --worktree).
+- gate-batch predicted wall ignores lock waits (1184 s predicted vs 6823 s actual).
+
+### The 3060 test PC run (RTX 3060 12 GB, i7-12700F, WSL2)
+- Qwen3.8-35B-A3B Q4_K_M, defaults, 2026-10-11 11:35: decode 56.3, prefill 145 tok/s (1464-token prompt, TTFT 10.1 s).
+  - Default ctx 4096 total = 2048 a slot on a 12 GB card + 27 GB host: a ~6K-token prompt is refused (toktape long
+    arm failed). Defaults must serve a 4K-8K prompt on a 12 GB card; the 2-slot default with 4 GiB checkpoint reserve
+    each (w4ckpt) squeezes ctx.
+  - Prefill on a placed (hybrid) load runs the prompt in 8-row passes: 145 tok/s against the reference's ~550 on the
+    same class of machine (self-reported). Hybrid prompt path needs a design round (host experts at batch, or stream
+    the prompt's experts to the card as xstream does).
+  - qwen35moe files with NextN layers (e.g. the Qwen3.8-35B-A3B distill) have no MTP program (Role::Unused): the 3060
+    decode leaves MTP's ~1.6x on the table.
+
+### gate-gpu-lib lock (unitier)
+- gate-gpu-lib takes no 3090 lock; its hw_ tests that need GBs of the card (hw_a_held_card 2.9 GB, the held save test
+  before 8047fc2f) go OOM beside a peer gate. Decide with vision (gpu-gate.sh owner): take the 3090 lock, or keep every
+  lib test under a stated card share.
+
+### Clip and toktape (sparkclip)
+- After contribarch lands (it owns the file): `docs/contrib/dgx-spark.md:16-18` still says #15 reviewed / #16 in
+  review; both are in main.
+- rig-log `tools/clip/release-026/film.html:694` shows "111 6B" (Gochi Hand G reads 6); swap to Caveat Brush for lines
+  with G.
+- toktape `internal/card/card.go:454` divides by GiB but prints "GB" → toktape session.
+- toktape recorder: Qwen tape has no model.quant and file_bytes 0; fall back to the file name → toktape session.
+
+### Other
+- clef decide text-only: PrefillPath::Auto → Wide (a float-order change, needs its own prediction; dropped from worker1
+  R4c).
+- q38s3060: `qwen3moe_place.rs:1046` a 2-slot checkpoint reserve of 8.59 GB pushes 4.58 GB of experts to NVMe on a 16 GB
+  PC (w4ckpt territory).
+- r4b A/B came in above its band (+154 % against +10..+72): read the decode fills before any claim; the A/B log had no
+  nvtier fill records.
+- shared /root/bloomery-data/bin/dump_ref is stale (built 09-27 from b67b0e92, source now e870963b); qw2h1 used a
+  private bin-qw2h.
+
 ## Release 0.2.7 — orchestration (the user, 2026-10-07 evening)
 
 Scope, from the user: vision input, the prefill levers, a second decision model, Xiaomi MiMo-V2.6-Flash. Models are
@@ -2139,6 +2204,19 @@ chain at m = 2 (the same term as the recentlit "verify m-rows" line above).
     and Clef move a little (#29184, #29393). The V4.1 llama.cpp pp4096 arm has stood FAIL since 09-28 and must be
     resolved at that sitting. The box's `llama.cpp-mainline` (`53ed051ce`) moves first. The sitting needs the user's
     approval (> 30 min).
+
+**NVIDIA / CUDA-Rust 수확** (조사 라운드 `harvest-toolchain`·`harvest-nvquant`·`harvest-wide` → 종합 `harvest-synth`, 10-11; 원문 worker4 세션 scratch `harvest/`):
+- **명령 쪽 GEMV 기법(CUTLASS int4 magic-number·lop3, TRT interleaved converter, e2m1 LUT·cvt, epilogue 전역 스케일): 기각.** 우리 `_sel`은 A6000에서 이미 579–701 GB/s이고, dp4a 경로라 원소마다 int→float 변환이 없다. Spark는 풀 바이트당 발행 여유가 A6000의 1.7–3배[유도]라 두 기계 모두 모델이 0이다.
+- **sm_121 block-scaled FP4 MMA: 트래커.** 핀에 `mxf8f6f4`(e2m1 × ue8m0, `register_mma.rs:1302`)가 있다. 값을 하는 곳은 e2m1 가중치(MiMo MXFP4)의 프리필뿐이고, 그것도 프리필이 지금의 IMMA보다 계산에 묶였다는 증명 뒤다. Qwen3.8·GLM의 K-quant 파일, 디코드, m ≤ 10 검증에서는 0. `sm_121a` 대상(archkey S3, 장부 32행)이 필요하다. 판정 항은 기여자 이슈 #18, 비트 대응 탐침은 #19.
+- **NVFP4 저장 형식: 기각.** 4.5 bpw로 Q4_K(144 B/256)와 같고, 로더가 읽지 않는다.
+- **호스트 샘플러 단일 임계값(TRT fusedSampling, w = p/p_max): 검증 먼저.** 실제 어휘 행에서 `Sampler::sample` Mac 벤치, 예측 0.1–1.5 ms. 0.3 ms 이상일 때만 이식하고, 같은 유지 집합과 같은 추첨으로 게이트한다. greedy 헤드라인은 0.
+- **Spark logits 회수가 새 Vec으로 감(`head.rs:448`; cuTile 튜토리얼의 새 페이지 복사 0.13 GB/s): 검증 먼저.** 표본 토큰당 0–4.7 ms[유도]. 기여자 이슈 #17(표본 대 greedy).
+- **Spark의 PDL: 트래커.** sm_90+라 sm_86에서 0. 2.6–4.4 ms의 비바이트 나머지에 작용한다. 기여자 이슈 #17의 nsys 판독 뒤.
+- **GLM 프로모: 수확 레버 없음.** 벽시계는 카드 직렬 + Σ브리지이고, 카드 쪽 열린 항(q8_0 gemv GB/s)은 이미 원장에 있다. TRT의 KDA 최적 경로는 sm_100/103 전용이다.
+- **Spark 풀 지속 읽기: 이미 측정됨(#13, juliankang4).** `cuMemAlloc` 233 GB/s, write-combined 235. 「200 이상이면 커널 작업은 바이트 레버 말고 0」 판정이 섰다.
+- **이미 가진 것:** m열 GEMV, split-KV 디코드, KDA/GDN 디코드, conv1d update, router + quantize(qwen3moe), moe align, QK-norm + RoPE, gated norm, 디바이스 워드 그래프, n-gram 드래프트.
+- **업스트림 후보: `cuda-intrinsics-gen`의 `mxf4nvf4` admission.** #1329 뒤. 중복 검색, 형제 선례, ptxas `sm_121a` FAIL-first가 남았다. 우리 쪽 소비자는 아직 없다.
+- **장부 정정:** 1번 머지(`cc32f261`이 핀에 있음), 13번은 저장소 이전으로 닫힘(NVIDIA/cuda-rust#1438에서 다시 만든다), 19번 링크 이전, 3·15·25번 제출처 이전.
 
 ### 재판정 잔여 (revisit)
 
