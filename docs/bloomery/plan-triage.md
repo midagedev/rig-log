@@ -147,11 +147,17 @@ Open items the 10-11 sessions reported to the lead, grouped by source. Sizes are
 - `crates/vision/src/resample.rs:163` slices a hand-built Rgb8 by trusting its length (patchify's named refusal is the
   pattern). S. `image.rs:211` from_decoded `w*h*3` unchecked multiply. XS. `plan_image_grid` returns a plan for a
   0-sized image: assert or state the caller contract. XS.
-- Placed image clause (`gate_qwen3_serve`, placedimg 10-12): no clause holds the default image server (placed, 498
-  host experts at ctx 65536 on the 3090) to the oracle. `MARGIN_FLOOR` 0.5 cannot be its bound: c2's first difference
-  is gap 0.1596 normal and 0.2288 under the grid-swap mutant (c1 32/32 in both), so the floor passes the mutant. One run
-  each; a bound needs a derivation from the Q8_K host rule's error, or a check that is not a near-tie gap (the mutant
-  moves the first difference from step 26 to 19). Draft: worker1 `placedimg/clause-draft.patch`. M, design first.
+- ~~Placed image clause~~ **closed, no clause (placedfloor 10-12)**: the placed server's host experts take only the
+  normed f32 rows after layer 0's media copy (no media code under `crates/gpu/src/host/`), so an image fault is the
+  all-card path's and set F holds it; a host-only fault is (o2)/(o5)'s in `gate_qwen35moe_e2e`. Measured, read from
+  placedimg's runs (3090/A6000, c1+c2, n=32 each): top-2 gap rms between placed, all-card and A6000-whole is
+  0.23–0.39, 3–5× the derived host term (0.05–0.08 nats [derived]), so a first-difference gap cannot separate the
+  grid-swap mutant (0.2288) from clean (0.1596). Data: worker1 `placedfloor/{cmp.out.txt,data/}`.
+- `gate_qwen3_serve.rs:2931` `F_NEAR_TIE` 0.1 sits inside the cross-configuration spread above (step 26's gap is
+  0.027 on the 3090, 0.032 on the A6000, 0.160 placed): a harmless float-order change can move the first
+  difference to a step whose gap is larger. Re-derive from the per-step spread or move the check to a
+  prefix-length rule. S–M, design first.
+- A logprob-stream diff tool (`placedfloor/cmp*.py`, `parse.py`) into `tools/` with a self-test. ~60 lines.
 - `gate_qwen3_serve.rs:1721,2247,2428` read the plan line by prefix and `field_u64`; a missing record prints or
   compares `None` instead of a named red. `Log::first(&PLAN38)`, as set F's precondition does now. ~30 lines.
 - `MARGIN_FLOOR` 0.5 is pinned twice (`gate_e2e.rs:125`, `gate_qwen3moe_e2e.rs:471`); one owner. ~10 lines.
