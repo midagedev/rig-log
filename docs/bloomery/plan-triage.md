@@ -165,6 +165,16 @@ Open items the 10-11 sessions reported to the lead, grouped by source. Sizes are
   gpu-glm5next keeps it. M.
 - `tools/mac-remote.sh --self-test` failed 3 cases (track-lock wait, busy slot holders, freed slot) inside a live
   remote-static on 10-12 and passed twice alone: timing under real slot contention. S.
+- GLM `--mmproj` multi-slot check (glmv4 10-12, real tier, weekly): a media request on one slot turns that slot's
+  NextN draft off once while a text request on the other keeps drafting. Needs a `--mmproj --parallel 2` arm in
+  `gate_glm5next_serve.rs` on the real mmproj (no fixture serve arm). M.
+- `serve_seats/decide.rs:325`: Clef's resident encoder is a third copy of `vision_seat::Resident`; convert it, then
+  `open_tower` and the free `span_rows` go private. ~50 lines.
+- `crates/vision/src/arch/qwen3vl/size.rs:25`: `TokenLimits` is shared by qwen3vl and glm5v; lift it above qwen3vl.
+  ~30 lines.
+- `bloomery-serve --plan` prints no encoder-seat line (which card the tower sits on, its reserve); a record kind. ~20
+  lines.
+- `vision_seat.rs` test helper `glm5v_header()` duplicates `glm5v::hparams::tests::glm()`. ~25 lines.
 - qwen35moe NextN MTP: planned (attach table, oracle mainline 36a73916 `graph_mtp`, rounds M0–M3, ~12–16 h + gates);
   decided after the 0.3.0 cut.
 
