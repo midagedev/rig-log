@@ -165,8 +165,16 @@ Open items the 10-11 sessions reported to the lead, grouped by source. Sizes are
 - `MARGIN_FLOOR` 0.5 is pinned twice (`gate_e2e.rs:125`, `gate_qwen3moe_e2e.rs:471`); one owner. ~10 lines.
 - GLM media slot drops its NextN draft: **round 1 in train1013c (glmmd b42b137f)**: the draft stays on for an image
   request and reads the image token's embedding at a span position (feed A); fixture clause (sdm) with three mutants.
-  Open: round 2 (feed B, the span's rows, as llama.cpp's MTP draft does; glmmdb running), then real acceptance A vs B
-  from weekly media-serve and the A/B runner's image arm.
+  Round 2 (feed B, the span's rows, as llama.cpp's MTP draft does): glmmdb 8a731607, fixture-green with three mutants
+  red, in train1013d. Open: real acceptance A vs B from weekly media-serve and the A/B runner's image arm.
+- V4.1's prompt call of P ≤ a few ids costs ~20 ms over a decode step (lease ds41-verify-width, 10-13, A6000 plan a:
+  P = 1 is 42.9 ms against a 23.3 ms step). The prompt batch has no graph (enqueue 5.8 ms, wait 6–7), runs the union
+  service at one column (26–27 ms for 197 host slots, ~2× the step's host leg), and adds a 7.5 ms prologue on some
+  calls. That is the first token of every short follow-up turn and of a cut's re-feed. The step machinery: P steps
+  (23.3 ms each) or pairs (35.6 ms per two ids, 09-25) against the batch's 42.9 / 61.8 / 81.1 / 88.3 / 119.0 ms at
+  P = 1 / 2 / 3 / 4 / 6. Pairs win by 26 / 22 / 17 / 12 ms at P = 2 / 3 / 4 / 6 [derived]; the crossover is near
+  P ≈ 7 (the batch's +15 ms a row against the pair's +17.8). A chat follow-up's template alone is ~5 ids, so the gain
+  is ≤ 26 ms per short turn. S: the prompt walk takes pairs below the crossover, with the gate's bit equality held.
 - `tools/mac-remote.sh --self-test` failed 3 cases (track-lock wait, busy slot holders, freed slot) inside a live
   remote-static on 10-12 and passed twice alone: timing under real slot contention. S.
 - GLM `--mmproj` multi-slot check (glmv4 10-12, real tier, weekly): a media request on one slot turns that slot's
@@ -2157,6 +2165,11 @@ V4.1 `--place gate` 게이트는 카드 이름 "3090"이 박혀 `BLOOMERY_GATE_C
 - **V4.1 DSpark 재학습: 기각.** ModelOpt의 DSpark 바디는 Qwen3 dense 층이라 V4.1 모양 draft를 미세조정할 수 없다. w = 1에서 AL 상한은 2.0이므로 1.89에서 최대 +5.8 %[유도]다. 09-25 결정「드래프터 학습은 열지 않는다」를 유지한다.
 - **draft 헤드 어휘 축소(`calibrate_frequent_vocab`)와 Markov W2 bf16: 기각.** 라운드는 draft 읽기를 제안당 1.45 GB, 2.1–2.6 ms로 잡고 절감을 0.72–0.89 ms로 예측했다. 그러나 rig-log 09-25 「짝 패스」 절이 이미 draft 본체와 특징 읽기를 패스당 0.3–1.6 ms로 쟀고, 패스가 스텝의 1.61배인 원인은 두 행 검증 패스 자체로 판명돼 있다(짝 패스, draft 없음, 1.58–1.61배). 이 레버들의 몫은 그 0.3–1.6 ms 안에 있어 잣대 아래다. 정정(09-28, `recentlit`): 오늘은 행당 호스트 다리 H가 카드 직렬 C보다 커서, 패스 = C_p + 2H(twoeng 모형, 실측 36 ms에 맞음)다. 카드 m행 런치는 어긋난 행 B의 카드 일을 없애지만, 그 일은 이미 A의 호스트 다리 그늘에 있어서 −0.8…+0.4 ms ≈ 0[유도]이다. 패스를 줄이는 것은 H다(적응형 residency, (b′), 행당 호스트 비용). m행 런치가 버는 것은 H < C가 된 뒤, (b′) + 적응형에서 +1.5–4.5 %[유도]다.
 - **confidence head로 약한 제안 건너뛰기: 보류.** 우리 파일의 `conf_proj`는 적재만 되고 쓰이지 않는다(게이트 두 곳만 읽음). 패스 = 1.61 스텝이라 수락 확률이 p > 0.61[유도]인 제안만 이긴다. 평균 α가 0.89라 이득은 p < 0.61인 제안의 비율에 달렸다. 잴 항은 제안마다 confidence 출력과 실제 수락의 결합 분포 하나(박스 프로브, 기록 한 줄 추가가 필요). 검증 패스 레버 뒤에 둔다.
+- **V4.1 DSpark 검증 폭: 닫힘(2026-10-13).** 적응형 residency 아래 합집합 호스트 슬롯은 r × 1.00–1.01로 는다(lease
+  ds41-verify-width, A6000 plan a: r = 1/2/3/4/6에서 197/390/595/799/1198). 연속 토큰이 호스트 꼬리 전문가를 ~1 %만
+  나눠 쓰므로 H는 행마다 13–15 ms 그대로다. 폭 w의 이득은 E(w)/(t₁ + w·H + D)로 α 0.9에서 +5 % 이하, α = 1 상한도 w = 4에서
+  +20 %[유도]. `uniongroup`의 호스트 절약 전제(09-25 겹침 0.15–0.26)는 적응형 residency 이전 값이라 무효. 레버는 폭이 아니라
+  H(드래프트 행당 호스트 바이트: 상주 전문가, bp의 둘째 카드)다.
 - **GGML IQ1_S / IQ2_XXS / IQ2_XS 인코더(0.48 미릴리스): 기각.** k-quant 인코더가 없고, 출력도 GGUF가 아니라 safetensors 블록이며, 보정 없이 균일하다. llama.cpp의 IQ 양자화는 imatrix 가중이 필수다(`ggml-quants.c:3302`, `:3338`). 우리 IQ 계획(IQ4_XS)과도 겹치지 않는다.
 - **AutoQuantize(비용·Shapley): 「Qwen3.8 tiered requant」 보류 전제 불변.** 층 하나의 expert 전체가 한 포맷을 쓰고, 활성 비율은 top_k/N 균일값이다. KL을 비트 예산 안에서 줄일 뿐 품질 손실 자체는 남는다. 공개 파일이 아니게 되고, 후보 포맷에 k-quant가 없으며, BF16 역전파가 필요하다.
 - **skip-softmax sparse attention(0.48 미릴리스): 보류, 사용자 결정 사항.** 출력을 바꾸는 손실 근사다(질량을 버린다). 예측[유도]: Qwen3 pp4096 +1.6…+5.3 %, pp512 ≈ 0; V4.1 lcg 0(호스트 union 그늘 아래), prose ≤ 2 %; GLM은 해당 없음(본 attention이 이미 top-k). 그쪽 보정값은 128 × 128 기하라 우리 64 × 8 커널로 옮겨 올 수 없다.
