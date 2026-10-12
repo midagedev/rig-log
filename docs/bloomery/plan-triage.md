@@ -120,14 +120,16 @@ Open items the 10-11 sessions reported to the lead, grouped by source. Sizes are
   host-test-only today), then the clause moves onto the reader. S + one dump.
 - `crates/app/src/arch/deepseek41/draft.rs:92-95`: the DSpark draft's resident is the card's free-bytes difference; a
   foreign CUDA context (~280 MB) turned weekly-gpu-ds41-serve's bp arm red once (8910077952 B vs 8629780480 B reserved),
-  green alone. Sum the draft's own allocations. S–M.
+  green alone. Sum the draft's own allocations. S–M. **In progress (vision, dsres)**: own buffers held to
+  `dspark::card_bytes` term by term; the card's loss becomes the `taken` diagnostic, its overhead pinned ≤ scratch in a
+  DSpark gate clause.
 - `serve_seats/ds41.rs` open_encoder: `Encoder::load` → `bloomery_gpu_vision::open` (Box<dyn Tower>) makes the seat
   tower-generic; place V4.1's own refusals. S.
 - `vision_seat::span_rows`: one synchronous readback per image; a second activation set would overlap feed i's readback
   and splice under feed i+1's encode. M, term unmeasured.
 - `gate_ds41_serve.rs:1885` comment names `serve::media::expand_spans` (now `vision::media`). XS.
-- `crates/serve/src/media.rs` + `api.rs:2462`: MediaError's PlaceholderCount/EmptySpan duplicate ExpandError; one
-  `Expand(#[from] ExpandError)`. ~20 lines.
+- ~~`crates/serve/src/media.rs` + `api.rs:2462`: MediaError's PlaceholderCount/EmptySpan duplicate ExpandError~~
+  **closed (vishyg, main 364417cf)**: `MediaError::Expand(#[from] ExpandError)`.
 - `tools/gate-paths.tsv`: no rows for `tools/ref/clefvis/requests.jsonl` and `clefvis.sh` (row 181, lev, the precedent);
   confirm with reach. XS.
 - refset `clefvis.rs:1103`, `arch/qwen35moe/vis.rs:34`: `vis_families!` has no consumers parameter; the Qwen3.6 families
@@ -138,15 +140,15 @@ Open items the 10-11 sessions reported to the lead, grouped by source. Sizes are
   host norm (~1e-7). A `step_hidden()`. ~10 lines.
 - `tools/gate-batch.sh` budget refusal (header :251-258): the times median folds in build time, so a re-run is refused
   over budget; the times row already subtracts named waits. Split build from run in the median. S.
-- `crates/vision/src/mrope.rs`: R15 two subjects (MropeSeq positions, SeqRows table rewrite) → `mrope/{seq,rows}.rs`;
-  R14 push_spans:324/restore:365 build PastSequence twice. M.
+- ~~`crates/vision/src/mrope.rs`: R15 two subjects → `mrope/{seq,rows}.rs`; R14 PastSequence built twice~~ **closed
+  in train1013c (vismrope de5b012a)**: `fit` is the one PastSequence refusal, `install` the one rewrite.
 - `crates/gpu-vision/src/qwen3vl.rs:69-72,286`, `gemm_bf16.rs:41`: ff_padded recomputes vision's padded_ff; out_dim %
   TILE_N rechecked; TILE_N in two crates. S, needs ptx-scan.
 - Two f32→bf16 RNE implementations (`gpu-vision lib.rs:63-68`, `vision preprocess::f32_to_bf16`), no gate holds them
   equal. S.
-- `crates/vision/src/resample.rs:163` slices a hand-built Rgb8 by trusting its length (patchify's named refusal is the
-  pattern). S. `image.rs:211` from_decoded `w*h*3` unchecked multiply. XS. `plan_image_grid` returns a plan for a
-  0-sized image: assert or state the caller contract. XS.
+- ~~`resample.rs:163` hand-built Rgb8 length, `image.rs:211` unchecked `w*h*3`, `plan_image_grid` on a 0-sized
+  image~~ **closed (vishyg 364417cf; vismrope de5b012a in train1013c)**: a short or overflowing frame is refused by
+  name (`decoded_frame_len`, `frame_bytes`), and `plan_image_grid` states the caller contract.
 - ~~Placed image clause~~ **closed, no clause (placedfloor 10-12)**: the placed server's host experts take only the
   normed f32 rows after layer 0's media copy (no media code under `crates/gpu/src/host/`), so an image fault is the
   all-card path's and set F holds it; a host-only fault is (o2)/(o5)'s in `gate_qwen35moe_e2e`. Measured, read from
@@ -161,8 +163,10 @@ Open items the 10-11 sessions reported to the lead, grouped by source. Sizes are
 - `gate_qwen3_serve.rs:1721,2247,2428` read the plan line by prefix and `field_u64`; a missing record prints or
   compares `None` instead of a named red. `Log::first(&PLAN38)`, as set F's precondition does now. ~30 lines.
 - `MARGIN_FLOOR` 0.5 is pinned twice (`gate_e2e.rs:125`, `gate_qwen3moe_e2e.rs:471`); one owner. ~10 lines.
-- GLM media slot drops its NextN draft (G3b turns it off per media slot): a media twin of `prompt_with` in
-  gpu-glm5next keeps it. M.
+- GLM media slot drops its NextN draft: **round 1 in train1013c (glmmd b42b137f)**: the draft stays on for an image
+  request and reads the image token's embedding at a span position (feed A); fixture clause (sdm) with three mutants.
+  Open: round 2 (feed B, the span's rows, as llama.cpp's MTP draft does; glmmdb running), then real acceptance A vs B
+  from weekly media-serve and the A/B runner's image arm.
 - `tools/mac-remote.sh --self-test` failed 3 cases (track-lock wait, busy slot holders, freed slot) inside a live
   remote-static on 10-12 and passed twice alone: timing under real slot contention. S.
 - GLM `--mmproj` multi-slot check (glmv4 10-12, real tier, weekly): a media request on one slot turns that slot's
