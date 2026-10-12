@@ -190,6 +190,19 @@ Open items the 10-11 sessions reported to the lead, grouped by source. Sizes are
 - qwen35moe NextN MTP: planned (attach table, oracle mainline 36a73916 `graph_mtp`, rounds M0–M3, ~12–16 h + gates);
   decided after the 0.3.0 cut.
 
+### common (10-13): what the MiMo ring design left (design: bloomery session common, ring R1–R4 open under C4)
+- **Prefill lead, not in any ring round:** `crates/gpu/src/flash_gqa.rs:1411-1428` (`seg_block`). The prompt pass
+  gives each query row its own block, so a full layer's keys are re-read per row from L2 with scalar FMA. [derived]
+  At 97K deep this adds +0.6–1.2 s a 512-row chunk on MiMo's 9 full layers (9 layers × 512 rows × 64 heads × k × 640
+  FLOP at 15–30 TFLOP/s scalar). MiMo's measured prompt rate is 104 tok/s at P = 5,620 (README release table). The
+  lever is a query-tiled pass. L. Ring R1 adds new entries beside this kernel and must not touch it.
+- **The common copy rule has no production caller:** `crates/runtime/src/state.rs:129-140` (`copied`,
+  `copied_layers`). Only state.rs's own tests call them; each body picks its copied stores itself. Ring R2 adds the
+  `shadowed` fact and R3 the first caller; until then the rule is unenforced. S–M.
+- **No near-end checkpoint mark:** `crates/runtime/src/seqstate.rs` `marks`. A template whose generation prompt opens
+  the think span (V4.1's, GLM's, Qwen3.8's) parts a few tokens before the call's end, so the end mark lies past the cut
+  and the next turn re-prefills from the previous mark. Ring R3 adds it for MiMo; it costs Qwen3.5/3.8 today. S.
+
 ### Other
 - clef decide text-only: PrefillPath::Auto → Wide (a float-order change, needs its own prediction; dropped from worker1
   R4c).
