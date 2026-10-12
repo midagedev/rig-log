@@ -2285,6 +2285,12 @@ chain at m = 2 (the same term as the recentlit "verify m-rows" line above).
 - **업스트림 후보: `cuda-intrinsics-gen`의 `mxf4nvf4` admission.** #1329 뒤. 중복 검색, 형제 선례, ptxas `sm_121a` FAIL-first가 남았다. 우리 쪽 소비자는 아직 없다.
 - **장부 정정:** 1번 머지(`cc32f261`이 핀에 있음), 13번은 저장소 이전으로 닫힘(NVIDIA/cuda-rust#1438에서 다시 만든다), 19번 링크 이전, 3·15·25번 제출처 이전.
 
+**한 프로세스에 여러 모델** (사용자 아이디어, 10-12; 다른 엔진 조사는 리드 세션 웹 검색): llama.cpp router mode(`--models-max`, LRU), mistral.rs(런타임 로드·언로드), vLLM(인스턴스당 한 모델, sleep 1/2), Ollama·LM Studio는 모두 모델을 통째로 올리고 내린다. 여러 모델이 VRAM/RAM/NVMe 예산 하나를 텐서·expert 단위로 나눠 쓰는 엔진은 찾지 못했다(좁은 조사).
+- **공유 residency(모델 N개, 티어 예산 하나): 보류, 기록만.** 통합 티어 residency의 확장이다. 쉬는 모델은 언로드하지 않고 RAM·NVMe로 밀려나므로, 전환 비용이 전체 재로드(vLLM 블로그 30–100 s 이상)에서 핫셋 page-in으로 바뀐다. 카드 시간도 공유이므로 스케줄러가 하나여야 한다. draft 모델은 이 구조에서 앉은 모델 하나가 된다.
+- **빠른/느린 모델 전환, 디시전 모델 라우터: 보류, 공유 residency 뒤.** `serve/src/decide.rs`의 seat(요청당 프롬프트 한 번, 생성 없음)가 앞단 라우터의 뼈대다. 값은 라우팅 정확도로 정해진다.
+- **작은 모델·임베딩(#59 EmbeddingGemma 2)으로 메인 모델 expert 선적재: 검증 먼저(Mac).** 프롬프트 단위 임베딩은 도메인 사전 분포만 주고, 토큰별 라우팅은 맞히지 못한다. 정상 상태 예측은 0 근처다(적응형이 이미 78–81 %, `ideaverify`). 후보 구간은 도메인 전환 직후의 콜드 스타트와 프리필 전 선적재뿐이다. 측정은 `routetrace` d2-chat 트레이스를 `router-residency.py`로 재생하고, 전환 뒤 N토큰 적중률을 적응형 단독과 프롬프트 사전 분포를 얹은 경우로 비교한다(박스 없음).
+- **범위 충돌:** 위 「llama-server parity」 표가 embeddings와 `/models/load`·`/unload`(router mode)를 out of scope로 둔다. 착수할 때 사용자가 다시 결정한다.
+
 ### 재판정 잔여 (revisit)
 
 R2 Q3_K 밀집 m ≤ 8 대역(m=6이 m=1 GB/s의 90 % 밑이면 m > 1 명령 레버 카드 — DSpark 패스 +4.7 ms 위험; uniongroup 앞); R5 0·1층 Q5_K `_sel`을 카드로(순 −0.15…−0.4 ms); R6 목록 주장 확인·R7 DSpark 재유도(합집합 0.753로)·R8 rows % 4(plainfile이 덮었는지); N1·N2·N3·N4·N5는 시팅 큐와 사용자 결정.
