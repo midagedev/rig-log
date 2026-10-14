@@ -23,43 +23,41 @@ step fill, placement draft refusals, u64 tensor-range refusal, v3 AVX-512 encodi
 | perf | opt experiments, benchmarks, toktape | prefetch / resident-first / mixed-precision A/Bs for the defaults; opt-axes follow-ups (#146 left Q5_K and dense per-slot reuse open) |
 | promo | promotion, video | MiniCPM-V 4.7 text toktape on the 3060 PC (recording); nothing public without the user's OK |
 
-### Release 0.3.3 scope (draft, lead 10-14 11:0x KST — for the user's decision)
-Base: v0.3.2..main = 99 commits (main `33fb317b`). Status read from main log, gh, worktrees, engine notes, `les-plan.md` §5.
+### Release 0.3.3 scope (draft rev 2, lead 10-14 ~11:15 KST)
+Base: v0.3.2..main (main `33fb317b`). Sources: main log, gh, issue #40 board (10:56 KST), worktrees, `specs/perflab/queue.md`, `les-plan.md` §5.
+**User decisions (10-14):** ctx-first #155 must-have and the release waits for it; its default-change PR goes up only after the 3060 PC 12 GB rerun. #30 qwen35moe MTP must-have. Nemotron 4B after #30, ride-along if green (models opens an issue). Mixed precision opt-in, official if its gates pass, default unchanged. **Cutoff = when every must-have is done.**
 
 | Item | Status | Owner | Risk | Rec. |
 |---|---|---|---|---|
-| ctx-first placement (#155; #28 redefined; design `notes/ctx-first-design.md`) | design done, no PR | engine | High — default + design change across every seat | **must-have** (user decided) |
-| LES C1 one-column step computes resident hits while misses fill | landed (62eda761 chain) | engine | — | in |
-| LES C2 a fill's three parts read together | landed (a82dbfe0) | engine | — | in |
-| LES C3 cross-layer prefetch lever (T6), default ON only if it wins | not started | perf | Med — A/B on A6000 paged (shape A) decides default | must-have lever; default ride-along if green |
-| Resident-first plain decode (T5), default if it wins | not started | perf | Med | ride-along if green |
-| Mixed precision (LES stage 2) as a separate file-choice row | not started | models | Med — new file, not bit-identical | ride-along if green |
-| MiniCPM-V 4.7 images (#147) | PR open, CHANGES_REQUESTED (MUST_FIX fold) | models | Med | **must-have** |
-| MiniCPM draft serving on qwen3 seat (LES stage 3) | not started | models | Med | must-have (user rule) |
-| Nemotron 4B, MTP as draft | not started (no issue yet) | models | High — new arch | ride-along if green; else 0.3.4 |
-| Nemotron 4B NVFP4 (after Q4_K) | not started | models | High | **defer to 0.3.4** |
-| Qwen3.6 fixture tier + Q8_0 gemv (#128) | PR open, rebase + force-with-lease pending | engine | Low | must-have |
-| Placed qwen35moe prompt doc (#154; #29 premise corrected) | PR open | engine | Low | ride-along |
-| qwen35moe NextN MTP (#30) — existing-model gap | not started | models | Med–High (M0–M3) | ride-along if green; else 0.3.4 |
-| Near-end checkpoint mark (unstarted #5) | not started | engine | Low (S) | ride-along |
-| V4.1 short prompt in pairs (unstarted #6) | not started | perf | Low (S) | ride-along |
-| Unified-machine ctx38 floor (unstarted #7) | not started | engine | Low — likely folds into ctx-first | fold into #155 |
-| Query-tiled prefill flash (unstarted #4, L) | not started | perf | High | defer to 0.3.4 |
-| MiMo ring (R-pieces) | landed | engine | — | in |
-| Multi-node Spark plan (#95, Julian) | landed (33fb317b) | — | — | in |
-| Julian PRs #86 #100 #148 | CHANGES_REQUESTED | Julian | — | ride-along if he lands them |
-| avlp #98 | awaiting re-push | contributor / fallback engine | Low | ride-along |
+| ctx-first placement (#155) | design done (`notes/ctx-first-design.md`), no PR | engine | High — default change on every seat | **must-have**; release waits |
+| qwen35moe NextN MTP (#30) | not started | models | Med–High (M0–M3) | **must-have** |
+| MiniCPM-V 4.7 images (#147) | PR open, CHANGES_REQUESTED; board: `b-real` red gate-gpu-minicpmv-tower, gate-gpu-qwen3-serve; `b-fix` running with reds | models | Med | **must-have** |
+| MiniCPM draft serving (qwen3 seat; q36int branch: draft width record, 6 commits, no PR) | in progress | models | Med | **must-have** |
+| #128 Qwen3.6 fixture tier + Q8_0 gemv (w3q35f2f) | PR open; board: `rerun128` + `p1real` green, `batch128` red (ds41-nvtier, xstream, glm5next-nvtier) | engine | Low–Med | **must-have** |
+| qwen38-serve paged reds (q38pg; 0.3.2 known issue "fix → 0.3.3") | WIP branch, 1 commit, no PR | engine | Med | **must-have** (known issue we promised) |
+| LES C1 resident hits while misses fill / C2 three-part fill | landed (#135 chain; a82dbfe0). C2 predicted +1..+7 % tok/s at shape A, **not yet measured** | engine/perf | — | in; A/B owed |
+| LES C3 cross-layer prefetch (T6) | not started | perf | Med | lever must-have; default ON only on a win |
+| Resident-first plain decode (T5) | not started | perf | Med | ride-along if green (default on a win) |
+| PF-6 warmprof W2–W5 | analysis; W2 cherry-pick conflicts in `host/mod.rs`, no branch | perf | Med | defer to 0.3.4 unless it lands with T5 |
+| Mixed precision (LES stage 2), opt-in file row | not started | models | Med | ride-along; official if gates pass |
+| Nemotron 4B (MTP draft), after #30 | not started, no issue | models | High | ride-along if green |
+| Nemotron 4B NVFP4 | not started | models | High | defer to 0.3.4 |
+| q6down (Q6_K down launcher), ubgemm (Qwen3-30B prompt FFN), tilekern (MiMo MXFP4 tiles), dspaths (gate-paths rows) | branches, no PR (board "→ 0.3.3") | perf / engine | Low–Med | ride-along if green |
+| #154 placed qwen35moe prompt doc (#29 premise corrected: units of 512) | PR open | perf | Low | ride-along |
+| Near-end checkpoint mark; V4.1 short prompt in pairs | not started | engine / perf | Low (S) | ride-along |
+| Query-tiled prefill flash | not started | perf | High | defer to 0.3.4 |
+| PF-1, PF-4 | stopped / closed | perf | — | out |
+| PF-2, PF-5 (Spark) | priced, no machine | perf | — | defer (Spark) |
+| MiMo ring #129, #95 multi-node Spark, #120, #126, #125 | landed | — | — | in |
+| Julian #86 #100 #148; avlp #98 | CHANGES_REQUESTED / awaiting re-push | contributors | Low | ride-along if merged |
 
-**Release-blocking prerequisites**
-1. Every must-have PR: Shingler approve + CI green (rebase merge).
-2. Mac checks on the train tip (check, lint, fmt, test, check-*.sh) via the Mac pool.
-3. ws validation pass: real-tier release batch (fixture-tier trains are not enough for a release), plus `ptx-scan` on changed bins.
-4. Same-lease A/B for every default flip (C3, T5, ctx-first); defaults flip only on a measured win.
-5. ctx-first: the user's OK on the default change before merge; the 3060 PC 12 GB prompt case re-run.
-6. HF dataset refresh done (#53 promise), README/release notes numbers only from measured runs; tag by the user.
+**Board (#40) mismatches to fix:** "Now" is 16 h stale (still the 0.3.2 tag goal); no `specs/<role>/NOW` for the new sessions (engine/models/perf/promo); its "Held for the user" vision questions (ImageNumber 500 vs 400, tile cap, per-image replay signature) are not in this scope table — they gate #147; `card_leg.rs` gate-paths row (quant) and `dsfullr-real1` red (stage-gpu-load-v41; later `dsfullr-real2` green, #126 merged) need closing on the board.
 
-**Suggested cutoff order**
-#128 → #147 → ctx-first (#155) → C3/T5 A/Bs and default decision → MiniCPM draft serving → mixed-precision row → ride-alongs that are green at the cut (Nemotron 4B, #30, S items) → real-tier release batch on ws → Mac checks → tag. Anything not green at the batch start moves to 0.3.4.
+**Release-blocking prerequisites:** every must-have Shingler-approved + CI green; board reds above cleared (minicpmv-tower, qwen3-serve, batch128 trio); 3060 PC 12 GB rerun before the ctx-first default PR; same-lease A/B on A6000 paged (shape A) for every default flip (C3, T5, ctx-first); Mac pool checks on the train tip; ws real-tier release batch + ptx-scan; HF dataset refresh (#53); tag by the user.
+
+**Cutoff order:** #128 → q38pg → #147 (+ vision held questions) → MiniCPM draft serving → #30 → ctx-first #155 (3060 rerun → default PR) → C3/T5 A/Bs → ride-alongs green at that moment (Nemotron 4B, mixed precision, q6down/ubgemm/tilekern) → ws real-tier batch → Mac checks → tag.
+
+**Overnight perf (10-13 evening → 10-14 morning):** PF-1 measured twice on A6000, tile arm slower (−0.079 ms, then −0.10155 ms median), stopped, no PR. PF-4 closed by analysis, no lever. PF-6 W2 apply conflicts, no confirm. PF-2/PF-5 Spark-only. #146 opt-axes (docs) and #111 qdot d/dmin landed. LES C1/C2 landed without a measured A/B yet. #154 corrects the #29 premise.
 
 ### Unstarted commitments (10-14 audit; verified against main 4a9419ea, gh, worktrees)
 Ranked by value. Source = section in this file. Owner = suggested session.
