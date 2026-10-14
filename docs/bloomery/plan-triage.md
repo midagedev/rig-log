@@ -23,6 +23,30 @@ step fill, placement draft refusals, u64 tensor-range refusal, v3 AVX-512 encodi
 | perf | opt experiments, benchmarks, toktape | prefetch / resident-first / mixed-precision A/Bs for the defaults; opt-axes follow-ups (#146 left Q5_K and dense per-slot reuse open) |
 | promo | promotion, video | MiniCPM-V 4.7 text toktape on the 3060 PC (recording); nothing public without the user's OK |
 
+### Unstarted commitments (10-14 audit; verified against main 4a9419ea, gh, worktrees)
+Ranked by value. Source = section in this file. Owner = suggested session.
+
+| # | Item | Source | Owner | Pri |
+|---|---|---|---|---|
+| 1 | 12 GB-card default ctx must serve a 4K–8K prompt (2-slot × 4 GiB checkpoint reserve squeezes ctx; #28) | 0.3.0 day / 3060 run, Other q38s3060 | engine | P0 |
+| 2 | Hybrid (placed) prompt path runs 8-row passes, ~145 tok/s on the 3060 PC; design round (#29) | 0.3.0 day / 3060 run | perf | P0 |
+| 3 | qwen35moe NextN MTP (Role::Unused → draft; rounds M0–M3; #30) | 0.3.0 day / 3060 run, vision last row | models | P1 |
+| 4 | Query-tiled prefill flash pass (`flash_gqa.rs` `seg_block`), L | common (10-13) | perf | P1 |
+| 5 | Near-end checkpoint mark for think-span templates (costs Qwen3.5/3.8 today), S | common (10-13) | engine | P1 |
+| 6 | V4.1 short prompt call: walk in pairs below P≈7 (≤26 ms per short turn), S | vision | perf | P1 |
+| 7 | Unified-machine ctx38 headroom floor (Spark user-facing), S | sparkplan | engine | P1 |
+| 8 | `host_only_reason` in the plan record (#22), S | sparkplan | engine | P2 |
+| 9 | Pure plan bin `--pool BYTES` / `--plan-ctx` tools bin, M | sparkplan, sparkctx | engine | P2 |
+| 10 | GLM media: real acceptance feed A vs B; `--mmproj --parallel 2` arm, M | vision | models | P2 |
+| 11 | KV follow-ups: `justfile` `&&` hides drafted serve arm; cache.best reset on drafted miss; promptcache draft-only keys | KV follow-ups | engine | P2 |
+| 12 | gate-gpu-lib 3090 lock vs stated card share | gate-gpu-lib lock | engine | P2 |
+| 13 | Vision cleanups: Set D manifest + refset row; tower-generic `open_encoder`; Clef Resident 3rd copy; `TokenLimits` lift; `--plan` encoder-seat line; `glm5v_header` dup; bf16 RNE two impls; ff_padded/TILE_N dup; `vis_families!` consumers; `open_unplaced_qwen35`; `step_hidden()`; span_rows readback overlap | vision | models | P3 |
+| 14 | Gate tooling: gate-batch median splits build from run; logprob diff tool into `tools/`; `Log::first(&PLAN38)` named reds; gate-paths rows for clefvis requests/sh; mac-remote self-test under contention; gate-batch lock-wait prediction | vision, qsamask | engine | P3 |
+| 15 | Common copy rule production caller (ring R2/R3) | common (10-13) | engine | P3 |
+| 16 | qsa kth-key three-pass dedup (~100 lines) | qsamask | perf | P3 |
+| 17 | clef text-only PrefillPath::Auto → Wide, with its own prediction | Other | perf | P3 |
+| 18 | toktape: card.go GiB/"GB" label; recorder quant/file_bytes fallback; release-026 film font | Clip and toktape | promo | P3 |
+
 ### Open, by owner
 - **#128** (lead/engine): AGENTS.md one-liner `ds41_card_buckets` → `grouped_buckets` approved by the user; merge after
   Shingler re-approves and CI is green.
@@ -99,8 +123,8 @@ Open items the 10-11 sessions reported to the lead, grouped by source. Sizes are
   no pool headroom floor (Qwen3.8 UD-Q3_K_XL headroom 1.72 GB at 125.2 GB pool, 0.43 at 115.4 GiB, negative at #13's
   111.7 GB; load's host_bound probably lowers ctx). S. Spark user-facing.
 - `gguf/src/lib.rs:553` refuses a set without split.tensors.count (apetersson V4.1 MixedQ2, arch deepseek4: not our
-  layout anyway). Named refusal; keep unless a real file needs it. S.
-- `qwen35moe/place.rs:312-318` describe reads room live; describe_in(split, room) makes a pure probe. S.
+  layout anyway). Named refusal; keep unless a real file needs it. S. **[dropped 10-14 audit]** named refusal kept by design; no real file needs it.
+- `qwen35moe/place.rs:312-318` describe reads room live; describe_in(split, room) makes a pure probe. S. **[done 10-14 audit]** `describe_in(split, room)` is on main (`place.rs:366`).
 - No pure plan bin taking --pool BYTES and a header dir; sparkplan needed an aarch64 container + scratch crate. M.
   (probe sources: scratchpad/sparkplan/probe/src/bin/{plan,fetch}.rs)
 - `qwen35moe/place.rs:130` host_only_reason not in the plan record; type-forced host layers show only n_l 0. S.
@@ -118,7 +142,7 @@ Open items the 10-11 sessions reported to the lead, grouped by source. Sizes are
 
 ### qsamask
 - `qsa.rs:887/1082/1265`: the kth-key three-pass is duplicated across three select kernels (~100 lines).
-- narrow-scan.sh cannot scan an uncommitted tree (doc/AGENTS says --worktree).
+- narrow-scan.sh cannot scan an uncommitted tree (doc/AGENTS says --worktree). **[done 10-14 audit]** `tools/narrow-scan.sh --worktree` exists.
 - gate-batch predicted wall ignores lock waits (1184 s predicted vs 6823 s actual).
 
 ### The 3060 test PC run (RTX 3060 12 GB, i7-12700F, WSL2)
@@ -139,7 +163,7 @@ Open items the 10-11 sessions reported to the lead, grouped by source. Sizes are
 
 ### Clip and toktape (sparkclip)
 - After contribarch lands (it owns the file): `docs/contrib/dgx-spark.md:16-18` still says #15 reviewed / #16 in
-  review; both are in main.
+  review; both are in main. **[dropped 10-14 audit]** dgx-spark.md was rewritten (now sections 10/11 track open items).
 - rig-log `tools/clip/release-026/film.html:694` shows "111 6B" (Gochi Hand G reads 6); swap to Caveat Brush for lines
   with G.
 - toktape `internal/card/card.go:454` divides by GiB but prints "GB" → toktape session.
@@ -156,12 +180,12 @@ Open items the 10-11 sessions reported to the lead, grouped by source. Sizes are
   foreign CUDA context (~280 MB) turned weekly-gpu-ds41-serve's bp arm red once (8910077952 B vs 8629780480 B reserved),
   green alone. Sum the draft's own allocations. S–M. **In progress (vision, dsres)**: own buffers held to
   `dspark::card_bytes` term by term; the card's loss becomes the `taken` diagnostic, its overhead pinned ≤ scratch in a
-  DSpark gate clause.
+  DSpark gate clause. **[done 10-14 audit]** bab58c85: resident bytes are the draft's own buffers, term by term.
 - `serve_seats/ds41.rs` open_encoder: `Encoder::load` → `bloomery_gpu_vision::open` (Box<dyn Tower>) makes the seat
   tower-generic; place V4.1's own refusals. S.
 - `vision_seat::span_rows`: one synchronous readback per image; a second activation set would overlap feed i's readback
   and splice under feed i+1's encode. M, term unmeasured.
-- `gate_ds41_serve.rs:1885` comment names `serve::media::expand_spans` (now `vision::media`). XS.
+- `gate_ds41_serve.rs:1885` comment names `serve::media::expand_spans` (now `vision::media`). XS. **[done 10-14 audit]** the comment now names `vision::media::expand_spans`.
 - ~~`crates/serve/src/media.rs` + `api.rs:2462`: MediaError's PlaceholderCount/EmptySpan duplicate ExpandError~~
   **closed (vishyg, main 364417cf)**: `MediaError::Expand(#[from] ExpandError)`.
 - `tools/gate-paths.tsv`: no rows for `tools/ref/clefvis/requests.jsonl` and `clefvis.sh` (row 181, lev, the precedent);
@@ -192,11 +216,11 @@ Open items the 10-11 sessions reported to the lead, grouped by source. Sizes are
 - `gate_qwen3_serve.rs:2931` `F_NEAR_TIE` 0.1 sits inside the cross-configuration spread above (step 26's gap is
   0.027 on the 3090, 0.032 on the A6000, 0.160 placed): a harmless float-order change can move the first
   difference to a step whose gap is larger. Re-derive from the per-step spread or move the check to a
-  prefix-length rule. S–M, design first.
+  prefix-length rule. S–M, design first. **[done 10-14 audit]** re-derived and pinned 0.5 (PIN 2026-10-12, `gate_qwen3_serve.rs:3330`).
 - A logprob-stream diff tool (`placedfloor/cmp*.py`, `parse.py`) into `tools/` with a self-test. ~60 lines.
 - `gate_qwen3_serve.rs:1721,2247,2428` read the plan line by prefix and `field_u64`; a missing record prints or
   compares `None` instead of a named red. `Log::first(&PLAN38)`, as set F's precondition does now. ~30 lines.
-- `MARGIN_FLOOR` 0.5 is pinned twice (`gate_e2e.rs:125`, `gate_qwen3moe_e2e.rs:471`); one owner. ~10 lines.
+- `MARGIN_FLOOR` 0.5 is pinned twice (`gate_e2e.rs:125`, `gate_qwen3moe_e2e.rs:471`); one owner. ~10 lines. **[done 10-14 audit]** one owner, `gpu-gates/src/prompts.rs:261`.
 - GLM media slot drops its NextN draft: **round 1 in train1013c (glmmd b42b137f)**: the draft stays on for an image
   request and reads the image token's embedding at a span position (feed A); fixture clause (sdm) with three mutants.
   Round 2 (feed B, the span's rows, as llama.cpp's MTP draft does): glmmdb 8a731607, fixture-green with three mutants
@@ -243,9 +267,11 @@ Open items the 10-11 sessions reported to the lead, grouped by source. Sizes are
 - q38s3060: `qwen3moe_place.rs:1046` a 2-slot checkpoint reserve of 8.59 GB pushes 4.58 GB of experts to NVMe on a 16 GB
   PC (w4ckpt territory).
 - r4b A/B came in above its band (+154 % against +10..+72): read the decode fills before any claim; the A/B log had no
-  nvtier fill records.
+  nvtier fill records. **[dropped 10-14 audit]** r4b superseded by unitier/nvtier work shipped in 0.3.x.
 - shared /root/bloomery-data/bin/dump_ref is stale (built 09-27 from b67b0e92, source now e870963b); qw2h1 used a
-  private bin-qw2h.
+  private bin-qw2h. **[done 10-14 audit]** dump.sh now refuses a stale or foreign dump_ref (8c53f522, 11cbab6b).
+
+> **10-14 audit:** every section from here down (0.2.6–0.2.9 orchestration, trains, sittings, reviews) is **[dropped 10-14 audit]** as a whole: superseded by the v0.3.0–v0.3.2 cuts. Rows that still matter already live as GitHub issues (#22, #28, #29, #30, #71–#79, #81) or in the 0.3.3 list above; read below only as history.
 
 ## Release 0.2.7 — orchestration (the user, 2026-10-07 evening)
 
