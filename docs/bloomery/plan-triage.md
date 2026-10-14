@@ -23,6 +23,44 @@ step fill, placement draft refusals, u64 tensor-range refusal, v3 AVX-512 encodi
 | perf | opt experiments, benchmarks, toktape | prefetch / resident-first / mixed-precision A/Bs for the defaults; opt-axes follow-ups (#146 left Q5_K and dense per-slot reuse open) |
 | promo | promotion, video | MiniCPM-V 4.7 text toktape on the 3060 PC (recording); nothing public without the user's OK |
 
+### Release 0.3.3 scope (draft, lead 10-14 11:0x KST — for the user's decision)
+Base: v0.3.2..main = 99 commits (main `33fb317b`). Status read from main log, gh, worktrees, engine notes, `les-plan.md` §5.
+
+| Item | Status | Owner | Risk | Rec. |
+|---|---|---|---|---|
+| ctx-first placement (#155; #28 redefined; design `notes/ctx-first-design.md`) | design done, no PR | engine | High — default + design change across every seat | **must-have** (user decided) |
+| LES C1 one-column step computes resident hits while misses fill | landed (62eda761 chain) | engine | — | in |
+| LES C2 a fill's three parts read together | landed (a82dbfe0) | engine | — | in |
+| LES C3 cross-layer prefetch lever (T6), default ON only if it wins | not started | perf | Med — A/B on A6000 paged (shape A) decides default | must-have lever; default ride-along if green |
+| Resident-first plain decode (T5), default if it wins | not started | perf | Med | ride-along if green |
+| Mixed precision (LES stage 2) as a separate file-choice row | not started | models | Med — new file, not bit-identical | ride-along if green |
+| MiniCPM-V 4.7 images (#147) | PR open, CHANGES_REQUESTED (MUST_FIX fold) | models | Med | **must-have** |
+| MiniCPM draft serving on qwen3 seat (LES stage 3) | not started | models | Med | must-have (user rule) |
+| Nemotron 4B, MTP as draft | not started (no issue yet) | models | High — new arch | ride-along if green; else 0.3.4 |
+| Nemotron 4B NVFP4 (after Q4_K) | not started | models | High | **defer to 0.3.4** |
+| Qwen3.6 fixture tier + Q8_0 gemv (#128) | PR open, rebase + force-with-lease pending | engine | Low | must-have |
+| Placed qwen35moe prompt doc (#154; #29 premise corrected) | PR open | engine | Low | ride-along |
+| qwen35moe NextN MTP (#30) — existing-model gap | not started | models | Med–High (M0–M3) | ride-along if green; else 0.3.4 |
+| Near-end checkpoint mark (unstarted #5) | not started | engine | Low (S) | ride-along |
+| V4.1 short prompt in pairs (unstarted #6) | not started | perf | Low (S) | ride-along |
+| Unified-machine ctx38 floor (unstarted #7) | not started | engine | Low — likely folds into ctx-first | fold into #155 |
+| Query-tiled prefill flash (unstarted #4, L) | not started | perf | High | defer to 0.3.4 |
+| MiMo ring (R-pieces) | landed | engine | — | in |
+| Multi-node Spark plan (#95, Julian) | landed (33fb317b) | — | — | in |
+| Julian PRs #86 #100 #148 | CHANGES_REQUESTED | Julian | — | ride-along if he lands them |
+| avlp #98 | awaiting re-push | contributor / fallback engine | Low | ride-along |
+
+**Release-blocking prerequisites**
+1. Every must-have PR: Shingler approve + CI green (rebase merge).
+2. Mac checks on the train tip (check, lint, fmt, test, check-*.sh) via the Mac pool.
+3. ws validation pass: real-tier release batch (fixture-tier trains are not enough for a release), plus `ptx-scan` on changed bins.
+4. Same-lease A/B for every default flip (C3, T5, ctx-first); defaults flip only on a measured win.
+5. ctx-first: the user's OK on the default change before merge; the 3060 PC 12 GB prompt case re-run.
+6. HF dataset refresh done (#53 promise), README/release notes numbers only from measured runs; tag by the user.
+
+**Suggested cutoff order**
+#128 → #147 → ctx-first (#155) → C3/T5 A/Bs and default decision → MiniCPM draft serving → mixed-precision row → ride-alongs that are green at the cut (Nemotron 4B, #30, S items) → real-tier release batch on ws → Mac checks → tag. Anything not green at the batch start moves to 0.3.4.
+
 ### Unstarted commitments (10-14 audit; verified against main 4a9419ea, gh, worktrees)
 Ranked by value. Source = section in this file. Owner = suggested session.
 
