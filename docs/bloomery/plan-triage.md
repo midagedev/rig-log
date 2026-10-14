@@ -2,7 +2,41 @@
 
 여기는 **아직 할 일만** 있다. 2026-09-25 새벽에 다시 썼다 — 그 전 판(라운드 보고 절 스무 개와 09-23 GPU 선 목록의 원문, 155 KB)은 [`plan-ledger.md`](plan-ledger.md) 「plan-triage.md 2026-09-25 이전 판」에 원문 그대로 있고, 항목의 근거·수치·기제가 필요하면 거기서 찾는다. 항목은 받을 라운드별로 한 줄씩이고 크기는 XS·S·M·L이다. 착륙한 줄은 지운다(원문은 장부, 결과는 커밋 메시지와 rig-log). 수치는 `[유도]`가 아니면 실측이다.
 
-## Release 0.3.0 (or 0.2.10) — orchestration (the user, 2026-10-10 ~08:40: "worker들과 협력해서 릴리즈를 위한 오케스트레이션 가속")
+## Release 0.3.3 — current plan (lead, 2026-10-14 ~10:20 KST; this file is the plan of record from now on)
+
+v0.3.2 shipped. main `4a9419ea` (#146 opt-axes docs landed; since 10-13: MiMo ring R-pieces, nvtier one-column
+step fill, placement draft refusals, u64 tensor-range refusal, v3 AVX-512 encoding check, handoffs untracked `34d52f65`).
+
+**Scope (the user: aggressive; defaults favor the best performer):**
+- Defaults: prefetch / resident-first on **if they win** the same-lease A/B; mixed precision.
+- MiniCPM-V 4.7: images (#147, Shingler MUST_FIX fold in progress — models) and draft serving (#90).
+- Nemotron 4B in, its MTP as the draft; NVFP4 after Q4_K.
+- LES tier experiment (les1 — engine).
+- Fill existing model gaps before new models (#88, #30, #28, #29 class rows before #108/#60/#59/#61).
+
+### Sessions (4 Claude Code workers; the lead orchestrates, merges after Shingler + green CI)
+
+| Session | Owns | Now |
+|---|---|---|
+| engine | shared code, tiers, LES | #128 rebase (gate_p1 commit from models folded, ws GPU check green) → `--force-with-lease` to its branch; `ref-paths.sh` draft-only refusal (#53 D3 (a)); PR removing tracked handoff files from main; les1 |
+| models | vision + quant, owns ws | **HF dataset refresh today** (glm5next + engram `corpus-prose.ids`, `fx_ref_glm5next_vis_taps`, ik MIT licence; `prose-all`/`threads` stay unpublished); #147 MUST_FIX fold; Nemotron 4B |
+| perf | opt experiments, benchmarks, toktape | prefetch / resident-first / mixed-precision A/Bs for the defaults; opt-axes follow-ups (#146 left Q5_K and dense per-slot reuse open) |
+| promo | promotion, video | MiniCPM-V 4.7 text toktape on the 3060 PC (recording); nothing public without the user's OK |
+
+### Open, by owner
+- **#128** (lead/engine): AGENTS.md one-liner `ds41_card_buckets` → `grouped_buckets` approved by the user; merge after
+  Shingler re-approves and CI is green.
+- **#53** (DGX Spark checklist): reply posted 10-14 (dataset "today", proposals flexible). Follow through: dataset
+  upload (models), `ref-paths.sh` fix (engine), then tell Julian.
+- **Julian (@juliankang4) owns:** PRs #86, #100, #95, #148, #153; issues #116, #118, #119, #151, #152 (and #137 list). We
+  only step in when Shingler has given final approval and a rebase is all that blocks the merge — rebase on his branch,
+  merge the original.
+- **avlp #98:** awaiting the re-push; fallback after 2 days (~10-16) is an internal PR with `dee4ec48` plus the row.
+- **PF-1:** parked.
+- **feed-cache deploy:** waits on the user's Cloudflare re-login and approval.
+- Release cut (tag) and gpu-verified labels stay with the user.
+
+## [history — shipped as v0.3.0..v0.3.2; open rows above supersede] Release 0.3.0 (or 0.2.10) — orchestration (the user, 2026-10-10 ~08:40: "worker들과 협력해서 릴리즈를 위한 오케스트레이션 가속")
 
 **The version** (the user, ~09:20, "이게 다 되고 나면 0.3.0 갈만하지"): 0.3.0 if the cut carries all three pillars —
 vision on the Qwen3-VL family's three seats, the unified tier with V4.1 and GLM attached, quantwide's Qwen3.6 and
