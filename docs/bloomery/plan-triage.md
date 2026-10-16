@@ -82,6 +82,8 @@ Ranked by value. Source = section in this file. Owner = suggested session.
 | 16 | qsa kth-key three-pass dedup (~100 lines) | qsamask | perf | P3 |
 | 17 | clef text-only PrefillPath::Auto → Wide, with its own prediction | Other | perf | P3 |
 | 18 | toktape: card.go GiB/"GB" label; recorder quant/file_bytes fallback; release-026 film font | Clip and toktape | promo | P3 |
+| 19 | Bolt gate regressions (Shingler non-blocking, #320 merged a688accb): a synthetic Q8_0 ssm_in/ssm_out with a companion .scale refused at Body::load (7a86ba5e3); a saturated sigmoid's inf/NaN cross_band fails as a difference in both tiers (5408540be) — FAIL-first cases for the two guards | Bolt gates | engine | P3 |
+| 20 | #320 review follow-ups: moe.rs:373 fuse the two adds (one launch + 8×hidden bytes a MoE layer a token, derived); a gate-paths row for crates/gpu/src/arch/nemotron_h_moe/body.rs (narrow names gate-gpu-p1's dependency read) | Bolt | engine | P3 |
 
 ### Open, by owner
 - **#128** (lead/engine): AGENTS.md one-liner `ds41_card_buckets` → `grouped_buckets` approved by the user; merge after
