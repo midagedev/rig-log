@@ -2418,6 +2418,7 @@ chain at m = 2 (the same term as the recentlit "verify m-rows" line above).
 - **빠른/느린 모델 전환, 디시전 모델 라우터: 보류, 공유 residency 뒤.** `serve/src/decide.rs`의 seat(요청당 프롬프트 한 번, 생성 없음)가 앞단 라우터의 뼈대다. 값은 라우팅 정확도로 정해진다.
 - **작은 모델·임베딩(#59 EmbeddingGemma 2)으로 메인 모델 expert 선적재: 검증 먼저(Mac).** 프롬프트 단위 임베딩은 도메인 사전 분포만 주고, 토큰별 라우팅은 맞히지 못한다. 정상 상태 예측은 0 근처다(적응형이 이미 78–81 %, `ideaverify`). 후보 구간은 도메인 전환 직후의 콜드 스타트와 프리필 전 선적재뿐이다. 측정은 `routetrace` d2-chat 트레이스를 `router-residency.py`로 재생하고, 전환 뒤 N토큰 적중률을 적응형 단독과 프롬프트 사전 분포를 얹은 경우로 비교한다(박스 없음).
 - **범위 충돌:** 위 「llama-server parity」 표가 embeddings와 `/models/load`·`/unload`(router mode)를 out of scope로 둔다. 착수할 때 사용자가 다시 결정한다.
+- **vLLM Kimi K3 디코드(블로그 2026-10-16, GB300 TP8/16): 대부분 해당 없음.** 이득의 큰 몫은 NVLink TP all-reduce 융합이라 bloomery(PCIe, TP 없음)에 없다. 남은 세 가지는 `kimiread`(Haiku, 기록만, 박스 없음)로 값을 매겼다. (1) shared expert 측면 스트림: Bolt 3090 [유도] 0.20 ms/토큰(1.8 %, 대역 0.9–3.5 %), `Branch::fork/join`으로 그래프에서 합법, 열기 후보. Qwen3.8은 이미 호스트 다리 그늘이라 보류. (2) 다음 가중치 L2 프리페치: 6 MB L2에 5.7 MB, 창 2–4 µs에 프리페치 8.9 µs, 0.9 %로 자 아래라 드롭. (3) 층당 커널 수: 노드 하나가 0.0075 %라 노드 수를 세기 전까지 보류. 먼저 할 측정 하나는 Bolt 3090 d=512 한 스텝의 nsys `cuda_gpu_kern_sum`과 노드 수다. 커널 합 예측은 9.5–11.0 ms이고 스텝은 11.3 ms다(`bolt-rel-tg-3090.card`). 바이트 3.0 GB [유도]가 설명하는 것은 3.9–4.3 ms뿐이라, 설명되지 않은 3–7 ms가 셋 중 어느 것보다 크다. 교훈인 "동기화 대기 앞으로 옮겨진 읽기"는 last-block 티켓 9쌍 모두 fence → `fetch_add(AcqRel)` → `sync_threads` 순서였다. `gpu-deepseek41/src/hc.rs` `column_sum`만 일반 load라 SASS 확인 한 번이 남는다.
 
 ### 재판정 잔여 (revisit)
 
