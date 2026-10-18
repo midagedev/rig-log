@@ -1,0 +1,7 @@
+out/
+probe/
+sub/
+music/
+.venv
+__pycache__/
+scratch/

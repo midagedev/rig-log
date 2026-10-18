@@ -1,0 +1,545 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>bloomery 0.3.4</title>
+<style>
+  @font-face { font-family: "Anybody"; src: url("fonts/Anybody-VF.ttf") format("truetype");
+               font-weight: 100 900; font-stretch: 50% 150%; font-style: normal; }
+  @font-face { font-family: "Anybody"; src: url("fonts/Anybody-Italic-VF.ttf") format("truetype");
+               font-weight: 100 900; font-stretch: 50% 150%; font-style: italic; }
+  @font-face { font-family: "Martian Mono"; src: url("fonts/MartianMono-VF.ttf") format("truetype");
+               font-weight: 100 800; font-stretch: 75% 112.5%; }
+  html, body { margin: 0; padding: 0; background: #15110E; }
+  #stage { position: relative; width: 1080px; height: 1080px; overflow: hidden; background: #15110E; }
+  #stage > canvas, #stage > svg { position: absolute; left: 0; top: 0; width: 1080px; height: 1080px; }
+  #grain { pointer-events: none; }
+  text { font-kerning: normal; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <svg id="vec" viewBox="0 0 1080 1080" xmlns="http://www.w3.org/2000/svg"></svg>
+  <canvas id="grain" width="1080" height="1080"></canvas>
+</div>
+<script>
+"use strict";
+// The bloomery 0.3.4 release film, revision 3: a title, then the two RTX 3090 tapes (bloomery 0.3.4 and llama.cpp on
+// one card, one GGUF, one prompt) played side by side in real time from their own token times, then two DGX Sparks,
+// then the lockup. Every frame is a pure function of t (seconds); every string, tape and beat comes from data.json
+// (make_data.py), and the floors below are console errors, which render.py turns into failures. One SVG layer draws
+// type and marks; a canvas above it holds a still print grain that never changes, so it moves no frame-to-frame scan.
+window.FILM = "release-034-v3";
+const W = 1080, M = 72, FPS = 60;
+const C = { ink: "#15110E", soot: "#221C18", soot2: "#2E2621", ash: "#8F837A", bone: "#F4EBDC", body: "#D9CEBF",
+            ember: "#FF5A1F", sand: "#E9B98F", fire: "#FFC65A" };
+// Floors at 1080 (the phone shows half): settled label text 44 px; a filled mark 12 px across (an ember mark 24 px);
+// settled text inside the margins less a 10 px optical allowance. The streamed tape text is motion and is exempt from
+// the size floor and the read floor; each run it draws must be a piece of its tape's text.
+const FLOOR = 44, MARK_DARK = 12, MARK_EMBER = 24, EDGE_TOL = 10;
+let D = null, TL = null, P = 0.5, SEG = [], BY = {}, STR = null, LANES = [], ADV = 0;
+const svg = document.getElementById("vec"), NS = "http://www.w3.org/2000/svg";
+window.LOG = null;        // render.py check: a Set of every "face\ttext" drawn
+window.NORASTER = false;  // render.py check: geometry and floors only, no canvas raster
+
+// ---- math ----------------------------------------------------------------------------------------------------------
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, u) => a + (b - a) * u;
+const oexp = u => (u = clamp(u)) >= 1 ? 1 : 1 - Math.pow(2, -10 * u);
+const smooth = u => (u = clamp(u)) * u * (3 - 2 * u);
+const on = b => Math.max(0, b * P - TL.lead);     // the switch time of film beat b (half a frame early)
+const bt = (S, k) => on(S.b0 + k);
+const beatAt = t => Math.floor((t + TL.lead) / P + 1e-9);   // the film beat whose switch time t has passed
+
+// ---- the frame -----------------------------------------------------------------------------------------------------
+let F = null;
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  (parent || F.g).appendChild(e); return e;
+}
+// An arrival at time t for an element landing at t0: opacity, scale, offset, and whether it has settled; null before.
+// stamp is the tape's own landing (a lane's last token, off the beat grid): eased in and out, so it starts no cut.
+const SET = { a: 1, sc: 1, dx: 0, dy: 0, settled: true };
+function arrive(t, t0, kind = "slam") {
+  const u = t - t0;
+  if (u < 0) return null;
+  if (kind === "slam") { const d = 0.20; return { a: clamp(u / 0.06), sc: lerp(1.22, 1, oexp(u / d)), dx: 0, dy: 0, settled: u >= d }; }
+  if (kind === "rise") { const d = 0.16; return { a: clamp(u / 0.06), sc: 1, dx: 0, dy: lerp(16, 0, oexp(u / d)), settled: u >= d }; }
+  if (kind === "left") { const d = 0.20; return { a: clamp(u / 0.05), sc: 1, dx: lerp(-60, 0, oexp(u / d)), dy: 0, settled: u >= d }; }
+  if (kind === "stamp") { const d = 0.30, e = smooth(u / d); return { a: e, sc: lerp(1.08, 1, e), dx: 0, dy: 0, settled: u >= d }; }
+  throw new Error(`no arrival ${kind}`);
+}
+function xf(e, k, ox, oy, rot, rx, ry) {
+  const parts = [];
+  if (k.sc !== 1 || k.dx || k.dy) parts.push(`translate(${ox + k.dx} ${oy + k.dy}) scale(${k.sc}) translate(${-ox} ${-oy})`);
+  if (rot) parts.push(`rotate(${rot} ${rx} ${ry})`);
+  if (parts.length) e.setAttribute("transform", parts.join(" "));
+  if (k.a < 1) e.setAttribute("opacity", +k.a.toFixed(4));
+}
+
+// ---- the guards ----------------------------------------------------------------------------------------------------
+function collect(v) {
+  if (typeof v === "string") STR.add(v);
+  else if (Array.isArray(v)) v.forEach(collect);
+  else if (v && typeof v === "object") Object.values(v).forEach(collect);
+}
+function screenBox(e, x0, y0, x1, y1) {
+  const m = e.getCTM(), pts = [[x0, y0], [x1, y0], [x0, y1], [x1, y1]].map(([x, y]) => [m.a * x + m.c * y + m.e, m.b * x + m.d * y + m.f]);
+  return [Math.min(...pts.map(p => p[0])), Math.min(...pts.map(p => p[1])), Math.max(...pts.map(p => p[0])), Math.max(...pts.map(p => p[1]))];
+}
+function markFloor(e, w, h, ember, what) {
+  const m = e.getCTM(), s = Math.hypot(m.a, m.b), need = ember ? MARK_EMBER : MARK_DARK, got = Math.min(w, h) * s;
+  if (got < need - 1e-6) console.error(`${ember ? "ember" : "dark"} mark under ${need} px: ${got.toFixed(1)} px ${what}`);
+}
+
+// ---- type ----------------------------------------------------------------------------------------------------------
+const MC = document.createElement("canvas").getContext("2d"), VM = new Map();
+const STRETCH = [[50, "ultra-condensed"], [62.5, "extra-condensed"], [75, "condensed"], [87.5, "semi-condensed"],
+                 [100, "normal"], [112.5, "semi-expanded"], [125, "expanded"], [150, "extra-expanded"]];
+function vmet(s, mono, italic, wght, wdth) {
+  const key = `${mono}|${italic}|${wght}|${Math.round(wdth / 12.5)}|${s}`;
+  if (!VM.has(key)) {
+    MC.font = `${italic ? "italic " : ""}${wght} 100px ${mono ? '"Martian Mono"' : "Anybody"}`;
+    MC.fontStretch = STRETCH.reduce((a, b) => Math.abs(b[0] - wdth) < Math.abs(a[0] - wdth) ? b : a)[1];
+    const m = MC.measureText(s);
+    VM.set(key, [m.actualBoundingBoxAscent / 100, m.actualBoundingBoxDescent / 100]);
+  }
+  return VM.get(key);
+}
+const face = (mono, italic) => mono ? "Mono" : italic ? "AnybodyItalic" : "Anybody";
+function style(e, mono, italic, size, wdth, wght) {
+  e.style.fontFamily = mono ? '"Martian Mono"' : "Anybody";
+  e.style.fontStyle = italic ? "italic" : "normal";
+  e.style.fontSize = size + "px";
+  e.style.fontVariationSettings = `'wdth' ${wdth}, 'wght' ${wght}`;
+  if (mono) { e.style.fontVariantLigatures = "none"; e.style.fontFeatureSettings = "'liga' 0, 'calt' 0"; }
+}
+// A label. o: mono, italic, size, wdth, wght, fill, anchor, ls, fit (a width the size is scaled to), k (its arrival;
+// SET when omitted, null for not on screen), rot (degrees about rx, ry), ox/oy (the arrival's origin), grp, dyn (a
+// running instrument: its text is checked by the caller, not looked up). Settled text is held to the floor and the
+// margins and collected for the overlap and hold checks; text still arriving is collected as such.
+function txt(s, x, y, o = {}) {
+  if (typeof s !== "string") throw new Error(`txt was handed ${JSON.stringify(s)}, not a string`);
+  if (!o.dyn && !STR.has(s)) console.error(`string not in data.json: "${s}"`);
+  const k = o.k === undefined ? SET : o.k;
+  if (!k) return null;
+  const mono = !!o.mono, italic = !!o.italic, wdth = o.wdth ?? (mono ? 75 : 100), wght = o.wght ?? (mono ? 500 : 900);
+  let size = o.size ?? 44;
+  const e = el("text", { x, y, fill: o.fill ?? C.bone, "text-anchor": o.anchor ?? "start" }, o.parent);
+  style(e, mono, italic, size, wdth, wght);
+  if (o.ls) e.style.letterSpacing = o.ls + "px";
+  e.textContent = s;
+  if (window.LOG) LOG.add(face(mono, italic) + "\t" + s);
+  if (o.fit) { size = size * o.fit / e.getComputedTextLength(); e.style.fontSize = size + "px"; }
+  xf(e, k, o.ox ?? x, o.oy ?? y, o.rot, o.rx ?? x, o.ry ?? y);
+  if (k.settled) {
+    const bb = e.getBBox(), [asc, desc] = vmet(s, mono, italic, wght, wdth);
+    const box = screenBox(e, bb.x, y - asc * size, bb.x + bb.width, y + desc * size);
+    e.box = box; e.size = size;
+    if (size < FLOOR - 1e-6) console.error(`text under ${FLOOR} px: ${size.toFixed(1)} px "${s}"`);
+    if (box[0] < M - EDGE_TOL - 0.5 || box[2] > W - M + EDGE_TOL + 0.5 || box[1] < M - EDGE_TOL - 0.5 || box[3] > W - M + EDGE_TOL + 0.5)
+      console.error(`text past the margin: x ${box[0].toFixed(0)}..${box[2].toFixed(0)} y ${box[1].toFixed(0)}..${box[3].toFixed(0)} "${s}"`);
+    F.texts.push({ s, box, grp: o.grp });
+  } else F.arriving.push(s);
+  return e;
+}
+// The width of s at size 100 (a measuring line, drawn nowhere).
+function adv(s, mono, italic, wdth, wght) {
+  const e = el("text", { x: 0, y: -1000 }, svg);
+  style(e, mono, italic, 100, wdth, wght); e.textContent = s;
+  const w = e.getComputedTextLength(); e.remove(); return w;
+}
+
+// ---- marks ---------------------------------------------------------------------------------------------------------
+function poly(pts, fill, o = {}) {
+  const e = el("polygon", { points: pts.map(p => p.map(v => +v.toFixed(2)).join(",")).join(" "), fill }, o.parent);
+  if (o.a !== undefined && o.a < 1) e.setAttribute("opacity", +o.a.toFixed(4));
+  return e;
+}
+function rect(x, y, w, h, o = {}) {
+  const e = el("rect", { x, y, width: Math.max(0, w), height: h, rx: o.r ?? 0, fill: o.fill ?? "none",
+                         stroke: o.stroke ?? "none", "stroke-width": o.sw ?? 0 }, o.parent);
+  const k = o.k || SET;
+  xf(e, k, o.ox ?? x + w / 2, o.oy ?? y + h / 2, o.rot, o.rx ?? x + w / 2, o.ry ?? y + h / 2);
+  if (o.floor && k.settled) markFloor(e, o.sw ? o.sw : w, o.sw ? o.sw : h, (o.fill || o.stroke) === C.ember, o.floor);
+  return e;
+}
+function circle(cx, cy, r, o = {}) {
+  const e = el("circle", { cx, cy, r, fill: o.fill ?? "none", stroke: o.stroke ?? "none", "stroke-width": o.sw ?? 0 }, o.parent);
+  if (o.floor) markFloor(e, o.sw ? o.sw : 2 * r, o.sw ? o.sw : 2 * r, (o.fill || o.stroke) === C.ember, o.floor);
+  return e;
+}
+// A field that sweeps in on its cut: a parallelogram whose leading edge runs across the frame in d seconds.
+function sweep(t, t0, fill, from = "left", d = 0.22, slant = 220) {
+  const e = oexp((t - t0) / d), X = lerp(from === "left" ? -slant : W + slant, from === "left" ? W + slant : -slant, e);
+  const pts = from === "left" ? [[-slant - 20, 0], [X + slant, 0], [X, W], [-slant - 20, W]]
+                              : [[W + slant + 20, 0], [X, 0], [X - slant, W], [W + slant + 20, W]];
+  poly(pts, fill);
+}
+
+// ---- the grain: one still plate, drawn once -------------------------------------------------------------------------
+function grain() {
+  if (window.NORASTER) return;
+  const cv = document.getElementById("grain"), g = cv.getContext("2d"), img = g.createImageData(W, W);
+  let a = 20261018 >>> 0;
+  const rnd = () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a);
+                      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  for (let i = 0; i < W * W; i++) {
+    const r = rnd(), light = r > 0.5, s = Math.abs(r - 0.5) * 2;
+    img.data[4 * i] = img.data[4 * i + 1] = img.data[4 * i + 2] = light ? 255 : 0;
+    img.data[4 * i + 3] = s > 0.82 ? Math.round(14 * (s - 0.82) / 0.18) : 0;
+  }
+  g.putImageData(img, 0, 0);
+}
+
+// ---- the lanes: each tape's text laid out once, drawn up to the tape's time ----------------------------------------
+const LANE = { w: 450, x: [72, 558], paneY: 360, paneH: 372, padX: 18, padY: 16, fs: 21, lh: 29 };
+function wrap(text, cols) {
+  const rows = []; let off = 0;
+  for (const p of text.split("\n")) {
+    if (!p.length) { rows.push({ s: off, e: off }); off += 1; continue; }
+    let s = 0;
+    while (s < p.length) {
+      if (p.length - s <= cols) { rows.push({ s: off + s, e: off + p.length }); break; }
+      let cut = p.lastIndexOf(" ", s + cols);
+      if (cut <= s) cut = s + cols;
+      rows.push({ s: off + s, e: off + cut });
+      s = cut; while (p[s] === " ") s++;
+    }
+    off += p.length + 1;
+  }
+  return rows;
+}
+// Per character: body, head (a heading's words), mark (#, **, `), bullet, bold, code.
+function marks(text) {
+  const st = new Array(text.length).fill("body");
+  let off = 0;
+  for (const line of text.split("\n")) {
+    const set = (a, b, v) => { for (let i = a; i < b; i++) st[off + i] = v; };
+    const h = line.match(/^(#{1,6}) /);
+    if (h) { set(0, h[1].length, "mark"); set(h[1].length + 1, line.length, "head"); }
+    else {
+      const b = line.match(/^(\s*)(\*|-|\d+\.)\s/);
+      if (b) set(b[1].length, b[1].length + b[2].length, "bullet");
+      for (const m of line.matchAll(/\*\*(.+?)\*\*/g)) { set(m.index, m.index + 2, "mark"); set(m.index + 2, m.index + m[0].length - 2, "bold"); set(m.index + m[0].length - 2, m.index + m[0].length, "mark"); }
+      for (const m of line.matchAll(/`([^`]+)`/g)) { set(m.index, m.index + 1, "mark"); set(m.index + 1, m.index + m[0].length - 1, "code"); set(m.index + m[0].length - 1, m.index + m[0].length, "mark"); }
+    }
+    off += line.length + 1;
+  }
+  return st;
+}
+const RUN = { body: [C.body, 450], head: [C.bone, 760], bold: [C.bone, 720], mark: [C.ash, 450], bullet: [C.ash, 700],
+              code: [C.sand, 520], prompt: [C.ash, 420] };
+function layLane(L, i) {
+  L.i = i; L.x = LANE.x[i]; L.accent = i === 0 ? C.ember : C.bone;
+  L.cols = Math.floor((LANE.w - 2 * LANE.padX) / ADV);
+  L.rows = wrap(L.text, L.cols); L.st = marks(L.text);
+  L.instr = wrap(D.copy.instruction, L.cols).map(r => D.copy.instruction.slice(r.s, r.e));
+  L.vis = Math.floor((LANE.paneH - 2 * LANE.padY) / LANE.lh);
+  L.t = L.toks.map(x => x[0]); L.cum = []; let n = 0;
+  for (const [, s] of L.toks) { n += s.length; L.cum.push(n); }
+  if (n !== L.text.length) throw new Error(`lane ${L.id}: the tokens hold ${n} characters, the text ${L.text.length}`);
+}
+function tokensAt(L, tau) { let lo = 0, hi = L.t.length; while (lo < hi) { const m = (lo + hi) >> 1; if (L.t[m] <= tau) lo = m + 1; else hi = m; } return lo; }
+function cursorRow(L, n) { let lo = 0, hi = L.rows.length - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (L.rows[m].s <= n) lo = m; else hi = m - 1; } return lo; }
+function topRow(L, tau) {
+  const k = tokensAt(L, tau), n = k ? L.cum[k - 1] : 0;
+  return Math.max(0, L.instr.length + 1 + cursorRow(L, n) + 2 - L.vis);
+}
+// The scroll follows the cursor through a 0.25 s box average of the row it needs, so it glides, never jumps.
+function scrollAt(L, tau) { let s = 0; const N = 16; for (let j = 0; j < N; j++) s += topRow(L, tau - 0.25 * j / (N - 1)); return s / N; }
+function streamRun(s, x, y, kind, L) {
+  if (!(L.text.includes(s) || D.copy.instruction.includes(s))) console.error(`lane ${L.id} draws "${s}", which its tape does not hold`);
+  const [fill, wght] = RUN[kind];
+  const e = el("text", { x, y, fill }, L.clip);
+  style(e, true, false, LANE.fs, 75, wght); e.style.whiteSpace = "pre"; e.textContent = s;
+  if (window.LOG) LOG.add("Mono\t" + s);
+}
+function drawLane(L, t, S) {
+  const go = S.go, tau = t - go, x0 = L.x + LANE.padX, y0 = LANE.paneY + LANE.padY;
+  const k = tau < 0 ? 0 : tokensAt(L, tau), n = k ? L.cum[k - 1] : 0, done = k === L.toks.length;
+  const top = tau < 0 ? 0 : scrollAt(L, tau);
+  const rowY = r => y0 + (r - top) * LANE.lh + LANE.fs;
+  const show = r => r - top > -1.2 && r - top < L.vis + 0.2;
+  L.instr.forEach((s, r) => { if (show(r)) streamRun(s, x0, rowY(r), "prompt", L); });
+  const base = L.instr.length + 1;
+  if (tau >= 0 && tau < L.t[0] + 0.25) {
+    // reading the prompt: a band where the answer will start, a light running across it every two beats from GO (no
+    // progress is claimed); it fades out over the quarter second after the lane's own first token
+    const g = el("g", { opacity: (1 - smooth((tau - L.t[0]) / 0.25)).toFixed(4) }, L.clip);
+    const bw = L.cols * ADV, by0 = rowY(base) - LANE.fs - 8;
+    rect(x0, by0, bw, 40, { fill: C.soot2, parent: g });
+    const hw = 180, hx = lerp(x0 - hw, x0 + bw, (tau / (2 * P)) % 1), n = 18;
+    for (let j = 0; j < n; j++) {
+      const a0 = Math.max(x0, hx + j * hw / n), a1 = Math.min(x0 + bw, hx + (j + 1) * hw / n);
+      if (a1 > a0) rect(a0, by0, a1 - a0, 40, { fill: L.accent, parent: g }).setAttribute("opacity", (0.7 * (1 - Math.abs(2 * (j + 0.5) / n - 1))).toFixed(3));
+    }
+  }
+  const cr = cursorRow(L, n);
+  for (let r = 0; r <= cr && k > 0; r++) {
+    const row = L.rows[r], cy = base + r;
+    if (!show(cy)) continue;
+    const e = Math.min(row.e, n);
+    let a = row.s;
+    while (a < e) {
+      let b = a + 1; while (b < e && L.st[b] === L.st[a]) b++;
+      streamRun(L.text.slice(a, b), x0 + (a - row.s) * ADV, rowY(cy), L.st[a], L);
+      a = b;
+    }
+  }
+  if (k > 0 && !done) {   // the cursor, after the last character
+    const row = L.rows[cr], col = Math.min(row.e, n) - row.s;
+    rect(x0 + col * ADV + 2, rowY(base + cr) - LANE.fs + 3, ADV - 3, LANE.fs + 2, { fill: L.accent, parent: L.clip });
+  }
+  return { k, done };
+}
+
+// ---- the scenes ----------------------------------------------------------------------------------------------------
+const SCN = {};
+SCN.title = (t, S) => {
+  const k0 = arrive(t, bt(S, 0), "slam");
+  // the slab: an ember band at -7 degrees, swept in from the left on the cut; a bone stripe rides under it
+  const e = oexp((t - bt(S, 0)) / 0.22), rot = -7, cx = 540, cy = 500;
+  const g = el("g", { transform: `rotate(${rot} ${cx} ${cy})` });
+  rect(-300, cy - 175, lerp(0, 1680, e), 350, { fill: C.ember, parent: g });
+  rect(-300, cy + 195, lerp(0, 1680, oexp((t - bt(S, 0) - 0.05) / 0.22)), 22, { fill: C.bone, parent: g });
+  txt(D.copy.name, cx, cy + 62, { k: k0, size: 150, fit: 820, wdth: 118, wght: 900, fill: C.ink, anchor: "middle", rot, rx: cx, ry: cy, ox: cx, oy: cy });
+  // the version: a bone box at +4 degrees over the slab's lower edge
+  const kv = arrive(t, bt(S, 0) + 0.0, "slam");
+  if (kv) {
+    const bx = 600, by = 690, bw = 360, bh = 150;
+    const gv = el("g", {}); xf(gv, kv, bx + bw / 2, by + bh / 2, 4, bx + bw / 2, by + bh / 2);
+    rect(bx, by, bw, bh, { fill: C.bone, parent: gv });
+    txt(D.copy.version, bx + bw / 2, by + 118, { k: kv.settled ? SET : { ...kv, a: 1, sc: 1 }, size: 124, wdth: 100, wght: 900, fill: C.ink, anchor: "middle", parent: gv });
+  }
+};
+
+SCN.race = (t, S) => {
+  const go = S.go, tau = t - go;
+  // the header: an ember band carrying the model; the size in an ink tab; the card under it
+  const kh = arrive(t, bt(S, 0), "left");
+  const e = oexp((t - bt(S, 0)) / 0.2);
+  poly([[-40, 92], [lerp(-40, 1120, e), 82], [lerp(-40, 1120, e), 176], [-40, 186]], C.ember);
+  if (kh) {
+    const gh = el("g", {}); xf(gh, kh, 72, 150, 0);
+    txt(D.copy.model, 84, 158, { k: kh.settled ? SET : { ...kh, a: kh.a, sc: 1, dx: 0 }, size: 74, wdth: 70, wght: 900, fill: C.ink, parent: gh });
+    const sw = adv(D.copy.size, false, false, 92, 900) / 100 * 58;
+    const tx = 84 + adv(D.copy.model, false, false, 70, 900) / 100 * 74 + 34;
+    const gs = el("g", { transform: `rotate(-3 ${tx + sw / 2 + 18} 132)` }, gh);
+    rect(tx, 98, sw + 36, 70, { fill: C.ink, parent: gs });
+    txt(D.copy.size, tx + 18, 154, { k: kh.settled ? SET : { ...kh, sc: 1, dx: 0 }, size: 58, wdth: 92, wght: 900, fill: C.bone, parent: gs });
+  }
+  const ks = arrive(t, bt(S, 1), "rise");
+  txt(D.copy.card_line, 72, 250, { k: ks, size: 56, wdth: 88, wght: 900, fill: C.bone });
+  if (ks) txt(D.copy.vram, 72 + adv(D.copy.card_line, false, false, 88, 900) / 100 * 56 + 22, 250, { k: ks, size: 44, wdth: 100, wght: 700, fill: C.ash });
+  // the lamps: one lights on the cut, one on the next beat; lights out is GO (the two requests are sent)
+  for (let j = 0; j < 2 && t < go; j++)
+    circle(722 + j * 42, 232, 15, t >= bt(S, j) ? { fill: C.ember, floor: "lamp" } : { stroke: C.ash, sw: 3 });
+  // the clock: real time since GO, stopped at the slower lane's last token
+  const ce = Math.min(Math.max(tau, 0), D.clock_end_s), cs = `${ce.toFixed(2)} s`;
+  if (!/^\d+\.\d\d s$/.test(cs)) console.error(`clock "${cs}"`);
+  if (ks) txt(cs, 1008, 252, { k: ks, mono: true, size: 54, wdth: 75, wght: 600, fill: C.bone, anchor: "end", dyn: true });
+  // the lanes
+  const kt = arrive(t, bt(S, 0), "slam");
+  const done = [];
+  LANES.forEach((L, i) => {
+    const x = L.x, tag = i === 0 ? D.copy.eng_ours : D.copy.eng_lcpp;
+    if (kt) {
+      const g = el("g", {}); xf(g, kt, x + 120, 310, -2, x, 310);
+      const tw = adv(tag, false, true, 86, 900) / 100 * 44;
+      rect(x, 282, tw + 36, 58, { fill: L.accent, parent: g });
+      txt(tag, x + 18, 326, { k: kt.settled ? SET : { ...kt, a: 1, sc: 1 }, size: 44, italic: true, wdth: 86, wght: 900, fill: C.ink, parent: g });
+    }
+    rect(x, LANE.paneY, LANE.w, LANE.paneH, { fill: C.soot });
+    rect(x, LANE.paneY, LANE.w, 4, { fill: L.accent });
+    const cid = `clip${i}`, defs = el("defs", {}), cp = el("clipPath", { id: cid }, defs);
+    el("rect", { x, y: LANE.paneY + 4, width: LANE.w, height: LANE.paneH - 4 }, cp);
+    L.clip = el("g", { "clip-path": `url(#${cid})` });
+    const st = drawLane(L, t, S);
+    // the top of the pane fades the scrolled lines out
+    const gid = `fade${i}`, lg = el("linearGradient", { id: gid, x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
+    el("stop", { offset: 0, "stop-color": C.soot, "stop-opacity": 1 }, lg); el("stop", { offset: 1, "stop-color": C.soot, "stop-opacity": 0 }, lg);
+    rect(x, LANE.paneY + 4, LANE.w, 44, { fill: `url(#${gid})` });
+    // the bar: tokens out of the answer's tokens
+    const by = LANE.paneY + LANE.paneH + 14;
+    rect(x, by, LANE.w, 24, { fill: C.soot2, floor: "bar track" });
+    rect(x, by, LANE.w * st.k / L.toks.length, 24, { fill: L.accent });
+    // the stamp: the tape's decode rate, landing with its last token
+    const kd = arrive(t, go + L.done_s, "stamp");
+    if (kd) {
+      const num = i === 0 ? D.copy.tps_ours : D.copy.tps_lcpp, nw = adv(num, false, true, 80, 900) / 100 * 136;
+      txt(num, x, 912, { k: kd, size: 136, italic: true, wdth: 80, wght: 900, fill: L.accent, ox: x, oy: 870 });
+      txt(D.copy.tok_s, x + nw + 20, 912, { k: kd, size: 44, wdth: 90, wght: 700, fill: C.ash, ox: x, oy: 870 });
+      // the flag: a 4 x 2 checker over the unit; it waves (its squares swap) on every beat after the lane's last token
+      const g = el("g", {}); xf(g, kd, x + nw + 68, 842, 0);
+      const wave = (beatAt(t) - beatAt(go + L.done_s)) % 2;
+      for (let r = 0; r < 2; r++) for (let c = 0; c < 4; c++)
+        rect(x + nw + 20 + c * 24, 818 + r * 24, 24, 24, { fill: (r + c + wave) % 2 ? C.soot2 : L.accent, parent: g, floor: "flag" });
+    }
+  });
+  const kf = arrive(t, bt(S, 1), "rise");
+  txt(D.copy.foot, 72, 1000, { k: kf, size: 44, wdth: 84, wght: 600, fill: C.ash });
+};
+
+SCN.sparks = (t, S) => {
+  sweep(t, bt(S, 0), C.bone, "right");
+  const kh = arrive(t, bt(S, 0), "slam");
+  txt(D.copy.sp_head, 76, 214, { k: kh, size: 128, fit: 860, wdth: 66, wght: 900, fill: C.ink, rot: -3, rx: 76, ry: 214, ox: 540, oy: 170 });
+  // the two Sparks and the link between them
+  const kb = arrive(t, bt(S, 1), "slam");
+  if (kb) {
+    const g = el("g", {}); xf(g, kb, 540, 640, 0);
+    for (const bx of [96, 624]) {
+      rect(bx, 548, 360, 196, { fill: C.ink, r: 10, parent: g, floor: "spark" });
+      for (let j = 0; j < 6; j++) rect(bx + 24 + j * 54, 570, 40, 14, { fill: C.soot2, parent: g, floor: "vent" });
+      txt(D.copy.sp_mem, bx + 180, 690, { k: kb.settled ? SET : { ...kb, a: 1, sc: 1 }, size: 64, wdth: 90, wght: 800, fill: C.bone, anchor: "middle", parent: g });
+    }
+    rect(456, 628, 168, 36, { fill: C.ember, parent: g, floor: "link" });
+    // the link carries traffic both ways: from the next beat on, a pulse leaves each machine every half beat and
+    // crosses in one beat (rightward on the upper row, leftward on the lower)
+    const p0 = bt(S, 2);
+    if (t >= p0) for (let j = Math.max(0, Math.floor((t - p0) / (P / 2)) - 2); p0 + j * P / 2 <= t; j++) {
+      const u = (t - p0 - j * P / 2) / P;
+      if (u >= 1) continue;
+      for (const dir of [1, -1]) {
+        const xs = dir > 0 ? lerp(442, 624, u) : lerp(624, 442, u), a0 = Math.max(456, xs), a1 = Math.min(624, xs + 14);
+        if (a1 > a0) rect(a0, dir > 0 ? 631 : 647, a1 - a0, 14, { fill: C.bone, parent: g });
+      }
+    }
+    txt(D.copy.sp_link, 540, 820, { k: kb.settled ? SET : { ...kb, a: 1, sc: 1 }, mono: true, size: 44, wdth: 75, wght: 600, fill: C.ink, anchor: "middle", parent: g });
+  }
+  // the models, laid across both machines
+  const k1 = arrive(t, bt(S, 2), "left");
+  if (k1) {
+    const g = el("g", {}); xf(g, k1, 540, 300, -3, 540, 300);
+    poly([[60, 262], [1030, 262], [1010, 362], [40, 362]], C.ember, { parent: g });
+    txt(D.copy.sp_ds, 92, 334, { k: k1.settled ? SET : { ...k1, dx: 0, a: 1 }, size: 62, wdth: 72, wght: 900, fill: C.ink, parent: g });
+    txt(D.copy.sp_ds_gb, 986, 334, { k: k1.settled ? SET : { ...k1, dx: 0, a: 1 }, size: 62, wdth: 80, wght: 900, fill: C.ink, anchor: "end", parent: g });
+  }
+  const k2 = arrive(t, bt(S, 3), "left");
+  if (k2) {
+    const g = el("g", {}); xf(g, k2, 540, 420, -3, 540, 420);
+    poly([[150, 384], [800, 384], [784, 458], [134, 458]], C.ink, { parent: g });
+    txt(D.copy.sp_glm, 182, 438, { k: k2.settled ? SET : { ...k2, dx: 0, a: 1 }, size: 52, wdth: 80, wght: 900, fill: C.bone, parent: g });
+  }
+  const kc = arrive(t, bt(S, 3), "rise");
+  txt(D.copy.sp_by, 72, 980, { k: kc, size: 56, italic: true, wdth: 90, wght: 800, fill: C.ink });
+};
+
+SCN.end = (t, S) => {
+  sweep(t, bt(S, 0), C.ember, "left");
+  const k0 = arrive(t, bt(S, 0), "slam");
+  // the furnace: a clay shaft in ink, banded, its arched door lit, a bellows pipe at its foot, flames at its mouth;
+  // drawn in units about its base centre (cx, fy), one unit sc px
+  const sc = 6.4, cx = 72 + 17 * sc, fy = 540, U = (x, y) => [cx + x * sc, fy + y * sc];
+  if (k0) {
+    const g = el("g", {}); xf(g, k0, cx, fy - 26 * sc, 0);
+    poly([U(-17, 0), U(17, 0), U(9.5, -48), U(-9.5, -48)], C.ink, { parent: g });
+    poly([U(-11, -48), U(11, -48), U(11, -52), U(-11, -52)], C.ink, { parent: g });
+    for (const y of [-14, -28]) { const w0 = 17 - 7.5 * (-y / 48); poly([U(-w0 + 1.5, y), U(w0 - 1.5, y), U(w0 - 1.5, y - 1.2), U(-w0 + 1.5, y - 1.2)], C.soot2, { parent: g }); }
+    poly([U(15, -5), U(27, -9), U(27.6, -6.4), U(15.6, -2.4)], C.ink, { parent: g });
+    const door = [U(-4.5, 0), U(-4.5, -6)]; for (let j = 0; j <= 8; j++) door.push(U(-4.5 * Math.cos(Math.PI * j / 8), -6 - 4.5 * Math.sin(Math.PI * j / 8))); door.push(U(4.5, 0));
+    poly(door, C.fire, { parent: g });
+    // the flames: three tongues whose heights flicker (a fixed sum of sines, so every frame is a function of t)
+    [[-6, C.fire, 1.0], [0, C.bone, 1.35], [6, C.fire, 0.9]].forEach(([x, fill, hk], j) => {
+      const h = hk * (7 + 2.2 * Math.sin(t * 13.1 + j * 2.1) + 1.4 * Math.sin(t * 21.7 + j * 1.3));
+      poly([U(x - 4, -52), U(x + 4, -52), U(x + 0.6 * Math.sin(t * 9 + j), -52 - h)], fill, { parent: g });
+    });
+  }
+  // the sparks: one leaves the mouth every 0.06 s from the furnace's landing, rising and blown right for 1.4-2.2 s
+  const s0 = bt(S, 0) + 0.2, hash = j => { let a = (j * 2654435761 + 1013904223) >>> 0; a ^= a >>> 15; a = Math.imul(a, 2246822519) >>> 0; a ^= a >>> 13; return (a >>> 0) / 4294967296; };
+  if (t >= s0) for (let j = Math.max(0, Math.floor((t - s0 - 2.2) / 0.06)); s0 + j * 0.06 <= t; j++) {
+    const r1 = hash(3 * j), r2 = hash(3 * j + 1), r3 = hash(3 * j + 2), life = 1.4 + 0.8 * r3, u = (t - s0 - j * 0.06) / life;
+    if (u >= 1) continue;
+    const [mx, my] = U(lerp(-7, 7, r1), -54), T = u * life;
+    const x = mx + (180 + 240 * r2) * T + 26 * Math.sin(T * 7 + r1 * 6), y = my - (20 + 100 * r1) * T - 10 * T * T;
+    const z = lerp(22, 10, u), a = clamp(u / 0.08) * (1 - smooth((u - 0.55) / 0.45));
+    rect(x - z / 2, y - z / 2, z, z, { fill: r2 < 0.45 ? C.bone : C.fire }).setAttribute("opacity", a.toFixed(3));
+  }
+  txt(D.copy.name, 72, 716, { k: k0, size: 210, fit: 760, wdth: 112, wght: 900, fill: C.ink, ox: 300, oy: 656 });
+  const kv = arrive(t, bt(S, 1), "slam");
+  if (kv) {
+    const bx = 640, by = 752, bw = 300, bh = 132;
+    const g = el("g", {}); xf(g, kv, bx + bw / 2, by + bh / 2, -4, bx + bw / 2, by + bh / 2);
+    rect(bx, by, bw, bh, { fill: C.bone, parent: g });
+    txt(D.copy.version, bx + bw / 2, by + 104, { k: kv.settled ? SET : { ...kv, a: 1, sc: 1 }, size: 108, wdth: 100, wght: 900, fill: C.ink, anchor: "middle", parent: g });
+  }
+  txt(D.copy.url, 72, 968, { k: arrive(t, bt(S, 2), "rise"), mono: true, size: 44, wdth: 75, wght: 600, fill: C.ink });
+};
+
+// ---- the film ------------------------------------------------------------------------------------------------------
+function segAt(t) { let i = 0; for (let j = 1; j < SEG.length; j++) if (t >= SEG[j].t0) i = j; return SEG[i]; }
+function draw(t) {
+  svg.replaceChildren();
+  F = { t, texts: [], arriving: [], g: el("g", {}, svg) };
+  const S = segAt(t);
+  SCN[S.id](t, S);
+  return S;
+}
+function checks() {
+  const T = F.texts;
+  for (let i = 0; i < T.length; i++) for (let j = i + 1; j < T.length; j++) {
+    const a = T[i].box, b = T[j].box;
+    if (T[i].grp && T[i].grp === T[j].grp) continue;
+    if (Math.min(a[2], b[2]) - Math.max(a[0], b[0]) > 1 && Math.min(a[3], b[3]) - Math.max(a[1], b[1]) > 1)
+      console.error(`settled text overlaps: "${T[i].s}" and "${T[j].s}"`);
+  }
+}
+// The holds: from each group's still moment to the cut, the group's strings are drawn, settled, where they settled.
+// A card after its last group's still draws exactly its groups' strings and nothing arriving.
+function hold(S, t) {
+  for (const G of S.groups) {
+    if (t < G.still) continue;
+    const got = F.texts.map(x => x.s), miss = G.strings.filter(s => !got.includes(s));
+    if (miss.length) console.error(`${S.id}.${G.name} at ${(t - G.still).toFixed(3)} s into its hold: ${JSON.stringify(miss)} not settled`);
+    if (!G.ref) continue;
+    for (const s of G.strings) {
+      const x = F.texts.find(q => q.s === s), r = G.ref[s];
+      if (x && r && Math.max(...x.box.map((v, i) => Math.abs(v - r[i]))) > 0.5)
+        console.error(`${S.id}.${G.name}: "${s}" moved ${Math.max(...x.box.map((v, i) => Math.abs(v - r[i]))).toFixed(1)} px in its hold`);
+    }
+  }
+  const last = S.groups[S.groups.length - 1];
+  if (S.kind === "card" && t >= last.still) {
+    const want = new Set(S.groups.flatMap(G => G.strings));
+    if (F.arriving.length) console.error(`${S.id} holds while "${F.arriving.join('", "')}" is still arriving`);
+    const extra = F.texts.map(x => x.s).filter(s => !want.has(s));
+    if (extra.length) console.error(`${S.id} holds ${JSON.stringify(extra)}, which no group reads`);
+  }
+}
+function seek(t) {
+  const S = segAt(t);
+  for (const G of S.groups) if (t >= G.still && !G.ref) {
+    draw(G.still); G.ref = {};
+    for (const s of G.strings) { const x = F.texts.find(q => q.s === s); if (x) G.ref[s] = x.box; }
+  }
+  draw(t); checks(); hold(S, t);
+}
+window.seek = seek;
+function build() {
+  TL = D.timeline; P = TL.period;
+  if (D.film !== window.FILM) throw new Error(`data.json is for ${D.film}, not ${window.FILM}`);
+  SEG = TL.segments;
+  for (const S of SEG) { if (!SCN[S.id]) throw new Error(`no scene ${S.id}`); BY[S.id] = S;
+                         for (const G of S.groups) G.strings = G.keys.map(k => { if (!(k in D.copy)) throw new Error(`no copy ${k}`); return D.copy[k]; }); }
+  STR = new Set(); collect(D.copy);
+  ADV = adv("0000000000", true, false, 75, 450) / 10 / 100 * LANE.fs;
+  LANES = D.lanes; LANES.forEach(layLane);
+}
+(async () => {
+  try {
+    D = await (await fetch(new URLSearchParams(location.search).get("data") || "data.json", { cache: "no-store" })).json();
+    await Promise.all([600, 700, 800, 900].map(w => document.fonts.load(`${w} 100px Anybody`))
+      .concat([document.fonts.load('italic 900 100px Anybody'), document.fonts.load('500 44px "Martian Mono"')]));
+    await document.fonts.ready;
+    build();
+    grain();
+    window.T = TL.T;
+    seek(0);
+  } catch (e) { window.fault = String(e && e.stack || e); window.T = 0; }
+  window.ready = true;
+})();
+</script>
+</body>
+</html>

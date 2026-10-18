@@ -1,0 +1,1064 @@
+{
+ "film": "release-034",
+ "music": {
+  "id": "volt-s1004",
+  "name": "volt-s1004",
+  "artist": "ACE-Step 1.5, generated for this film",
+  "genre": "electronic",
+  "url": "",
+  "prior_bpm": 172.0,
+  "bpm": 171.977,
+  "period_s": 0.34888,
+  "first_beat_s": 0.3325,
+  "bar_offset": 3,
+  "drop_beat": 67,
+  "drop_s": 23.7077,
+  "drop_jump_db": 8.44,
+  "beats": 136,
+  "length_s": 48.0,
+  "kick_on_grid": "14/40",
+  "kick_median_ms": 98.7
+ },
+ "timeline": {
+  "T": 39.4234,
+  "at": 8.3567,
+  "period": 0.34888,
+  "first": 4e-05,
+  "lead": 0.008333333333333333,
+  "open_at_beat": 23,
+  "end_beat": 135,
+  "nbeats": 113,
+  "drop_film_beat": 44,
+  "beats": [
+   0.0,
+   0.3489,
+   0.6978,
+   1.0467,
+   1.3956,
+   1.7444,
+   2.0933,
+   2.4422,
+   2.7911,
+   3.14,
+   3.4888,
+   3.8377,
+   4.1866,
+   4.5355,
+   4.8844,
+   5.2332,
+   5.5821,
+   5.931,
+   6.2799,
+   6.6288,
+   6.9776,
+   7.3265,
+   7.6754,
+   8.0243,
+   8.3732,
+   8.722,
+   9.0709,
+   9.4198,
+   9.7687,
+   10.1176,
+   10.4664,
+   10.8153,
+   11.1642,
+   11.5131,
+   11.862,
+   12.2108,
+   12.5597,
+   12.9086,
+   13.2575,
+   13.6064,
+   13.9552,
+   14.3041,
+   14.653,
+   15.0019,
+   15.3508,
+   15.6996,
+   16.0485,
+   16.3974,
+   16.7463,
+   17.0952,
+   17.444,
+   17.7929,
+   18.1418,
+   18.4907,
+   18.8396,
+   19.1884,
+   19.5373,
+   19.8862,
+   20.2351,
+   20.584,
+   20.9328,
+   21.2817,
+   21.6306,
+   21.9795,
+   22.3284,
+   22.6772,
+   23.0261,
+   23.375,
+   23.7239,
+   24.0728,
+   24.4216,
+   24.7705,
+   25.1194,
+   25.4683,
+   25.8172,
+   26.166,
+   26.5149,
+   26.8638,
+   27.2127,
+   27.5616,
+   27.9104,
+   28.2593,
+   28.6082,
+   28.9571,
+   29.306,
+   29.6548,
+   30.0037,
+   30.3526,
+   30.7015,
+   31.0504,
+   31.3992,
+   31.7481,
+   32.097,
+   32.4459,
+   32.7948,
+   33.1436,
+   33.4925,
+   33.8414,
+   34.1903,
+   34.5392,
+   34.888,
+   35.2369,
+   35.5858,
+   35.9347,
+   36.2836,
+   36.6324,
+   36.9813,
+   37.3302,
+   37.6791,
+   38.028,
+   38.3768,
+   38.7257,
+   39.0746,
+   39.4235
+  ],
+  "segments": [
+   {
+    "id": "leader",
+    "kind": "shot",
+    "b0": 0,
+    "len": 4,
+    "land": {},
+    "cue": {
+     "step0": 0,
+     "step1": 1,
+     "step2": 2,
+     "step3": 3
+    },
+    "b1": 4,
+    "t0": 0.0,
+    "t1": 1.387187
+   },
+   {
+    "id": "title",
+    "kind": "card",
+    "b0": 4,
+    "len": 9,
+    "min_len": 9,
+    "land": {
+     "version": 0,
+     "name": 0,
+     "release": 1
+    },
+    "how": {
+     "version": "slam",
+     "name": "squeeze",
+     "release": "rise"
+    },
+    "cue": {
+     "strike": 0,
+     "run": 0
+    },
+    "last": 1,
+    "settle_s": 0.16,
+    "read": 2.5,
+    "words": 3,
+    "numbers": 0,
+    "read_strings": [
+     "0.3.4",
+     "bloomery",
+     "RELEASE"
+    ],
+    "drawn": [
+     "0.3.4",
+     "bloomery",
+     "RELEASE"
+    ],
+    "b1": 13,
+    "t0": 1.387187,
+    "t1": 4.527107,
+    "still": 1.8961
+   },
+   {
+    "id": "bolt",
+    "kind": "card",
+    "b0": 13,
+    "len": 17,
+    "min_len": 17,
+    "land": {
+     "b74": 0,
+     "tag": 0,
+     "squeeze": 2,
+     "card": 2,
+     "vram": 3,
+     "line": 3
+    },
+    "how": {
+     "b74": "slam",
+     "tag": "rise",
+     "squeeze": "squeeze",
+     "card": "draw",
+     "vram": "slam",
+     "line": "rise"
+    },
+    "cue": {
+     "run_in": 0,
+     "fingers": 3
+    },
+    "last": 3,
+    "settle_s": 0.2,
+    "read": 4.5,
+    "words": 10,
+    "numbers": 2,
+    "read_strings": [
+     "NEMOTRON 3.5 BOLT",
+     "RTX 3090",
+     "74B-A9B",
+     "24 GB",
+     "the whole model on the card"
+    ],
+    "drawn": [
+     "NEMOTRON 3.5 BOLT",
+     "RTX 3090",
+     "74B",
+     "-A9B",
+     "24 GB",
+     "the whole model on the card"
+    ],
+    "b1": 30,
+    "t0": 4.527107,
+    "t1": 10.458067,
+    "still": 5.7737
+   },
+   {
+    "id": "decode",
+    "kind": "card",
+    "b0": 30,
+    "len": 14,
+    "min_len": 14,
+    "land": {
+     "zoom": 0
+    },
+    "how": {
+     "zoom": "zoom"
+    },
+    "cue": {
+     "fill": 1
+    },
+    "last": 0,
+    "settle_s": 0.3,
+    "read": 4.25,
+    "words": 5,
+    "numbers": 3,
+    "read_strings": [
+     "DECODE",
+     "TOK/S",
+     "86.69",
+     "at depth 4096",
+     "RTX 3090 · 250 W"
+    ],
+    "drawn": [
+     "DECODE",
+     "TOK/S",
+     "86.69",
+     "at depth 4096",
+     "RTX 3090 · 250 W"
+    ],
+    "b1": 44,
+    "t0": 10.458067,
+    "t1": 15.342387,
+    "still": 10.7581
+   },
+   {
+    "id": "prompt",
+    "kind": "card",
+    "b0": 44,
+    "len": 9,
+    "min_len": 9,
+    "land": {
+     "swap": 0
+    },
+    "how": {
+     "swap": "swap"
+    },
+    "cue": {
+     "flood": 0
+    },
+    "last": 0,
+    "settle_s": 0.26,
+    "read": 2.75,
+    "words": 3,
+    "numbers": 2,
+    "read_strings": [
+     "PROMPT",
+     "2,047",
+     "a 4096-token prompt"
+    ],
+    "drawn": [
+     "PROMPT",
+     "TOK/S",
+     "2,047",
+     "a 4096-token prompt",
+     "RTX 3090 · 250 W"
+    ],
+    "b1": 53,
+    "t0": 15.342387,
+    "t1": 18.482307,
+    "still": 15.6024
+   },
+   {
+    "id": "sparks",
+    "kind": "card",
+    "b0": 53,
+    "len": 14,
+    "min_len": 14,
+    "land": {
+     "pan": 0,
+     "node0": 1,
+     "node1": 2,
+     "line": 2
+    },
+    "how": {
+     "pan": "pan",
+     "node0": "draw",
+     "node1": "draw",
+     "line": "rise"
+    },
+    "cue": {
+     "page0": 3,
+     "page1": 4
+    },
+    "last": 2,
+    "settle_s": 0.16,
+    "read": 4.0,
+    "words": 16,
+    "numbers": 0,
+    "read_strings": [
+     "SEVERAL DGX SPARKS",
+     "SERVE ONE MODEL",
+     "NVMe",
+     "each node pages its experts from its own NVMe"
+    ],
+    "drawn": [
+     "SEVERAL DGX SPARKS",
+     "SERVE ONE MODEL",
+     "NVMe",
+     "each node pages its experts from its own NVMe"
+    ],
+    "b1": 67,
+    "t0": 18.482307,
+    "t1": 23.366627,
+    "still": 19.3401
+   },
+   {
+    "id": "models",
+    "kind": "card",
+    "b0": 67,
+    "len": 9,
+    "min_len": 9,
+    "land": {
+     "names": 0,
+     "line": 1
+    },
+    "how": {
+     "names": "swap",
+     "line": "swap"
+    },
+    "cue": {
+     "rdma": 1
+    },
+    "last": 1,
+    "settle_s": 0.26,
+    "read": 2.5,
+    "words": 7,
+    "numbers": 0,
+    "read_strings": [
+     "Qwen3.8",
+     "GLM-5.3-Flash",
+     "DeepSeek-V4.1-Flash",
+     "over RDMA · by @juliankang4"
+    ],
+    "drawn": [
+     "Qwen3.8",
+     "GLM-5.3-Flash",
+     "DeepSeek-V4.1-Flash",
+     "NVMe",
+     "over RDMA · by @juliankang4"
+    ],
+    "b1": 76,
+    "t0": 23.366627,
+    "t1": 26.506547,
+    "still": 23.9755
+   },
+   {
+    "id": "embed",
+    "kind": "card",
+    "b0": 76,
+    "len": 16,
+    "min_len": 15,
+    "land": {
+     "head": 0,
+     "text": 1,
+     "video": 2,
+     "audio": 3,
+     "tag": 4,
+     "endpoint": 5
+    },
+    "how": {
+     "head": "squeeze",
+     "text": "slam",
+     "video": "slam",
+     "audio": "slam",
+     "tag": "rise",
+     "endpoint": "rise"
+    },
+    "cue": {
+     "run": 4
+    },
+    "last": 5,
+    "settle_s": 0.16,
+    "read": 3.25,
+    "words": 13,
+    "numbers": 0,
+    "read_strings": [
+     "EMBEDDINGS",
+     "beside the chat model",
+     "EmbeddingGemma 2 · EmbeddingGemma v1",
+     "TEXT",
+     "VIDEO",
+     "AUDIO",
+     "/v1/embeddings"
+    ],
+    "drawn": [
+     "EMBEDDINGS",
+     "beside the chat model",
+     "EmbeddingGemma 2 · EmbeddingGemma v1",
+     "TEXT",
+     "VIDEO",
+     "AUDIO",
+     "/v1/embeddings"
+    ],
+    "b1": 92,
+    "t0": 26.506547,
+    "t1": 32.088627,
+    "still": 28.4109
+   },
+   {
+    "id": "thanks",
+    "kind": "card",
+    "b0": 92,
+    "len": 12,
+    "min_len": 11,
+    "land": {
+     "head": 0,
+     "credits": 1
+    },
+    "how": {
+     "head": "slam",
+     "credits": "rise"
+    },
+    "cue": {
+     "collapse": 0,
+     "run": 1
+    },
+    "last": 1,
+    "settle_s": 0.16,
+    "read": 3.0,
+    "words": 12,
+    "numbers": 0,
+    "read_strings": [
+     "thank you",
+     "@juliankang4",
+     "multi-node tier · embeddings · audio",
+     "@Burntgogi",
+     "tokenizer · placement · gate fixes"
+    ],
+    "drawn": [
+     "thank you",
+     "@juliankang4",
+     "multi-node tier · embeddings · audio",
+     "@Burntgogi",
+     "tokenizer · placement · gate fixes"
+    ],
+    "b1": 104,
+    "t0": 32.088627,
+    "t1": 36.275187,
+    "still": 32.5975
+   },
+   {
+    "id": "end",
+    "kind": "card",
+    "b0": 104,
+    "len": 9,
+    "min_len": 9,
+    "land": {
+     "lockup": 0,
+     "url": 1
+    },
+    "how": {
+     "lockup": "slam",
+     "url": "rise"
+    },
+    "cue": {
+     "strike": 0,
+     "run": 3,
+     "hit": 8
+    },
+    "last": 1,
+    "settle_s": 0.16,
+    "read": 2.5,
+    "words": 3,
+    "numbers": 0,
+    "read_strings": [
+     "bloomery",
+     "0.3.4",
+     "github.com/midagedev/bloomery"
+    ],
+    "drawn": [
+     "bloomery",
+     "0.3.4",
+     "github.com/midagedev/bloomery"
+    ],
+    "b1": 113,
+    "t0": 36.275187,
+    "t1": 39.415107,
+    "still": 36.7841,
+    "hit": 8
+   }
+  ],
+  "events": [
+   [
+    "cue leader.step1",
+    0.340547,
+    null
+   ],
+   [
+    "cue leader.step2",
+    0.689427,
+    null
+   ],
+   [
+    "cue leader.step3",
+    1.038307,
+    null
+   ],
+   [
+    "cut title",
+    1.387187,
+    null
+   ],
+   [
+    "land title.release",
+    1.736067,
+    null
+   ],
+   [
+    "cut bolt",
+    4.527107,
+    null
+   ],
+   [
+    "land bolt.squeeze",
+    5.224867,
+    null
+   ],
+   [
+    "land bolt.card",
+    5.224867,
+    null
+   ],
+   [
+    "land bolt.vram",
+    5.573747,
+    null
+   ],
+   [
+    "land bolt.line",
+    5.573747,
+    null
+   ],
+   [
+    "cue bolt.fingers",
+    5.573747,
+    null
+   ],
+   [
+    "cut decode",
+    10.458067,
+    null
+   ],
+   [
+    "cue decode.fill",
+    10.806947,
+    null
+   ],
+   [
+    "cut prompt",
+    15.342387,
+    null
+   ],
+   [
+    "cut sparks",
+    18.482307,
+    null
+   ],
+   [
+    "land sparks.node0",
+    18.831187,
+    null
+   ],
+   [
+    "land sparks.node1",
+    19.180067,
+    null
+   ],
+   [
+    "land sparks.line",
+    19.180067,
+    null
+   ],
+   [
+    "cue sparks.page0",
+    19.528947,
+    null
+   ],
+   [
+    "cue sparks.page1",
+    19.877827,
+    null
+   ],
+   [
+    "cut models",
+    23.366627,
+    null
+   ],
+   [
+    "land models.line",
+    23.715507,
+    null
+   ],
+   [
+    "cue models.rdma",
+    23.715507,
+    null
+   ],
+   [
+    "cut embed",
+    26.506547,
+    null
+   ],
+   [
+    "land embed.text",
+    26.855427,
+    null
+   ],
+   [
+    "land embed.video",
+    27.204307,
+    null
+   ],
+   [
+    "land embed.audio",
+    27.553187,
+    null
+   ],
+   [
+    "land embed.tag",
+    27.902067,
+    null
+   ],
+   [
+    "cue embed.run",
+    27.902067,
+    null
+   ],
+   [
+    "land embed.endpoint",
+    28.250947,
+    null
+   ],
+   [
+    "cut thanks",
+    32.088627,
+    null
+   ],
+   [
+    "land thanks.credits",
+    32.437507,
+    null
+   ],
+   [
+    "cue thanks.run",
+    32.437507,
+    null
+   ],
+   [
+    "cut end",
+    36.275187,
+    null
+   ],
+   [
+    "land end.url",
+    36.624067,
+    null
+   ],
+   [
+    "cue end.run",
+    37.321827,
+    null
+   ],
+   [
+    "cue end.hit",
+    39.066227,
+    null
+   ]
+  ],
+  "fade_out_s": 0.1
+ },
+ "copy": {
+  "name": "bloomery",
+  "version": "0.3.4",
+  "release": "RELEASE",
+  "bolt_tag": "NEMOTRON 3.5 BOLT",
+  "b74": "74B",
+  "a9b": "-A9B",
+  "card": "RTX 3090",
+  "vram": "24 GB",
+  "bolt_line": "the whole model on the card",
+  "decode": "DECODE",
+  "unit": "TOK/S",
+  "decode_n": "86.69",
+  "decode_cond": "at depth 4096",
+  "rig": "RTX 3090 · 250 W",
+  "prompt": "PROMPT",
+  "prompt_n": "2,047",
+  "prompt_cond": "a 4096-token prompt",
+  "spark_h1": "SEVERAL DGX SPARKS",
+  "spark_h2": "SERVE ONE MODEL",
+  "nvme": "NVMe",
+  "spark_line": "each node pages its experts from its own NVMe",
+  "m_qwen": "Qwen3.8",
+  "m_glm": "GLM-5.3-Flash",
+  "m_ds": "DeepSeek-V4.1-Flash",
+  "models_line": "over RDMA · by @juliankang4",
+  "embed_tag": "EmbeddingGemma 2 · EmbeddingGemma v1",
+  "embed": "EMBEDDINGS",
+  "embed_line": "beside the chat model",
+  "lane_text": "TEXT",
+  "lane_video": "VIDEO",
+  "lane_audio": "AUDIO",
+  "endpoint": "/v1/embeddings",
+  "thanks": "thank you",
+  "h_julian": "@juliankang4",
+  "c_julian": "multi-node tier · embeddings · audio",
+  "h_burnt": "@Burntgogi",
+  "c_burnt": "tokenizer · placement · gate fixes",
+  "repo": "github.com/midagedev/bloomery"
+ },
+ "rates": {
+  "decode": 86.69,
+  "prompt": 2047.32
+ },
+ "sources": {
+  "name": {
+   "s": "bloomery",
+   "src": [
+    "notes:1"
+   ],
+   "how": "words"
+  },
+  "version": {
+   "s": "0.3.4",
+   "src": [
+    "notes:1"
+   ],
+   "how": "words"
+  },
+  "release": {
+   "s": "RELEASE",
+   "src": [],
+   "how": "the film's tag, a label with no claim"
+  },
+  "bolt_tag": {
+   "s": "NEMOTRON 3.5 BOLT",
+   "src": [
+    "notes:1"
+   ],
+   "how": "words"
+  },
+  "b74": {
+   "s": "74B",
+   "src": [
+    "notes:1"
+   ],
+   "how": "the first half of 74B-A9B"
+  },
+  "a9b": {
+   "s": "-A9B",
+   "src": [
+    "notes:1"
+   ],
+   "how": "the second half of 74B-A9B"
+  },
+  "card": {
+   "s": "RTX 3090",
+   "src": [
+    "README:159",
+    "notes:14"
+   ],
+   "how": "words"
+  },
+  "vram": {
+   "s": "24 GB",
+   "src": [
+    "README:159"
+   ],
+   "how": "words"
+  },
+  "bolt_line": {
+   "s": "the whole model on the card",
+   "src": [
+    "README:168"
+   ],
+   "how": "words"
+  },
+  "decode": {
+   "s": "DECODE",
+   "src": [
+    "notes:14"
+   ],
+   "how": "words"
+  },
+  "unit": {
+   "s": "TOK/S",
+   "src": [
+    "notes:5"
+   ],
+   "how": "the table's unit, in caps"
+  },
+  "decode_n": {
+   "s": "86.69",
+   "src": [
+    "notes:14"
+   ],
+   "how": "words"
+  },
+  "decode_cond": {
+   "s": "at depth 4096",
+   "src": [
+    "notes:14"
+   ],
+   "how": "words"
+  },
+  "rig": {
+   "s": "RTX 3090 · 250 W",
+   "src": [
+    "notes:14",
+    "notes:12"
+   ],
+   "how": "words"
+  },
+  "prompt": {
+   "s": "PROMPT",
+   "src": [
+    "notes:12"
+   ],
+   "how": "words"
+  },
+  "prompt_n": {
+   "s": "2,047",
+   "src": [
+    "notes:12",
+    "README:168"
+   ],
+   "how": "2047.32 to the token, as README prints it"
+  },
+  "prompt_cond": {
+   "s": "a 4096-token prompt",
+   "src": [
+    "notes:12",
+    "README:161"
+   ],
+   "how": "'Prompt 4096' (a prompt of P = 4096 tokens) in words"
+  },
+  "spark_h1": {
+   "s": "SEVERAL DGX SPARKS",
+   "src": [
+    "README:41"
+   ],
+   "how": "words"
+  },
+  "spark_h2": {
+   "s": "SERVE ONE MODEL",
+   "src": [
+    "README:41"
+   ],
+   "how": "words"
+  },
+  "nvme": {
+   "s": "NVMe",
+   "src": [
+    "README:41"
+   ],
+   "how": "words"
+  },
+  "spark_line": {
+   "s": "each node pages its experts from its own NVMe",
+   "src": [
+    "README:41",
+    "notes:71"
+   ],
+   "how": "README:41's tier node, and node 0's own fills from NVMe (notes:71), in one line"
+  },
+  "m_qwen": {
+   "s": "Qwen3.8",
+   "src": [
+    "notes:73"
+   ],
+   "how": "words"
+  },
+  "m_glm": {
+   "s": "GLM-5.3-Flash",
+   "src": [
+    "notes:76"
+   ],
+   "how": "words"
+  },
+  "m_ds": {
+   "s": "DeepSeek-V4.1-Flash",
+   "src": [
+    "notes:76"
+   ],
+   "how": "words"
+  },
+  "models_line": {
+   "s": "over RDMA · by @juliankang4",
+   "src": [
+    "notes:67"
+   ],
+   "how": "words"
+  },
+  "embed_tag": {
+   "s": "EmbeddingGemma 2 · EmbeddingGemma v1",
+   "src": [
+    "notes:1"
+   ],
+   "how": "words"
+  },
+  "embed": {
+   "s": "EMBEDDINGS",
+   "src": [
+    "notes:33"
+   ],
+   "how": "the endpoint's noun, in caps"
+  },
+  "embed_line": {
+   "s": "beside the chat model",
+   "src": [
+    "notes:33"
+   ],
+   "how": "words"
+  },
+  "lane_text": {
+   "s": "TEXT",
+   "src": [
+    "notes:33"
+   ],
+   "how": "words"
+  },
+  "lane_video": {
+   "s": "VIDEO",
+   "src": [
+    "notes:1"
+   ],
+   "how": "words"
+  },
+  "lane_audio": {
+   "s": "AUDIO",
+   "src": [
+    "notes:1"
+   ],
+   "how": "words"
+  },
+  "endpoint": {
+   "s": "/v1/embeddings",
+   "src": [
+    "notes:33"
+   ],
+   "how": "words"
+  },
+  "thanks": {
+   "s": "thank you",
+   "src": [
+    "notes:165"
+   ],
+   "how": "the section's head as a sentence"
+  },
+  "h_julian": {
+   "s": "@juliankang4",
+   "src": [
+    "notes:167"
+   ],
+   "how": "words"
+  },
+  "c_julian": {
+   "s": "multi-node tier · embeddings · audio",
+   "src": [
+    "notes:167",
+    "notes:168",
+    "notes:169"
+   ],
+   "how": "three of the credits in a word each: the tier link, the embeddings endpoint, the audio tower"
+  },
+  "h_burnt": {
+   "s": "@Burntgogi",
+   "src": [
+    "notes:172"
+   ],
+   "how": "words"
+  },
+  "c_burnt": {
+   "s": "tokenizer · placement · gate fixes",
+   "src": [
+    "notes:172",
+    "notes:173"
+   ],
+   "how": "three of the credits in a word each: the tokenizer, the placement overflow and the gate fixes"
+  },
+  "repo": {
+   "s": "github.com/midagedev/bloomery",
+   "src": [
+    "README"
+   ],
+   "how": "the repository"
+  }
+ },
+ "notes": {
+  "draft": false,
+  "path": "/Users/hckim/orca/briefs/reports/release-notes-0.3.4.md",
+  "readme_rev": "9723698f2"
+ }
+}

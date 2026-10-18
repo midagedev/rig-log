@@ -1,0 +1,406 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>release-034 style frames</title>
+<style>
+  @font-face { font-family: "Anybody"; src: url("../fonts/Anybody-VF.ttf") format("truetype");
+               font-weight: 100 900; font-stretch: 50% 150%; }
+  @font-face { font-family: "Martian Mono"; src: url("../fonts/MartianMono-VF.ttf") format("truetype");
+               font-weight: 100 800; font-stretch: 75% 112.5%; }
+  :root {
+    --ink: #07080A; --carbon: #121418; --graphite: #2B2E34; --steel: #8D929B; --bone: #F2EFE8; --volt: #FFD21E;
+  }
+  html, body { margin: 0; padding: 0; background: var(--ink); }
+  #stage { position: relative; width: 1080px; height: 1080px; overflow: hidden; background: var(--ink); }
+  #stage > * { position: absolute; left: 0; top: 0; width: 1080px; height: 1080px; }
+  text { font-kerning: normal; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="back" width="1080" height="1080"></canvas>
+  <svg id="vec" viewBox="0 0 1080 1080" xmlns="http://www.w3.org/2000/svg"></svg>
+  <canvas id="front" width="1080" height="1080"></canvas>
+</div>
+<script>
+"use strict";
+window.FILM = "release-034-styles";
+const W = 1080, M = 72;                         // frame, margin
+const C = { ink: "#07080A", carbon: "#121418", graphite: "#2B2E34", steel: "#8D929B", bone: "#F2EFE8",
+            volt: "#FFD21E", voltRGB: "255,210,30" };
+const back = document.getElementById("back").getContext("2d");
+const front = document.getElementById("front").getContext("2d");
+const svg = document.getElementById("vec");
+const NS = "http://www.w3.org/2000/svg";
+
+// ---------- seeded randomness ----------
+function rng(seed) {
+  let a = seed >>> 0;
+  return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a);
+                 t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+
+// ---------- the current: a lightning path by midpoint displacement, with branches ----------
+function displace(rand, pts, depth, rough) {
+  for (let d = 0; d < depth; d++) {
+    const out = [];
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [ax, ay] = pts[i], [bx, by] = pts[i + 1];
+      const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy);
+      const off = (rand() * 2 - 1) * len * rough * 0.5;
+      out.push(pts[i], [(ax + bx) / 2 - dy / len * off, (ay + by) / 2 + dx / len * off]);
+    }
+    out.push(pts[pts.length - 1]);
+    pts = out;
+  }
+  return pts;
+}
+function bolt(seed, x0, y0, x1, y1, o = {}) {
+  const rand = rng(seed), rough = o.rough ?? 0.42, depth = o.depth ?? 7;
+  const main = displace(rand, [[x0, y0], [x1, y1]], depth, rough);
+  const paths = [{ pts: main, w: 1 }];
+  const nb = o.branches ?? 4;
+  for (let k = 0; k < nb; k++) {
+    const i = Math.floor((0.12 + rand() * 0.6) * (main.length - 2));
+    const [ax, ay] = main[i], [bx, by] = main[i + 1];
+    const ang = Math.atan2(by - ay, bx - ax) + (rand() < 0.5 ? -1 : 1) * (0.35 + rand() * 0.55);
+    const rem = Math.hypot(x1 - ax, y1 - ay) * (0.18 + rand() * 0.3);
+    const end = [ax + Math.cos(ang) * rem, ay + Math.sin(ang) * rem];
+    paths.push({ pts: displace(rand, [[ax, ay], end], depth - 2, rough * 1.1), w: 0.45 });
+  }
+  return paths;
+}
+function polyline(ctx, pts) {
+  ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+}
+// Glow passes in volt, additive, then a white core. k scales the whole stroke (afterglow < 1).
+function drawCurrent(ctx, paths, k = 1, core = 3.2) {
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter"; ctx.lineJoin = "round"; ctx.lineCap = "round";
+  const passes = [[90, 0.05, 34], [40, 0.10, 14], [16, 0.30, 4], [7, 0.55, 1]];
+  for (const p of paths) {
+    for (const [w, a, b] of passes) {
+      ctx.filter = `blur(${b}px)`; ctx.strokeStyle = `rgba(${C.voltRGB},${a * k * (p.w < 1 ? 0.6 : 1)})`;
+      ctx.lineWidth = w * (0.5 + 0.5 * p.w); polyline(ctx, p.pts); ctx.stroke();
+    }
+    ctx.filter = "none"; ctx.strokeStyle = `rgba(255,255,255,${Math.min(1, k)})`;
+    ctx.lineWidth = core * p.w; polyline(ctx, p.pts); ctx.stroke();
+  }
+  ctx.restore();
+}
+function bloom(ctx, x, y, r, a) {
+  ctx.save(); ctx.globalCompositeOperation = "lighter";
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, `rgba(${C.voltRGB},${a})`); g.addColorStop(1, `rgba(${C.voltRGB},0)`);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, W); ctx.restore();
+}
+function ground(ctx) {
+  ctx.fillStyle = C.ink; ctx.fillRect(0, 0, W, W);
+  const g = ctx.createRadialGradient(W / 2, W * 0.42, 60, W / 2, W / 2, W * 0.75);
+  g.addColorStop(0, "#101216"); g.addColorStop(1, "#040506");
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, W);
+}
+function grain(ctx, seed, a = 0.06) {
+  const rand = rng(seed), n = 270, tile = document.createElement("canvas");
+  tile.width = tile.height = n;
+  const t = tile.getContext("2d"), img = t.createImageData(n, n);
+  for (let i = 0; i < n * n; i++) { const v = rand() * 255; img.data.set([v, v, v, 255], i * 4); }
+  t.putImageData(img, 0, 0);
+  ctx.save(); ctx.globalAlpha = a; ctx.globalCompositeOperation = "overlay";
+  for (let x = 0; x < W; x += n) for (let y = 0; y < W; y += n) ctx.drawImage(tile, x, y);
+  ctx.restore();
+}
+
+// ---------- type and shapes (SVG) ----------
+// role: kinetic words / numerals in Anybody, tags in Martian Mono. Every string drawn goes to window.LOG.
+window.LOG = new Set();
+function el(tag, attrs, parent = svg) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  parent.appendChild(e); return e;
+}
+function txt(s, x, y, o = {}) {
+  const mono = o.mono ?? false;
+  const e = el("text", { x, y, fill: o.fill ?? C.bone, "text-anchor": o.anchor ?? "start" }, o.parent ?? svg);
+  e.style.fontFamily = mono ? "Martian Mono" : "Anybody";
+  e.style.fontSize = (o.size ?? 44) + "px";
+  e.style.fontVariationSettings = `'wdth' ${o.wdth ?? (mono ? 75 : 100)}, 'wght' ${o.wght ?? (mono ? 500 : 900)}`;
+  if (o.ls) e.style.letterSpacing = o.ls + "px";
+  if (o.feat) e.style.fontFeatureSettings = o.feat;
+  e.textContent = s;
+  window.LOG.add(s);
+  return e;
+}
+// Scale a text's size so its advance is exactly w (fonts are loaded before any frame is drawn).
+function fitW(e, w) {
+  const cur = parseFloat(e.style.fontSize), len = e.getComputedTextLength();
+  e.style.fontSize = (cur * w / len) + "px";
+  if (cur * w / len < 44) throw new Error(`"${e.textContent}" fits ${w} px only at ${(cur * w / len).toFixed(1)} px, under the 44 px floor`);
+  return e;
+}
+function rect(x, y, w, h, o = {}) {
+  return el("rect", { x, y, width: w, height: h, rx: o.r ?? 0, fill: o.fill ?? "none",
+                      stroke: o.stroke ?? "none", "stroke-width": o.sw ?? 0 }, o.parent ?? svg);
+}
+function circ(cx, cy, r, o = {}) {
+  return el("circle", { cx, cy, r, fill: o.fill ?? "none", stroke: o.stroke ?? "none",
+                        "stroke-width": o.sw ?? 0 }, o.parent ?? svg);
+}
+function line(x1, y1, x2, y2, o = {}) {
+  return el("line", { x1, y1, x2, y2, stroke: o.stroke ?? C.graphite, "stroke-width": o.sw ?? 12,
+                      "stroke-linecap": o.cap ?? "butt" }, o.parent ?? svg);
+}
+
+// ---------- the circuit: traces with 45-degree bends, and the pulse that runs on them ----------
+// A trace is a list of points. route() builds one from moves: "r120" right, "d80" down, "dl60" down-left at 45°, ...
+function route(x, y, moves) {
+  const dir = { r: [1, 0], l: [-1, 0], u: [0, -1], d: [0, 1], dr: [1, 1], dl: [-1, 1], ur: [1, -1], ul: [-1, -1] };
+  const pts = [[x, y]];
+  for (const m of moves.split(" ")) {
+    const k = m.match(/^[a-z]+/)[0], n = parseFloat(m.slice(k.length));
+    x += dir[k][0] * n; y += dir[k][1] * n; pts.push([x, y]);
+  }
+  return pts;
+}
+function trace(pts, o = {}) {
+  return el("polyline", { points: pts.map(p => p.join(",")).join(" "), fill: "none",
+                          stroke: o.stroke ?? C.graphite, "stroke-width": o.sw ?? 12,
+                          "stroke-linejoin": "round", "stroke-linecap": o.cap ?? "round" }, o.parent ?? svg);
+}
+function pad(x, y, o = {}) { return circ(x, y, o.r ?? 15, { fill: o.fill ?? C.graphite }); }
+// The sub-path of pts between arc lengths a and b.
+function sub(pts, a, b) {
+  const out = []; let s = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [ax, ay] = pts[i], [bx, by] = pts[i + 1], l = Math.hypot(bx - ax, by - ay);
+    const t0 = (a - s) / l, t1 = (b - s) / l;
+    if (t1 >= 0 && t0 <= 1) {
+      const c0 = Math.max(0, t0), c1 = Math.min(1, t1);
+      if (!out.length) out.push([ax + (bx - ax) * c0, ay + (by - ay) * c0]);
+      out.push([ax + (bx - ax) * c1, ay + (by - ay) * c1]);
+    }
+    s += l;
+  }
+  return out;
+}
+function arcLen(pts) { let s = 0; for (let i = 0; i < pts.length - 1; i++) s += Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]); return s; }
+// The pulse: a comet of length L whose head is at arc length s, on canvas, over the trace. Behind it the trace stays
+// lit (a dim volt line), so the path the current took reads after it has passed.
+function pulse(ctx, pts, s, L = 220, o = {}) {
+  const lit = o.lit ?? 0.55, w = o.w ?? 12;
+  ctx.save(); ctx.lineJoin = "round"; ctx.lineCap = "round";
+  if (lit > 0) { ctx.strokeStyle = `rgba(${C.voltRGB},${lit})`; ctx.lineWidth = w; polyline(ctx, sub(pts, 0, s)); ctx.stroke(); }
+  ctx.globalCompositeOperation = "lighter";
+  const steps = 14;
+  for (const [bw, a, blur] of [[w * 7, 0.10, 26], [w * 3, 0.25, 8], [w, 0.9, 0]]) {
+    ctx.filter = blur ? `blur(${blur}px)` : "none"; ctx.lineWidth = bw;
+    for (let i = 0; i < steps; i++) {
+      const a0 = s - L + L * i / steps, a1 = s - L + L * (i + 1) / steps;
+      const seg = sub(pts, Math.max(0, a0), a1);
+      if (seg.length < 2) continue;
+      ctx.strokeStyle = `rgba(${C.voltRGB},${a * ((i + 1) / steps) ** 1.6})`; polyline(ctx, seg); ctx.stroke();
+    }
+  }
+  const head = sub(pts, s - 1, s).pop();
+  if (head) {
+    ctx.filter = "blur(10px)"; ctx.fillStyle = `rgba(${C.voltRGB},0.9)`;
+    ctx.beginPath(); ctx.arc(head[0], head[1], w * 1.6, 0, 7); ctx.fill();
+    ctx.filter = "none"; ctx.fillStyle = "#FFFFFF";
+    ctx.beginPath(); ctx.arc(head[0], head[1], w * 0.62, 0, 7); ctx.fill();
+  }
+  ctx.restore();
+}
+// The strike: a bolt drawn as one geometric zigzag (three 45-degree jogs), white-hot core, volt glow, then the flash.
+function strike(ctx, pts, k = 1, w = 22) {
+  ctx.save(); ctx.lineJoin = "miter"; ctx.miterLimit = 6; ctx.lineCap = "butt";
+  ctx.globalCompositeOperation = "lighter";
+  for (const [bw, a, blur] of [[w * 9, 0.08, 60], [w * 4, 0.22, 22], [w * 1.8, 0.6, 6]]) {
+    ctx.filter = `blur(${blur}px)`; ctx.strokeStyle = `rgba(${C.voltRGB},${a * k})`; ctx.lineWidth = bw;
+    polyline(ctx, pts); ctx.stroke();
+  }
+  ctx.filter = "none"; ctx.strokeStyle = `rgba(255,252,236,${k})`; ctx.lineWidth = w; polyline(ctx, pts); ctx.stroke();
+  ctx.restore();
+}
+// A fan: hub, ring and seven swept blades, all in one colour.
+function fan(cx, cy, r, o = {}) {
+  const g = el("g", {}, o.parent ?? svg), col = o.stroke ?? C.graphite;
+  circ(cx, cy, r, { stroke: col, sw: 12, parent: g });
+  for (let i = 0; i < 7; i++) {
+    const a = i / 7 * Math.PI * 2 + (o.turn ?? 0), r0 = r * 0.30, r1 = r * 0.86;
+    const p0 = [cx + Math.cos(a) * r0, cy + Math.sin(a) * r0];
+    const p1 = [cx + Math.cos(a + 0.9) * r1, cy + Math.sin(a + 0.9) * r1];
+    const c = [cx + Math.cos(a + 0.2) * r1 * 0.8, cy + Math.sin(a + 0.2) * r1 * 0.8];
+    el("path", { d: `M${p0} Q${c} ${p1}`, fill: "none", stroke: col, "stroke-width": 12, "stroke-linecap": "round" }, g);
+  }
+  circ(cx, cy, r * 0.26, { fill: col, parent: g });
+  return g;
+}
+
+// ---------- the frames ----------
+const FRAMES = {};
+
+// 1. The strike: the drop's return stroke lands on the trace between the version and the name.
+FRAMES.title = () => {
+  ground(back);
+  txt("RELEASE", W - M, 128, { mono: true, size: 44, fill: C.steel, ls: 6, anchor: "end" });
+  const ver = txt("0.3.4", W - M + 6, 392, { size: 250, wdth: 150, wght: 900, fill: C.volt, anchor: "end" });
+  fitW(ver, 744);
+  const word = txt("bloomery", M - 6, 905, { size: 330, wdth: 50, wght: 900 });
+  fitW(word, W - 2 * M + 10);
+  const tr = route(-20, 476, "r1120");
+  trace(tr);
+  const bp = [[214, -30], [150, 196], [236, 196], [150, 476]];
+  bloom(back, 150, 476, 620, 0.22);
+  strike(front, bp, 1.0, 20);
+  pulse(front, route(150, 476, "r900"), 520, 420, { lit: 0.0, w: 12 });
+  bloom(front, 150, 476, 150, 0.30);
+  grain(front, 7, 0.07);
+};
+
+// 2a. 74B before the squeeze: wider than the frame, its B cut by the edge; the current runs in under it.
+FRAMES.b74pre = () => {
+  ground(back);
+  txt("NEMOTRON 3.5 BOLT", M, 128, { mono: true, size: 44, fill: C.steel, ls: 2 });
+  const big = txt("74B", 0, 650, { size: 600, wdth: 150, wght: 900 });
+  // too wide for the frame: the 7 leaves by the left edge, the B's last tenth by the right, so its bowls still read
+  fitW(big, 1200);
+  const bw = big.getSubStringLength(2, 1), tw = big.getComputedTextLength();
+  big.setAttribute("x", W + 0.10 * bw - tw);
+  const tr = route(W + 20, 820, "l300 ul60 l420");
+  trace(tr);
+  pulse(front, tr, 560, 300);
+  grain(front, 11, 0.07);
+};
+
+// 2b. Squeezed to the card's width, the card under it, the current entering at the edge connector.
+FRAMES.b74 = () => {
+  ground(back);
+  txt("NEMOTRON 3.5 BOLT", M, 128, { mono: true, size: 44, fill: C.steel, ls: 2 });
+  const name = txt("74B-A9B", M - 6, 456, { size: 300, wdth: 50, wght: 900 });
+  fitW(name, W - 2 * M + 10);
+  const cy = 520, ch = 330;
+  rect(M, cy, W - 2 * M, ch, { r: 26, fill: C.carbon, stroke: C.bone, sw: 12 });
+  fan(M + 190, cy + ch / 2, 118, { turn: 0.2 });
+  fan(M + 480, cy + ch / 2, 118, { turn: 0.9 });
+  rect(W - M - 300, cy + 46, 252, 238, { r: 14, fill: C.ink });
+  txt("24 GB", W - M - 174, cy + 194, { size: 104, wdth: 72, wght: 800, fill: C.volt, anchor: "middle" });
+  for (let i = 0; i < 12; i++) rect(M + 120 + i * 36, cy + ch + 14, 24, 38, { r: 3, fill: C.volt });
+  const tr = route(W + 20, 936, "l440 ul24 l266 u8");
+  trace(tr);
+  pulse(front, tr, arcLen(tr), 300, { lit: 0.55 });
+  txt("the whole model on the card", M, 1008, { size: 48, wdth: 100, wght: 600, fill: C.bone });
+  grain(front, 13, 0.07);
+};
+
+// 3. A number held: one regular-weight numeral, its label above, the condition below, the lit trace under it.
+FRAMES.decode = () => {
+  ground(back);
+  txt("DECODE", M, 128, { mono: true, size: 44, fill: C.bone, ls: 6 });
+  txt("TOK/S", W - M, 128, { mono: true, size: 44, fill: C.steel, anchor: "end", ls: 6 });
+  const n = txt("86.69", M - 10, 566, { size: 400, wdth: 100, wght: 380, fill: C.volt, feat: "'tnum' 1" });
+  fitW(n, W - 2 * M + 16);
+  txt("at depth 4096", M, 694, { size: 76, wdth: 100, wght: 700 });
+  const tr = route(M, 790, "r600 dr50 r400");
+  trace(tr);
+  pulse(back, tr, 880, 380, { lit: 0.5 });
+  txt("RTX 3090 · 250 W", M, 970, { mono: true, size: 44, fill: C.steel, ls: 2 });
+  grain(front, 17, 0.07);
+};
+
+// 3b. The rate shown running: one cell per token, lit at the measured rate (floor(86.69 t) cells after t seconds of
+// the hold), row by row like text; lit cells are steel and the newest is volt, so the hero numeral keeps the accent. This still is t = 0.9 s.
+const GRID = { x: M, y: 748, cols: 26, rows: 5, cell: 24, pitch: 36 };
+function tokenGrid(lit) {
+  const n = GRID.cols * GRID.rows;
+  for (let i = 0; i < n; i++) {
+    const x = GRID.x + (i % GRID.cols) * GRID.pitch, y = GRID.y + Math.floor(i / GRID.cols) * GRID.pitch;
+    const head = i === Math.min(lit, n) - 1 && lit <= n;
+    rect(x, y, GRID.cell, GRID.cell, { fill: head ? C.volt : i < lit ? C.steel : C.graphite, r: 3 });
+    if (head) bloom(back, x + GRID.cell / 2, y + GRID.cell / 2, 70, 0.35);
+  }
+}
+const tokensAt = (t) => () => {
+  ground(back);
+  txt("DECODE", M, 128, { mono: true, size: 44, fill: C.bone, ls: 6 });
+  txt("TOK/S", W - M, 128, { mono: true, size: 44, fill: C.steel, anchor: "end", ls: 6 });
+  const n = txt("86.69", M - 10, 542, { size: 400, wdth: 100, wght: 380, fill: C.volt, feat: "'tnum' 1" });
+  fitW(n, W - 2 * M + 16);
+  txt("at depth 4096", M, 652, { size: 76, wdth: 100, wght: 700 });
+  tokenGrid(Math.floor(86.69 * t));
+  txt("RTX 3090 · 250 W", M, 1000, { mono: true, size: 44, fill: C.steel, ls: 2 });
+  grain(front, 17, 0.07);
+};
+FRAMES.tokens = tokensAt(0.9);
+FRAMES.tokensfull = tokensAt(1.6);   // the held state: every cell lit, no head
+
+// 4. Several Sparks, one model: nodes on one trace, each with its own range of experts and its own NVMe.
+FRAMES.sparks = () => {
+  ground(back);
+  const h1 = txt("SEVERAL DGX SPARKS", M - 4, 214, { size: 120, wdth: 62, wght: 900 });
+  fitW(h1, W - 2 * M + 6);
+  txt("SERVE ONE MODEL", M - 4, 336, { size: 120, wdth: 62, wght: 900, fill: C.volt });
+  const xs = [M, 402, 732], y0 = 440, s = 276;
+  const bus = route(M - 40, y0 + s / 2, "r1200");
+  trace(bus, { sw: 12 });
+  xs.forEach((x, k) => {
+    rect(x, y0, s, s, { r: 24, fill: C.carbon, stroke: C.bone, sw: 12 });
+    for (let i = 0; i < 16; i++) {
+      const gx = x + 42 + (i % 4) * 50, gy = y0 + 42 + Math.floor(i / 4) * 50;
+      const own = Math.floor(i / 4) === k || (k === 2 && Math.floor(i / 4) === 3);
+      rect(gx, gy, 40, 40, { r: 6, fill: own ? C.volt : C.graphite });
+    }
+    trace(route(x + s / 2, y0 + s + 6, "d70"), { sw: 12 });
+    rect(x + 28, y0 + s + 76, s - 56, 60, { r: 12, fill: C.graphite });
+    txt("NVMe", x + s / 2, y0 + s + 122, { mono: true, size: 44, fill: C.bone, anchor: "middle" });
+  });
+  pulse(front, route(732 + s / 2, y0 + s + 6, "d70"), 50, 70, { lit: 0.6 });
+  txt("each node pages its experts from its own NVMe", M, 1000, { size: 46, wdth: 74, wght: 600 });
+  grain(front, 19, 0.07);
+};
+
+// 5. Embeddings beside the chat model: text, video frames and audio run on three traces into one vector.
+FRAMES.embed = () => {
+  ground(back);
+  const tg = txt("EmbeddingGemma 2 · EmbeddingGemma v1", M, 128, { mono: true, size: 44, fill: C.steel, ls: -1.8 });
+  window.tagW = tg.getComputedTextLength();
+  const h = txt("EMBEDDINGS", M - 6, 365, { size: 200, wdth: 50, wght: 900 });
+  fitW(h, W - 2 * M + 10);
+  txt("beside the chat model", M, 447, { size: 64, wdth: 100, wght: 600 });
+  const ly = [560, 718, 876], vx = 880, vy0 = 500, cell = 34, gap = 10, n = 9;
+  const vyc = vy0 + (n * (cell + gap) - gap) / 2;
+  const labels = ["TEXT", "FRAMES", "AUDIO"];
+  ly.forEach((y, i) => {
+    txt(labels[i], M, y + 16, { mono: true, size: 44, fill: C.bone, ls: 4 });
+    const x0 = 330;
+    if (i === 0) [150, 110, 132].forEach((w, j) => rect(x0, y - 30 + j * 26, w, 14, { r: 7, fill: C.steel }));
+    if (i === 1) for (let j = 0; j < 3; j++) rect(x0 + j * 30, y - 34 + j * 0, 96, 66, { r: 8, fill: C.carbon, stroke: C.steel, sw: 12 });
+    if (i === 2) { const rr = rng(23); for (let j = 0; j < 9; j++) { const hh = 14 + rr() * 54; rect(x0 + j * 18, y - hh / 2, 12, hh, { r: 6, fill: C.steel }); } }
+    const tr = route(520, y, i === 0 ? `r130 dr${vyc - y} r${vx - 650 - (vyc - y) - 24}` :
+                             i === 1 ? `r${vx - 520 - 24}` : `r130 ur${y - vyc} r${vx - 650 - (y - vyc) - 24}`);
+    if (i === 1) tr[1][1] = y;
+    trace(i === 1 ? route(520, y, `r60 ur${y - vyc} r${vx - 580 - (y - vyc) - 24}`) : tr);
+  });
+  // re-route the middle lane to meet the bus at the vector's middle
+  const unlit = [2, 5, 7];   // the middle cell, where the current arrives, is lit
+  for (let j = 0; j < n; j++)
+    rect(vx, vy0 + j * (cell + gap), 128, cell, { r: 6, fill: unlit.includes(j) ? C.graphite : C.volt });
+  pulse(front, route(520, ly[0], `r130 dr${vyc - ly[0]} r${vx - 650 - (vyc - ly[0]) - 24}`), 520, 240, { lit: 0.55 });
+  txt("/v1/embeddings", M, 1000, { mono: true, size: 44, fill: C.volt, ls: 2 });
+  grain(front, 29, 0.07);
+};
+
+async function main() {
+  await Promise.all([document.fonts.load("900 100px Anybody"), document.fonts.load("500 44px 'Martian Mono'")]);
+  await document.fonts.ready;
+  const f = new URLSearchParams(location.search).get("f") || "title";
+  if (!FRAMES[f]) { window.fault = `no frame ${f}`; window.ready = true; return; }
+  FRAMES[f]();
+  window.ready = true;
+}
+window.addEventListener("error", e => { window.fault = String(e.message); window.ready = true; });
+main();
+</script>
+</body>
+</html>

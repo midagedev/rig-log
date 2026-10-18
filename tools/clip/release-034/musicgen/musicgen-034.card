@@ -1,0 +1,12 @@
+# Round clip034: music candidates for the bloomery 0.3.4 release film. ACE-Step 1.5 (MIT), the XL-sft DiT with the
+# 4B 5 Hz LM, on the RTX A6000 only: three electronic genre prompts x 8 seeds of 48 s each (the film runs ~40 s plus
+# an intro bar to trim), one process, weights loaded once from /root/musicgen. Nothing is timed; the files are the
+# output. Minutes [derived]: the DiT is ~4.5B; 48 s at a 25 Hz latent is 1,200 tokens, so a step with CFG is
+# ~2 x 2 x 4.5e9 x 1,200 = 22 TFLOP, 50 steps 1.1 PFLOP, ~14 s a clip at half of the A6000's 155 bf16 TFLOPS: ~6 min
+# for 24. The LM writes ~300 tokens a clip, batched by 4: ~1.5 min. Load 2-4 min (~38 GB of weights). No measured
+# anchor: release-031's box path never ran (its music moved to a Mac), hence the wide band.
+kind: exclusive
+reason: generation fills the A6000 (weights ~19 GB, peak 22-30 GB) and reads ~38 GB of weights through the page
+  cache, so it holds the lease instead of running beside a timed run or a gate batch; why now: the user asked for
+  the 0.3.4 release film's music to be generated on the box, and phase 2 of the film is cut to its beat grid
+minutes: 8..30

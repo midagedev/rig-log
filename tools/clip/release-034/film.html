@@ -1,0 +1,765 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>bloomery 0.3.4</title>
+<style>
+  @font-face { font-family: "Anybody"; src: url("fonts/Anybody-VF.ttf") format("truetype");
+               font-weight: 100 900; font-stretch: 50% 150%; }
+  @font-face { font-family: "Martian Mono"; src: url("fonts/MartianMono-VF.ttf") format("truetype");
+               font-weight: 100 800; font-stretch: 75% 112.5%; }
+  html, body { margin: 0; padding: 0; background: #07080A; }
+  #stage { position: relative; width: 1080px; height: 1080px; overflow: hidden; background: #07080A; }
+  #stage > canvas, #stage > svg { position: absolute; left: 0; top: 0; width: 1080px; height: 1080px; }
+  text { font-kerning: normal; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="back" width="1080" height="1080"></canvas>
+  <svg id="vec" viewBox="0 0 1080 1080" xmlns="http://www.w3.org/2000/svg"></svg>
+  <canvas id="front" width="1080" height="1080"></canvas>
+</div>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs><filter id="mb" x="-10%" y="-10%" width="120%" height="120%" color-interpolation-filters="sRGB">
+    <feGaussianBlur id="mbb" stdDeviation="0 0"/></filter>
+    <radialGradient id="gnd" gradientUnits="userSpaceOnUse" cx="540" cy="540" r="810" fx="540" fy="453.6" fr="60">
+      <stop offset="0" stop-color="#101216"/><stop offset="1" stop-color="#040506"/></radialGradient></defs>
+</svg>
+<script>
+"use strict";
+// The bloomery 0.3.4 release film. One pulse of current runs it: it strikes the title, runs into a 24 GB card, fills
+// a grid one token at a time, crosses two Sparks and arrives in an embedding. Every frame is a pure function of t
+// (seconds), every string and every beat it switches on comes from data.json (make_data.py), and the floors below are
+// console errors, which render.py turns into failures. Three layers: a back canvas (ground, glow, the token head's
+// bloom), an SVG layer (type and crisp marks, so the width axis animates and edges stay sharp) and a front canvas (the
+// current, the strikes, the grain). A camera matrix per scene moves all three together.
+window.FILM = "release-034";
+const W = 1080, M = 72, FPS = 60;
+const C = { ink: "#07080A", carbon: "#121418", graphite: "#2B2E34", steel: "#8D929B", bone: "#F2EFE8",
+            volt: "#FFD21E", voltRGB: "255,210,30", dim: "#4A4E56" };
+// Floors at 1080 (the phone shows half): settled text 44 px; a dark mark 12 px across, a volt mark 24 px; settled
+// text inside the margins less a 10 px optical allowance; the pulse's head keeps 24 px past its glow from any text.
+const FLOOR = 44, MARK_DARK = 12, MARK_VOLT = 24, EDGE_TOL = 10, CLEAR = 24;
+const ZOOM_S = 0.30, PAN_S = 0.30, SWAP_OUT = 0.10, SWAP_IN = 0.16, PULSE_V = 560;
+let D = null, TL = null, P = 0.5, SEG = [], BY = {}, STR = null;
+const back = document.getElementById("back").getContext("2d");
+const front = document.getElementById("front").getContext("2d");
+const svg = document.getElementById("vec");
+const stage = document.getElementById("stage"), mbb = document.getElementById("mbb");
+const NS = "http://www.w3.org/2000/svg";
+window.LOG = null;        // render.py check: a Set of every "face\ttext" drawn
+window.NORASTER = false;  // render.py check: geometry and floors only, no canvas raster
+
+// ---- math ----------------------------------------------------------------------------------------------------------
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, u) => a + (b - a) * u;
+const oexp = u => (u = clamp(u)) >= 1 ? 1 : 1 - Math.pow(2, -10 * u);       // expo-out
+const iexp = u => (u = clamp(u)) <= 0 ? 0 : Math.pow(2, 10 * (u - 1));      // expo-in
+const ocub = u => 1 - Math.pow(1 - clamp(u), 3);
+const on = b => Math.max(0, b * P - TL.lead);      // the switch time of film beat b (half a frame early)
+const bt = (S, k) => on(S.b0 + k);                 // a segment's beat k
+const I = [1, 0, 0, 1, 0, 0];
+const mul = (A, B) => [A[0] * B[0] + A[2] * B[1], A[1] * B[0] + A[3] * B[1], A[0] * B[2] + A[2] * B[3],
+                       A[1] * B[2] + A[3] * B[3], A[0] * B[4] + A[2] * B[5] + A[4], A[1] * B[4] + A[3] * B[5] + A[5]];
+const Tm = (x, y) => [1, 0, 0, 1, x, y], Sm = s => [s, 0, 0, s, 0, 0];
+const ap = (m, x, y) => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+function rng(seed) {
+  let a = seed >>> 0;
+  return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a);
+                 t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+
+// ---- the frame: views and what the checks collect -----------------------------------------------------------------
+// A view is one scene's camera this frame: its matrix (world to screen), its SVG group, and whether the camera is
+// moving (a zoom, a pan): the floors, the edge and the hold read only settled elements in a still view.
+let V = null, F = null;
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  (parent || V.g).appendChild(e); return e;
+}
+function view(m, moving, seg, nested = false) {
+  const g = el("g", { transform: `matrix(${m.map(v => +v.toFixed(5)).join(" ")})` }, svg);
+  V = { m, g, moving, seg, nested, s: Math.hypot(m[0], m[1]) };
+  return V;
+}
+const still = k => k.settled && !V.moving;
+// An arrival: opacity, offset, scale at time t for an element landing at t0, and whether it has settled. null: not on
+// screen yet.
+const SET = { a: 1, sc: 1, sx: 1, dx: 0, dy: 0, settled: true };
+function arrive(t, t0, kind = "slam") {
+  const u = t - t0;
+  if (u < 0) return null;
+  if (kind === "slam") { const d = 0.20; return { a: clamp(u / 0.06), sc: lerp(1.25, 1, oexp(u / d)), sx: 1, dx: 0, dy: 0, settled: u >= d }; }
+  if (kind === "rise") { const d = 0.16; return { a: clamp(u / 0.06), sc: 1, sx: 1, dx: 0, dy: lerp(8, 0, oexp(u / d)), settled: u >= d }; }
+  if (kind === "in")   { const d = SWAP_IN; return { a: clamp(u / 0.06), sc: 1, sx: 1, dx: 0, dy: lerp(40, 0, oexp(u / d)), settled: u >= d }; }
+  if (kind === "draw") { const d = 0.16; return { a: 1, sc: 1, sx: 1, dx: 0, dy: 0, f: oexp(u / d), settled: u >= d }; }
+  throw new Error(`no arrival ${kind}`);
+}
+// A slot swap at t0: the old element snaps away on the beat (0.10 s, expo-out, up 40 px, fading), then the new one
+// arrives from +40 px.
+function swapOut(t, t0) {
+  const u = (t - t0) / SWAP_OUT;
+  if (u < 0) return SET;
+  if (u >= 1) return null;
+  const e = oexp(u); return { a: 1 - e, sc: 1, sx: 1, dx: 0, dy: -40 * e, settled: false };
+}
+const swapIn = (t, t0) => arrive(t, t0 + SWAP_OUT, "in");
+function kAttrs(e, k, ox, oy) {
+  if (k.sc !== 1 || k.sx !== 1 || k.dx || k.dy)
+    e.setAttribute("transform", `translate(${ox + k.dx} ${oy + k.dy}) scale(${k.sc * k.sx} ${k.sc}) translate(${-ox} ${-oy})`);
+  if (k.a < 1) e.setAttribute("opacity", +k.a.toFixed(4));
+}
+
+// ---- the guards ----------------------------------------------------------------------------------------------------
+function collect(v) {
+  if (typeof v === "string") STR.add(v);
+  else if (Array.isArray(v)) v.forEach(collect);
+  else if (v && typeof v === "object") Object.values(v).forEach(collect);
+}
+const screenBox = (m, b) => { const [l, t] = ap(m, b[0], b[1]), [r, bo] = ap(m, b[2], b[3]); return [l, t, r, bo]; };
+const boxGap = (a, b) => Math.hypot(Math.max(0, a[0] - b[2], b[0] - a[2]), Math.max(0, a[1] - b[3], b[1] - a[3]));
+const ptGap = (x, y, b) => Math.hypot(Math.max(0, b[0] - x, x - b[2]), Math.max(0, b[1] - y, y - b[3]));
+function markFloor(across, volt, what) {
+  if (V.moving) return;                     // a camera move is an arrival: floors hold in still views
+  const need = volt ? MARK_VOLT : MARK_DARK, got = across * V.s;
+  if (got < need - 1e-6) console.error(`${volt ? "volt" : "dark"} mark under ${need} px: ${got.toFixed(1)} px ${what}`);
+}
+
+// ---- type ----------------------------------------------------------------------------------------------------------
+// Ink ascent and descent per px of size, measured once per string on a canvas at the nearest width keyword (the
+// vertical extents do not move with the width axis).
+const MC = document.createElement("canvas").getContext("2d"), VM = new Map();
+const STRETCH = [[50, "ultra-condensed"], [62.5, "extra-condensed"], [75, "condensed"], [87.5, "semi-condensed"],
+                 [100, "normal"], [112.5, "semi-expanded"], [125, "expanded"], [150, "extra-expanded"]];
+function vmet(s, mono, wght, wdth) {
+  const key = `${mono}|${wght}|${Math.round(wdth / 12.5)}|${s}`;
+  if (!VM.has(key)) {
+    MC.font = `${wght} 100px ${mono ? '"Martian Mono"' : "Anybody"}`;
+    MC.fontStretch = STRETCH.reduce((a, b) => Math.abs(b[0] - wdth) < Math.abs(a[0] - wdth) ? b : a)[1];
+    const m = MC.measureText(s);
+    VM.set(key, [m.actualBoundingBoxAscent / 100, m.actualBoundingBoxDescent / 100]);
+  }
+  return VM.get(key);
+}
+// A line of type in the current view. o: mono, size, wdth, wght, fill, anchor, ls, tnum; fit (a width the size is
+// scaled to); k (its arrival; SET when omitted, null for not on screen); sx (a horizontal scale about x, for a part
+// that grows in). Settled text in a still view is held to the floor and the margins and is collected for the overlap,
+// clearance and hold checks; text that is arriving is collected as such.
+function txt(s, x, y, o = {}) {
+  if (typeof s !== "string") throw new Error(`txt was handed ${JSON.stringify(s)}, not a string`);
+  if (!STR.has(s)) console.error(`string not in data.json: "${s}"`);
+  const k = o.k === undefined ? SET : o.k;
+  if (!k) return null;
+  const mono = !!o.mono, wdth = o.wdth ?? (mono ? 75 : 100), wght = o.wght ?? (mono ? 500 : 900);
+  let size = o.size ?? 44;
+  const e = el("text", { x, y, fill: o.fill ?? C.bone, "text-anchor": o.anchor ?? "start" });
+  e.style.fontFamily = mono ? "Martian Mono" : "Anybody";
+  e.style.fontSize = size + "px";
+  e.style.fontVariationSettings = `'wdth' ${wdth}, 'wght' ${wght}`;
+  if (o.ls) e.style.letterSpacing = o.ls + "px";
+  if (o.tnum) e.style.fontFeatureSettings = "'tnum' 1";
+  e.textContent = s;
+  if (window.LOG) LOG.add((mono ? "Mono" : "Anybody") + "\t" + s);
+  if (o.fit) { size = size * o.fit / e.getComputedTextLength(); e.style.fontSize = size + "px"; }
+  const kk = o.sx !== undefined ? { ...k, sx: o.sx } : k;
+  kAttrs(e, kk, x, y);
+  const st = still(kk) && kk.sx === 1;
+  if (st || o.measure) {
+    const bb = e.getBBox(), [asc, desc] = vmet(s, mono, wght, wdth);
+    const box = screenBox(V.m, [bb.x, y - asc * size, bb.x + bb.width, y + desc * size]);
+    e.box = box; e.size = size;
+    if (st) {
+      const px = size * V.s;
+      if (px < FLOOR - 1e-6) console.error(`text under ${FLOOR} px: ${px.toFixed(1)} px "${s}"`);
+      if (box[0] < M - EDGE_TOL - 0.5 || box[2] > W - M + EDGE_TOL + 0.5 || box[1] < M - EDGE_TOL - 0.5 || box[3] > W - M + EDGE_TOL + 0.5)
+        console.error(`text past the margin: x ${box[0].toFixed(0)}..${box[2].toFixed(0)} y ${box[1].toFixed(0)}..${box[3].toFixed(0)} "${s}"`);
+      F.texts.push({ s, box, seg: V.seg && V.seg.id, grp: o.grp });
+    }
+  } else if (!V.moving) F.arriving.push(s);
+  return e;
+}
+// The width of s at size 100 (a measuring line, drawn nowhere).
+function adv(s, mono, wdth, wght, tnum = false) {
+  const e = el("text", { x: 0, y: -1000 }, svg);
+  e.style.fontFamily = mono ? "Martian Mono" : "Anybody"; e.style.fontSize = "100px";
+  e.style.fontVariationSettings = `'wdth' ${wdth}, 'wght' ${wght}`; e.textContent = s;
+  if (tnum) e.style.fontFeatureSettings = "'tnum' 1";
+  const w = e.getComputedTextLength(); e.remove(); return w;
+}
+
+// ---- marks (SVG) ---------------------------------------------------------------------------------------------------
+function rect(x, y, w, h, o = {}) {
+  const e = el("rect", { x, y, width: w, height: h, rx: o.r ?? 0, fill: o.fill ?? "none", stroke: o.stroke ?? "none",
+                         "stroke-width": o.sw ?? 0 });
+  if (o.k) kAttrs(e, o.k, o.ox ?? x + w / 2, o.oy ?? y + h / 2);
+  if (o.a !== undefined && o.a < 1) e.setAttribute("opacity", +o.a.toFixed(4));
+  if (!o.k || still(o.k)) {
+    if (o.fill && o.fill !== "none" && o.fill !== C.ink && o.fill !== C.carbon) markFloor(Math.min(w, h), o.fill === C.volt, `rect ${w}x${h}`);
+    if (o.sw) markFloor(o.sw, o.stroke === C.volt, "outline");
+  }
+  return e;
+}
+function circ(cx, cy, r, o = {}) {
+  const e = el("circle", { cx, cy, r, fill: o.fill ?? "none", stroke: o.stroke ?? "none", "stroke-width": o.sw ?? 0 });
+  if (o.k) kAttrs(e, o.k, cx, cy);
+  if (!o.k || still(o.k)) markFloor(o.sw || 2 * r, (o.fill || o.stroke) === C.volt, "circle");
+  return e;
+}
+// A trace: a 12 px line with 45-degree bends; o.f (0..1) draws it on from its start.
+function trace(pts, o = {}) {
+  const f = o.f ?? 1;
+  if (f <= 0) return null;
+  const e = el("polyline", { points: pts.map(p => p.join(",")).join(" "), fill: "none", stroke: o.stroke ?? C.graphite,
+                             "stroke-width": o.sw ?? 12, "stroke-linejoin": "round", "stroke-linecap": o.cap ?? "round" });
+  if (f < 1) { e.setAttribute("pathLength", "1"); e.setAttribute("stroke-dasharray", `${f} 2`); }
+  if (o.a !== undefined && o.a < 1) e.setAttribute("opacity", +o.a.toFixed(4));
+  if (f >= 1) markFloor(o.sw ?? 12, (o.stroke ?? C.graphite) === C.volt && !o.lit, "trace");
+  return e;
+}
+function route(x, y, moves) {
+  const dir = { r: [1, 0], l: [-1, 0], u: [0, -1], d: [0, 1], dr: [1, 1], dl: [-1, 1], ur: [1, -1], ul: [-1, -1] };
+  const pts = [[x, y]];
+  for (const m of moves.split(" ")) {
+    const k = m.match(/^[a-z]+/)[0], n = parseFloat(m.slice(k.length));
+    x += dir[k][0] * n; y += dir[k][1] * n; pts.push([x, y]);
+  }
+  return pts;
+}
+function sub(pts, a, b) {
+  const out = []; let s = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [ax, ay] = pts[i], [bx, by] = pts[i + 1], l = Math.hypot(bx - ax, by - ay);
+    const t0 = (a - s) / l, t1 = (b - s) / l;
+    if (t1 >= 0 && t0 <= 1 && l > 0) {
+      const c0 = Math.max(0, t0), c1 = Math.min(1, t1);
+      if (!out.length) out.push([ax + (bx - ax) * c0, ay + (by - ay) * c0]);
+      out.push([ax + (bx - ax) * c1, ay + (by - ay) * c1]);
+    }
+    s += l;
+  }
+  return out;
+}
+const arcLen = pts => pts.slice(1).reduce((s, p, i) => s + Math.hypot(p[0] - pts[i][0], p[1] - pts[i][1]), 0);
+function at(pts, s) { const q = sub(pts, Math.max(0, s - 1e-3), Math.max(1e-3, s)); return q[q.length - 1] || pts[0]; }
+// A fan: hub, ring and seven swept blades, in one colour.
+function fan(cx, cy, r, o = {}) {
+  const g = el("g", {}), col = o.stroke ?? C.graphite;
+  el("circle", { cx, cy, r, fill: "none", stroke: col, "stroke-width": 12 }, g);
+  for (let i = 0; i < 7; i++) {
+    const a = i / 7 * Math.PI * 2 + (o.turn ?? 0), r0 = r * 0.30, r1 = r * 0.86;
+    const p0 = [cx + Math.cos(a) * r0, cy + Math.sin(a) * r0], p1 = [cx + Math.cos(a + 0.9) * r1, cy + Math.sin(a + 0.9) * r1];
+    const c = [cx + Math.cos(a + 0.2) * r1 * 0.8, cy + Math.sin(a + 0.2) * r1 * 0.8];
+    el("path", { d: `M${p0} Q${c} ${p1}`, fill: "none", stroke: col, "stroke-width": 12, "stroke-linecap": "round" }, g);
+  }
+  el("circle", { cx, cy, r: r * 0.26, fill: col }, g);
+  if (o.a !== undefined && o.a < 1) g.setAttribute("opacity", +o.a.toFixed(4));
+  return g;
+}
+
+// ---- light (canvas) ------------------------------------------------------------------------------------------------
+function polyline(ctx, pts) { ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]); }
+function inView(ctx) { ctx.setTransform(...V.m); }
+function ground() {
+  // a scene drawn inside another's marks (the zoom's inner frame) lays its ground in the SVG layer, above them
+  if (V.nested) { el("rect", { x: 0, y: 0, width: W, height: W, fill: "url(#gnd)" }); return; }
+  if (window.NORASTER) return;
+  inView(back);
+  back.fillStyle = C.ink; back.fillRect(0, 0, W, W);
+  const g = back.createRadialGradient(W / 2, W * 0.42, 60, W / 2, W / 2, W * 0.75);
+  g.addColorStop(0, "#101216"); g.addColorStop(1, "#040506");
+  back.fillStyle = g; back.fillRect(0, 0, W, W);
+}
+function bloom(ctx, x, y, r, a) {
+  if (window.NORASTER || a <= 0.002) return;
+  inView(ctx); ctx.save(); ctx.globalCompositeOperation = "lighter";
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, `rgba(${C.voltRGB},${a})`); g.addColorStop(1, `rgba(${C.voltRGB},0)`);
+  ctx.fillStyle = g; ctx.fillRect(x - r, y - r, 2 * r, 2 * r); ctx.restore();
+}
+// The current: a lit trail behind the head at `lit` alpha, a 14-step comet in three glow passes and a white head. s is
+// the head's arc position; o.fade (0..1) dims the comet and head as it comes to rest at the end of its trace.
+function pulse(ctx, pts, s, L = 220, o = {}) {
+  const lit = o.lit ?? 0.55, w = o.w ?? 12, fade = o.fade ?? 1;
+  const head = at(pts, s), [hx, hy] = ap(V.m, head[0], head[1]);
+  if (fade > 0.05 && !V.moving) F.heads.push([hx, hy, w * 1.6 * V.s]);
+  if (window.NORASTER) return;
+  inView(ctx); ctx.save(); ctx.lineJoin = "round"; ctx.lineCap = "round";
+  if (lit > 0 && s > 0) { ctx.strokeStyle = `rgba(${C.voltRGB},${lit})`; ctx.lineWidth = w; polyline(ctx, sub(pts, 0, s)); ctx.stroke(); }
+  if (fade > 0) {
+    ctx.globalCompositeOperation = "lighter";
+    const steps = 14;
+    for (const [bw, a, blur] of [[w * 7, 0.10, 26], [w * 3, 0.25, 8], [w, 0.9, 0]]) {
+      ctx.filter = blur ? `blur(${blur * V.s}px)` : "none"; ctx.lineWidth = bw;
+      for (let i = 0; i < steps; i++) {
+        const seg = sub(pts, Math.max(0, s - L + L * i / steps), s - L + L * (i + 1) / steps);
+        if (seg.length < 2) continue;
+        ctx.strokeStyle = `rgba(${C.voltRGB},${fade * a * ((i + 1) / steps) ** 1.6})`; polyline(ctx, seg); ctx.stroke();
+      }
+    }
+    ctx.filter = `blur(${10 * V.s}px)`; ctx.fillStyle = `rgba(${C.voltRGB},${0.9 * fade})`;
+    ctx.beginPath(); ctx.arc(head[0], head[1], w * 1.6, 0, 7); ctx.fill();
+    ctx.filter = "none"; ctx.fillStyle = `rgba(255,255,255,${fade})`;
+    ctx.beginPath(); ctx.arc(head[0], head[1], w * 0.62, 0, 7); ctx.fill();
+  }
+  ctx.restore();
+}
+// One run of the current along pts from t0 at v px/s: nothing before t0; after it arrives, the trail stays lit and
+// the comet fades out over 0.25 s. Returns the arrival time.
+function run(ctx, pts, t, t0, v = PULSE_V, o = {}) {
+  const len = arcLen(pts), arr = t0 + len / v;
+  if (t < t0) return arr;
+  const s = Math.min(len, (t - t0) * v);
+  pulse(ctx, pts, s, o.L ?? 240, { ...o, fade: t < arr ? 1 : 1 - clamp((t - arr) / 0.25) });
+  return arr;
+}
+// The strike: a mitred zigzag, three volt glow passes and a bone-white core; k (0..1) is its heat.
+function strike(ctx, pts, k, w = 20) {
+  if (window.NORASTER || k <= 0.002) return;
+  inView(ctx); ctx.save(); ctx.lineJoin = "miter"; ctx.miterLimit = 6; ctx.lineCap = "butt";
+  ctx.globalCompositeOperation = "lighter";
+  for (const [bw, a, blur] of [[w * 9, 0.08, 60], [w * 4, 0.22, 22], [w * 1.8, 0.6, 6]]) {
+    ctx.filter = `blur(${blur * V.s}px)`; ctx.strokeStyle = `rgba(${C.voltRGB},${a * k})`; ctx.lineWidth = bw;
+    polyline(ctx, pts); ctx.stroke();
+  }
+  ctx.filter = "none"; ctx.strokeStyle = `rgba(255,252,236,${k})`; ctx.lineWidth = w; polyline(ctx, pts); ctx.stroke();
+  ctx.restore();
+}
+// Heat after a strike at t0: 1 on its frame, (1 - u/0.2)^2 for 0.2 s, then a still scar of SCAR.
+const SCAR = 0.16;
+const heat = (t, t0) => t < t0 ? 0 : Math.max(SCAR, Math.pow(1 - clamp((t - t0) / 0.2), 2));
+// Grain: eight noise plates of 540 px made once, laid at 2x with smoothing, so a grain is ~2 px at 1080 and still one
+// at the phone's 540; the plate changes every second frame.
+const GRAIN = [], GN = W / 2;
+function grain(seed, a = 0.06) {
+  if (window.NORASTER) return;
+  if (!GRAIN.length) for (let k = 0; k < 8; k++) {
+    const rand = rng(k * 7919 + 13), tile = document.createElement("canvas");
+    tile.width = tile.height = GN;
+    const tc = tile.getContext("2d"), img = tc.createImageData(GN, GN);
+    for (let i = 0; i < GN * GN; i++) { const v = rand() * 255; img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = v; img.data[i * 4 + 3] = 255; }
+    tc.putImageData(img, 0, 0); GRAIN.push(tile);
+  }
+  front.setTransform(1, 0, 0, 1, 0, 0); front.save(); front.globalAlpha = a; front.globalCompositeOperation = "overlay";
+  front.imageSmoothingEnabled = true; front.drawImage(GRAIN[seed % 8], 0, 0, W, W); front.restore();
+}
+
+// ---- the scenes ----------------------------------------------------------------------------------------------------
+// Each draws its shot at time t in the current view. S is its segment (b0, land, cue from data.json).
+const SCN = {};
+const COPY = () => D.copy;
+const STRIKE1 = [[214, -30], [150, 196], [236, 196], [150, 476]];
+const TITLE_TRACE = route(-20, 476, "r1120"), TITLE_RUN = route(150, 476, "r940");
+
+SCN.leader = (t, S) => {
+  ground();
+  trace(TITLE_TRACE);
+  // the stepped leader: one step of the strike's path per beat, each flashing bone for 2 frames, then steel at 60 %
+  const len = arcLen(STRIKE1), n = 4;
+  let tip = null;
+  for (let j = 0; j < n; j++) {
+    const tj = bt(S, S.cue["step" + j]);
+    if (t < tj) break;
+    const pts = sub(STRIKE1, len * j / n, len * (j + 1) / n);
+    const hot = t - tj < 2 / FPS;
+    el("polyline", { points: pts.map(p => p.join(",")).join(" "), fill: "none", stroke: hot ? C.bone : C.steel,
+                     "stroke-width": 12, "stroke-linejoin": "miter", opacity: hot ? 1 : 0.6 });
+    markFloor(12, false, "leader");
+    tip = [pts[pts.length - 1], t - tj];
+  }
+  if (tip) bloom(back, tip[0][0], tip[0][1], 120, 0.10 + 0.20 * Math.exp(-tip[1] / 0.12));
+};
+
+// TITLE: the strike on b0, the version slams in, the name condenses into place over the beat, the tag on b1.
+function title(t, S) {
+  ground();
+  const t0 = bt(S, 0), cp = COPY(), k = heat(t, t0);
+  bloom(back, 150, 476, 620, 0.22 * k);
+  trace(TITLE_TRACE);
+  strike(front, STRIKE1, k, 20);
+  bloom(front, 150, 476, 150, 0.30 * k);
+  run(front, TITLE_RUN, t, bt(S, S.cue.run), PULSE_V, { L: 420, lit: 0.5 });
+  txt(cp.release, W - M, 128, { mono: true, fill: C.steel, ls: 6, anchor: "end", k: arrive(t, bt(S, S.land.release), "rise") });
+  txt(cp.version, W - M + 6, 392, { size: 200, wdth: 150, wght: 900, fill: C.volt, anchor: "end", fit: 620,
+                                    k: arrive(t, bt(S, S.land.version), "slam") });
+  squeezeName(t, bt(S, S.land.name), M - 6, 905, 900);
+}
+SCN.title = title;
+// "bloomery" condensing from wdth 150 to 50 over one beat, its size re-fitted every frame so its width holds fit.
+function squeezeName(t, t0, x, y, fit, o = {}) {
+  if (t < t0) return null;
+  const u = (t - t0) / P, e = oexp(u), wdth = lerp(150, 50, e);
+  return txt(COPY().name, x, y, { size: 200, wdth, wght: 900, fit, fill: o.fill,
+                                  k: { a: clamp((t - t0) / 0.06), sc: 1, sx: 1, dx: 0, dy: 0, settled: u >= 1 } });
+}
+
+// BOLT: 74B slams in too wide for the frame; on b2 it condenses while -A9B grows in and the card draws in under it;
+// on b3 the 24 GB lands, the card is named, the fingers light, the line lands. The current runs in from the right
+// on b0 and reaches the fingers on b3.
+const CARD = { x: M, y: 470, w: W - 2 * M, h: 300 };
+const VRAM_BOX = { x: W - M - 300, y: CARD.y + 40, w: 252, h: 226 };
+const ZOOM_AT = [VRAM_BOX.x + VRAM_BOX.w / 2, VRAM_BOX.y + VRAM_BOX.h - 58];
+const FING = { x: M + 120, y: CARD.y + CARD.h + 14, n: 12, w: 24, h: 38, pitch: 36 };
+// From past the right edge under the card to its last finger; the current runs it from b0 and arrives on b3.
+function boltTrace() {
+  const fx = FING.x + (FING.n - 1) * FING.pitch + FING.w / 2, fy = FING.y + FING.h + 2;
+  return route(W + 20, fy + 54, `l${W + 20 - fx - 24} ul24 u30`);
+}
+SCN.bolt = (t, S) => {
+  ground();
+  const cp = COPY(), t0 = bt(S, 0), tq = bt(S, S.land.squeeze), t3 = bt(S, S.land.vram);
+  const tr = boltTrace(), tin = bt(S, S.cue.run_in);
+  trace(tr);
+  run(front, tr, t, tin, arcLen(tr) / (t3 - tin), { L: 300 });
+  // the card under the name, drawn in from b2
+  if (t >= bt(S, S.land.card)) {
+    const k = arrive(t, bt(S, S.land.card), "draw"), f = ocub((t - bt(S, S.land.card)) / 0.3);
+    const r = rect(CARD.x, CARD.y, CARD.w, CARD.h, { r: 26, fill: C.carbon, stroke: C.bone, sw: 12, k: { ...k, f: undefined } });
+    r.setAttribute("pathLength", "1"); r.setAttribute("stroke-dasharray", `${f} 2`);
+    r.setAttribute("fill-opacity", +f.toFixed(3));
+    fan(M + 180, CARD.y + CARD.h / 2, 108, { turn: 0.2, a: f });
+    fan(M + 450, CARD.y + CARD.h / 2, 108, { turn: 0.9, a: f });
+    rect(VRAM_BOX.x, VRAM_BOX.y, VRAM_BOX.w, VRAM_BOX.h, { r: 14, fill: C.ink, a: f });
+    for (let i = 0; i < FING.n; i++) {        // lit one a frame from the finger the current reaches
+      const lit = t >= t3 + (FING.n - 1 - i) / FPS;
+      rect(FING.x + i * FING.pitch, FING.y, FING.w, FING.h, { r: 3, fill: lit ? C.volt : C.graphite, a: f });
+    }
+  }
+  txt(cp.vram, VRAM_BOX.x + VRAM_BOX.w / 2, VRAM_BOX.y + 118, { size: 96, wdth: 72, wght: 800, fill: C.volt,
+                                                                anchor: "middle", fit: 196, k: arrive(t, t3, "slam") });
+  txt(cp.bolt_tag, M, 128, { mono: true, fill: C.steel, ls: 2, k: arrive(t, bt(S, S.land.tag), "rise") });
+  txt(cp.card, W - M, 128, { mono: true, fill: C.bone, ls: 2, anchor: "end", k: arrive(t, t3, "rise") });
+  txt(cp.bolt_line, M, 1008, { size: 48, wdth: 100, wght: 600, k: arrive(t, bt(S, S.land.line), "rise") });
+  name74(t, S, t0, tq);
+};
+// 74B and -A9B: before the squeeze, 74B alone at wdth 150, 1200 px wide, both edges cutting it (an arrival state);
+// through the squeeze, wdth 150 -> 50, the pair's visible width 1200 -> NAME_W and the baseline 650 -> NAME_Y, -A9B
+// growing in from zero width beside 74B.
+const NAME_W = 760, NAME_Y = 400;
+function name74(t, S, t0, tq) {
+  if (t < t0) return;
+  const cp = COPY(), u = (t - tq) / P, e = t < tq ? 0 : oexp(u), wdth = lerp(150, 50, e);
+  const w74 = adv(cp.b74, false, wdth, 900) / 100, wA = adv(cp.a9b, false, wdth, 900) / 100;
+  const size = lerp(1200, NAME_W, e) / (w74 + e * wA);
+  const w74s = adv(cp.b74, false, 150, 900) / 100, bwS = adv("B", false, 150, 900) / 100, s0 = 1200 / w74s;
+  const x0 = W + 0.10 * bwS * s0 - w74s * s0, x = lerp(x0, M - 6, e), y = lerp(650, NAME_Y, e);
+  const settled = u >= 1;
+  const slam = arrive(t, t0, "slam");
+  const k = { a: slam.a, sc: t < tq ? lerp(1.4, 1, oexp((t - t0) / 0.2)) : 1, sx: 1, dx: 0, dy: 0, settled };
+  txt(cp.b74, x, y, { size, wdth, wght: 900, grp: "name74", k: { ...k, sc: k.sc } });
+  if (e > 0) txt(cp.a9b, x + w74 * size, y, { size, wdth, wght: 900, grp: "name74", sx: settled ? undefined : Math.max(1e-3, e),
+                                               k: { ...k, a: clamp(e * 3), settled } });
+}
+
+// DECODE / PROMPT: one layout, the slot swapped on PROMPT's b0. The token grid lights one cell a token at the
+// measured rate; on the swap it clears and floods at the prompt's rate.
+const GRID = { x: M, y: 620, cols: 26, rows: 7, cell: 24, pitch: 36 };
+const NGRID = GRID.cols * GRID.rows;
+const cellXY = i => [GRID.x + (i % GRID.cols) * GRID.pitch, GRID.y + Math.floor(i / GRID.cols) * GRID.pitch];
+const LAST_CELL = cellXY(NGRID - 1);
+let NUM_SIZE = 0, HEAD_SIZE = 0;
+// Cell i lights at t0 + i / rate in volt and cools to steel over 0.25 s, so the fill trails a comet whose length is
+// the rate; from tDim the whole grid dims over 0.4 s.
+function tokenGrid(t0, rate, tDim, t, boom) {
+  const dimU = clamp((t - tDim) / 0.4), n = Math.min(NGRID, Math.floor((t - t0) * rate) + 1);
+  for (let i = 0; i < NGRID; i++) {
+    const [x, y] = cellXY(i), age = t - (t0 + i / rate);
+    const fill = i >= n ? C.graphite : mixHex(mixHex(C.volt, C.steel, clamp(age / 0.25)), C.dim, 0.5 * dimU);
+    rect(x, y, GRID.cell, GRID.cell, { r: 3, fill });
+    if (i === n - 1 && n < NGRID) bloom(back, x + GRID.cell / 2, y + GRID.cell / 2, 70 * boom, 0.35);
+  }
+}
+function mixHex(a, b, u) {
+  const pa = [1, 3, 5].map(i => parseInt(a.slice(i, i + 2), 16)), pb = [1, 3, 5].map(i => parseInt(b.slice(i, i + 2), 16));
+  return "#" + pa.map((v, i) => Math.round(lerp(v, pb[i], u)).toString(16).padStart(2, "0")).join("");
+}
+function decodeLayout(t, S, Sp) {
+  ground();
+  const cp = COPY(), tf = bt(S, S.cue.fill), ts = Sp ? bt(Sp, 0) : Infinity;
+  const swapped = t >= ts;
+  // the grid: decode fills from b1 at 86.69 cells a second; the prompt clears and floods at 2,047 on its b0
+  if (!swapped) tokenGrid(tf, D.rates.decode, tf + NGRID / D.rates.decode + 0.25, t, 1);
+  else {
+    tokenGrid(ts, D.rates.prompt, ts + NGRID / D.rates.prompt + 2 * P, t, 1.6);
+    bloom(back, GRID.x + 468, GRID.y + 120, 380, 0.30 * Math.pow(1 - clamp((t - ts) / 0.5), 2));
+  }
+  const slot = (a, b, x, y, o) => {
+    if (t < ts) txt(a, x, y, o);
+    else { txt(a, x, y, { ...o, k: swapOut(t, ts) }); txt(b, x, y, { ...o, k: swapIn(t, ts) }); }
+  };
+  slot(cp.decode, cp.prompt, M, 128, { mono: true, ls: 6 });
+  txt(cp.unit, M - 8 + 600 + 30, 430, { mono: true, fill: C.steel, ls: 6 });
+  slot(cp.decode_n, cp.prompt_n, M - 8, 430, { size: NUM_SIZE, wdth: 100, wght: 380, fill: C.volt, tnum: true });
+  slot(cp.decode_cond, cp.prompt_cond, M, 522, { size: 60, wdth: 100, wght: 700 });
+  txt(cp.rig, M, 1000, { mono: true, fill: C.steel, ls: 2 });
+}
+SCN.decode = (t, S) => decodeLayout(t, S, null);
+SCN.prompt = (t, S) => decodeLayout(t, BY.decode, S);
+
+// SPARKS / MODELS: two nodes on one bus; each pages its own range of experts from its own NVMe. MODELS swaps the
+// head and the line; the nodes stay.
+const NODES = [{ x: M, y: 380, w: 380, h: 300 }, { x: W - M - 380, y: 380, w: 380, h: 300 }];
+const BUS_Y = NODES[0].y + NODES[0].h / 2, SLAB_Y = 770;
+// The connector leaves the grid's last cell, climbs at 45 degrees to the bus's height and runs on into SPARKS, whose
+// origin sits PAN_OX to the right in PROMPT's world, just past the climb, so the bus's left end meets it.
+const CONN0 = [LAST_CELL[0] + GRID.cell + 6, LAST_CELL[1] + GRID.cell / 2], CLIMB = CONN0[1] - BUS_Y;
+const PAN_OX = CONN0[0] + 24 + CLIMB + 40;
+const connector = () => route(CONN0[0], CONN0[1], `r24 ur${CLIMB} r${40 + M}`);
+function sparksLayout(t, S, Sm) {
+  ground();
+  const cp = COPY();
+  trace(route(-40, BUS_Y, `r${W + 80}`));
+  const tsw = Sm ? bt(Sm, Sm.land.names) : Infinity, tsl = Sm ? bt(Sm, Sm.land.line) : Infinity;
+  NODES.forEach((n, j) => {
+    const tn = bt(S, S.land["node" + j]);
+    if (t < tn) return;
+    const k = arrive(t, tn, "draw"), f = k.f;
+    const drop = trace(route(n.x + n.w / 2, n.y + n.h + 6, `d${SLAB_Y - n.y - n.h - 6}`), { f });
+    const r = rect(n.x, n.y, n.w, n.h, { r: 24, fill: C.carbon, stroke: C.bone, sw: 12, k: { ...k, sc: lerp(0.92, 1, f) } });
+    r.setAttribute("fill-opacity", +f.toFixed(3));
+    // the experts: 6 x 4 cells; node j owns rows 2j and 2j+1, lit row by row once its NVMe's current arrives
+    // the page's current leaves the NVMe early enough to reach the node on its beat, when the rows light
+    const up = route(n.x + n.w / 2, SLAB_Y - 10, `u${SLAB_Y - n.y - n.h - 16}`), arr = bt(S, S.cue["page" + j]);
+    for (let i = 0; i < 24; i++) {
+      const row = Math.floor(i / 6), own = Math.floor(row / 2) === j;
+      const lit = own && t >= arr + ((row % 2) + (i % 6) / 6) * 0.05;
+      rect(n.x + 40 + (i % 6) * 52, n.y + 52 + row * 52, 40, 40, { r: 6, fill: lit ? C.volt : C.graphite, a: f });
+    }
+    const slab = arrive(t, tn, "rise");
+    rect(n.x + 40, SLAB_Y, n.w - 80, 88, { r: 12, fill: C.graphite, k: { ...slab, dy: slab.dy * 4 } });
+    txt(cp.nvme, n.x + n.w / 2, SLAB_Y + 72, { mono: true, anchor: "middle", k: { ...slab, dy: slab.dy * 4 } });
+    run(front, up, t, arr - arcLen(up) / 400, 400, { L: 70, lit: 0.6 });
+    if (t >= arr) bloom(back, n.x + n.w / 2, n.y + n.h / 2, 260, 0.12 * Math.exp(-(t - arr) / 0.5) + 0.04);
+  });
+  // the link: on MODELS' b1 the current runs the bus from the second node to the first
+  if (Sm) run(front, route(NODES[1].x - 6, BUS_Y, `l${NODES[1].x - NODES[0].x - NODES[0].w - 12}`), t, bt(Sm, Sm.cue.rdma), 400, { L: 120, lit: 0.45 });
+  const head = (s, y, fill) => ({ s, y, o: { size: HEAD_SIZE, wdth: 62, wght: 900, fill } });
+  const H1 = head(cp.spark_h1, 200, C.bone), H2 = head(cp.spark_h2, 322, C.volt);
+  for (const h of [H1, H2]) txt(h.s, M - 4, h.y, { ...h.o, k: t < tsw ? SET : swapOut(t, tsw) });
+  if (t >= tsw) [cp.m_qwen, cp.m_glm, cp.m_ds].forEach((s, i) =>
+    txt(s, M - 3, 136 + i * 84, { size: 84, wdth: 62, wght: 900, k: swapIn(t, tsw) }));
+  const line = { size: 46, wdth: 82, wght: 600 };
+  const tl = bt(S, S.land.line);
+  if (t < tsl) txt(cp.spark_line, M, 1000, { ...line, k: arrive(t, tl, "rise") });
+  else { txt(cp.spark_line, M, 1000, { ...line, k: swapOut(t, tsl) }); txt(cp.models_line, M, 1000, { ...line, k: swapIn(t, tsl) }); }
+}
+SCN.sparks = (t, S) => sparksLayout(t, S, null);
+SCN.models = (t, S) => sparksLayout(t, BY.sparks, S);
+
+// EMBED: the head condenses in; the three lanes slam in one a beat, each icon arriving large and settling into its
+// lane while its trace draws to the vector; on b4 the models land and the current runs the lanes into the vector,
+// which lights from the middle; on b5 the endpoint.
+const LANES = [520, 670, 820], VEC = { x: 860, y: 470, w: 128, h: 34, gap: 10, n: 9 };
+const VEC_C = VEC.y + (VEC.n * (VEC.h + VEC.gap) - VEC.gap) / 2, UNLIT = [2, 5, 7];
+function laneTrace(i) {
+  const y = LANES[i], x0 = 490, d = Math.abs(VEC_C - y);
+  return route(x0, y, i === 1 ? `r${VEC.x - 24 - x0}` : `r90 ${y < VEC_C ? "dr" : "ur"}${d} r${VEC.x - 24 - x0 - 90 - d}`);
+}
+function icon(i, cx, cy) {
+  if (i === 0) [150, 110, 132].forEach((w, j) => rect(cx - 75, cy - 33 + j * 26, w, 14, { r: 7, fill: C.steel }));
+  if (i === 1) for (let j = 0; j < 3; j++) rect(cx - 78 + j * 30, cy - 33, 96, 66, { r: 8, fill: C.carbon, stroke: C.steel, sw: 12 });
+  if (i === 2) { const rr = rng(23); for (let j = 0; j < 9; j++) { const hh = 14 + rr() * 54; rect(cx - 78 + j * 18, cy - hh / 2, 12, hh, { r: 6, fill: C.steel }); } }
+}
+SCN.embed = (t, S) => {
+  ground();
+  const cp = COPY(), t0 = bt(S, 0), tr = bt(S, S.cue.run);
+  // the vector's slots, lit from the middle as the lanes' currents arrive
+  const first = tr + 2 * P;               // every lane's current reaches the vector two beats after it leaves
+  for (let j = 0; j < VEC.n; j++) {
+    const order = Math.abs(j - 4), lit = !UNLIT.includes(j) && t >= first + order * 0.05;
+    rect(VEC.x, VEC.y + j * (VEC.h + VEC.gap), VEC.w, VEC.h, { r: 6, fill: lit ? C.volt : C.graphite });
+  }
+  if (t >= first) bloom(back, VEC.x + VEC.w / 2, VEC_C, 300, 0.10 + 0.25 * Math.exp(-(t - first) / 0.3));
+  const labels = [cp.lane_text, cp.lane_video, cp.lane_audio], lands = [S.land.text, S.land.video, S.land.audio];
+  LANES.forEach((y, i) => {
+    const tl = bt(S, lands[i]);
+    if (t < tl) return;
+    const tr_ = laneTrace(i), f = ocub((t - tl) / 0.3);
+    trace(tr_, { f });
+    run(front, tr_, t, tr, arcLen(tr_) / (first - tr), { L: 200 });
+    // the icon arrives at 2.6x about its own centre and settles in 0.2 s, the montage's punch inside the reveal
+    const u = t - tl, sc = lerp(2.6, 1, oexp(u / 0.2)), a = clamp(u / 0.05);
+    const g = el("g", { transform: `translate(375 ${y}) scale(${sc}) translate(-375 ${-y})`, opacity: +a.toFixed(3) });
+    const keep = V.g; V.g = g;
+    if (u >= 0.2) icon(i, 375, y); else { const s = V.s; V.s = s * sc; icon(i, 375, y); V.s = s; }
+    V.g = keep;
+    txt(labels[i], M, y + 16, { mono: true, ls: 4, k: arrive(t, tl, "slam") });
+  });
+  txt(cp.embed_tag, M, 128, { mono: true, fill: C.steel, ls: -1.5, k: arrive(t, bt(S, S.land.tag), "rise") });
+  if (t >= t0) {
+    const u = (t - t0) / P, e = oexp(u);
+    txt(cp.embed, M - 6, 300, { size: 150, wdth: lerp(150, 72, e), wght: 900, fit: 760,
+                                k: { a: clamp((t - t0) / 0.06), sc: 1, sx: 1, dx: 0, dy: 0, settled: u >= 1 } });
+  }
+  txt(cp.embed_line, M, 384, { size: 56, wdth: 100, wght: 600, k: arrive(t, t0, "rise") });
+  txt(cp.endpoint, M, 1000, { mono: true, fill: C.volt, ls: 2, k: arrive(t, bt(S, S.land.endpoint), "rise") });
+};
+
+// THANKS: the vector collapses into one volt line that becomes this card's trace; thank you; on b1 the current runs
+// the line and down a branch to each name.
+const TH_Y = 400, BR_X = 96, PADS = [540, 770];
+SCN.thanks = (t, S) => {
+  ground();
+  const cp = COPY(), t0 = bt(S, 0), u = (t - t0) / 0.32, e = ocub(u);
+  const line = route(M, TH_Y, `r${W - 2 * M}`), branch = route(BR_X, TH_Y, `d${PADS[1] - TH_Y}`);
+  trace(line);
+  if (u < 1) {
+    // each of the vector's cells slides to its stretch of the line and thins to the trace
+    for (let j = 0; j < VEC.n; j++) {
+      const x = lerp(VEC.x, M + j * (W - 2 * M) / VEC.n, e), w = lerp(VEC.w, (W - 2 * M) / VEC.n + 1, e);
+      const y = lerp(VEC.y + j * (VEC.h + VEC.gap), TH_Y - 6, e), h = lerp(VEC.h, 12, e);
+      el("rect", { x, y, width: w, height: h, rx: lerp(6, 0, e), fill: UNLIT.includes(j) && e < 0.5 ? C.graphite : C.volt });
+    }
+  } else {
+    const lit = 0.55 * (1 - clamp((t - t0 - 0.32) / 0.4)) + 0.3;
+    if (!window.NORASTER) { inView(front); front.save(); front.strokeStyle = `rgba(${C.voltRGB},${lit})`; front.lineWidth = 12;
+                            front.lineCap = "round"; polyline(front, line); front.stroke(); front.restore(); }
+  }
+  const tc = bt(S, S.land.credits), trun = bt(S, S.cue.run);
+  trace(branch, { f: ocub((t - tc) / 0.3) });
+  run(front, line, t, trun, PULSE_V, { L: 300, lit: 0 });
+  const arr = run(front, branch, t, trun, 420, { L: 160, lit: 0.55 });
+  PADS.forEach((py, j) => {
+    if (t < tc) return;
+    const hit = trun + (py - TH_Y) / 420;
+    circ(BR_X, py, 15, { fill: t >= hit ? C.volt : C.graphite, k: arrive(t, tc, "slam") });
+    if (t >= hit) bloom(back, BR_X, py, 90, 0.25 * Math.exp(-(t - hit) / 0.4) + 0.06);
+  });
+  txt(cp.thanks, M - 4, 300, { size: 160, wdth: 100, wght: 380, k: arrive(t, t0, "slam") });
+  const credits = [[cp.h_julian, cp.c_julian], [cp.h_burnt, cp.c_burnt]];
+  credits.forEach(([h, c], j) => {
+    const k = arrive(t, tc, "rise");
+    txt(h, 140, PADS[j] + 22, { size: 72, wdth: 100, wght: 700, k });
+    txt(c, 140, PADS[j] + 92, { mono: true, fill: C.steel, ls: -2.5, k });
+  });
+};
+
+// END: the second strike lands on the left edge; bloomery and 0.3.4 lock up beside it; the URL; the current runs the
+// trace under the lockup from b3 and comes to rest, fully lit, on the beat the track cuts.
+const STRIKE2 = [[118, -30], [44, 260], [118, 260], [56, 690]];
+SCN.end = (t, S) => {
+  ground();
+  const cp = COPY(), t0 = bt(S, 0), k = heat(t, t0), th = bt(S, S.cue.hit);
+  const tr = route(56, 690, `r${W - M - 56}`);
+  bloom(back, 56, 690, 560, 0.20 * k);
+  trace(tr);
+  strike(front, STRIKE2, k, 20);
+  const v = arcLen(tr) / (th - bt(S, S.cue.run));
+  run(front, tr, t, bt(S, S.cue.run), v, { L: 360, lit: 0.6 });
+  circ(W - M, 690, 15, { fill: t >= th ? C.volt : C.graphite });
+  if (t >= th) bloom(back, W - M, 690, 120, 0.32 * Math.exp(-(t - th) / 0.6) + 0.10);
+  const kl = arrive(t, t0, "slam");
+  txt(cp.name, 150, 600, { size: 200, wdth: 50, wght: 900, fit: 560, k: kl });
+  txt(cp.version, W - M + 6, 600, { size: 100, wdth: 150, wght: 900, fill: C.volt, anchor: "end", fit: 250, k: kl });
+  txt(cp.repo, 150, 1000, { mono: true, fill: C.steel, ls: 1, k: arrive(t, bt(S, S.land.url), "rise") });
+};
+
+// ---- transitions ---------------------------------------------------------------------------------------------------
+// The zoom-through: the camera flies into the 24 GB box about ZOOM_AT, 1 -> 12x on a log scale (cubic out), carrying
+// the point to the frame's centre; DECODE is drawn inside the box at 1/12 and is at 1x when the zoom ends.
+function zoomThrough(t, Sa, Sb, u) {
+  const z = Math.pow(12, ocub(u)), v = (z - 1) / 11;
+  const c = [lerp(ZOOM_AT[0], W / 2, v), lerp(ZOOM_AT[1], W / 2, v)];
+  const mA = mul(Tm(c[0], c[1]), mul(Sm(z), Tm(-ZOOM_AT[0], -ZOOM_AT[1])));
+  view(mA, true, Sa); SCN[Sa.id](t, Sa);
+  const mB = mul(mA, mul(Tm(ZOOM_AT[0], ZOOM_AT[1]), mul(Sm(1 / 12), Tm(-W / 2, -W / 2))));
+  view(mB, true, Sb, true); SCN[Sb.id](t, Sb);
+}
+// The follow pan: the camera whips PAN_OX to the right (expo-out) while the current runs the connector from the
+// grid's last cell up its 45-degree bend onto the bus, on the same curve, so it arrives with the camera.
+function followPan(t, Sa, Sb, u) {
+  const e = oexp(u), cx = PAN_OX * e;
+  view(Tm(-cx, 0), true, Sa); SCN[Sa.id](t, Sa);
+  view(Tm(PAN_OX - cx, 0), true, Sb); SCN[Sb.id](t, Sb);
+  view(Tm(-cx, 0), true, Sa);
+  const cn = connector();
+  trace(cn);
+  if (!window.NORASTER) pulse(front, cn, arcLen(cn) * e, 320, { lit: 0.55 });
+  // a horizontal motion blur of half a subframe's travel
+  const vel = PAN_OX * (10 * Math.LN2 / PAN_S) * Math.pow(2, -10 * u);
+  if (!window.NORASTER) { stage.style.filter = "url(#mb)"; mbb.setAttribute("stdDeviation", `${(0.5 * vel / (FPS * 6)).toFixed(2)} 0`); }
+}
+
+// ---- the film ------------------------------------------------------------------------------------------------------
+function grainOf(t) { grain(Math.floor(Math.round(t * FPS) / 2)); }
+function segAt(t) { let i = 0; for (let j = 1; j < SEG.length; j++) if (t >= SEG[j].t0) i = j; return SEG[i]; }
+function draw(t) {
+  back.setTransform(1, 0, 0, 1, 0, 0); back.clearRect(0, 0, W, W);
+  front.setTransform(1, 0, 0, 1, 0, 0); front.clearRect(0, 0, W, W);
+  svg.replaceChildren(); stage.style.filter = "";
+  F = { t, texts: [], heads: [], arriving: [] };
+  const S = segAt(t), u = t - S.t0;
+  if (S.id === "decode" && u < ZOOM_S) zoomThrough(t, BY.bolt, S, u / ZOOM_S);
+  else if (S.id === "sparks" && u < PAN_S) followPan(t, BY.prompt, S, u / PAN_S);
+  else {
+    view(I, false, S); SCN[S.id](t, S);
+    if (S.id === "sparks" || S.id === "models") {     // the connector's last stretch, lit, entering on the bus
+      const cn = connector().map(([x, y]) => [x - PAN_OX, y]);
+      if (!window.NORASTER) { inView(front); front.save(); front.strokeStyle = `rgba(${C.voltRGB},0.55)`; front.lineWidth = 12;
+                              front.lineCap = "round"; front.lineJoin = "round"; polyline(front, cn); front.stroke(); front.restore(); }
+      const hs = Math.max(0, 1 - (t - S.t0 - PAN_S) / 0.25);
+      if (S.id === "sparks" && hs > 0) pulse(front, cn, arcLen(cn), 320, { lit: 0, fade: hs });
+    }
+  }
+  grainOf(t);
+  return S;
+}
+function checks(S, t) {
+  const T = F.texts;
+  for (let i = 0; i < T.length; i++) for (let j = i + 1; j < T.length; j++) {
+    const a = T[i].box, b = T[j].box;
+    if (T[i].grp && T[i].grp === T[j].grp) continue;     // two runs of one word, set edge to edge
+    if (Math.min(a[2], b[2]) - Math.max(a[0], b[0]) > 1 && Math.min(a[3], b[3]) - Math.max(a[1], b[1]) > 1)
+      console.error(`settled text overlaps: "${T[i].s}" and "${T[j].s}"`);
+  }
+  for (const [x, y, r] of F.heads) for (const tx of T) {
+    const g = ptGap(x, y, tx.box) - r;
+    if (g < CLEAR - 1e-6) console.error(`the pulse's head is ${g.toFixed(1)} px from "${tx.s}" (at least ${CLEAR})`);
+  }
+}
+// The hold: from a card's still moment to its cut, every frame draws exactly its strings, settled where they settled.
+function hold(S, t) {
+  if (S.kind !== "card" || t < S.still) return;
+  if (F.arriving.length) console.error(`card ${S.id} at ${(t - S.still).toFixed(3)} s into its hold: "${F.arriving.join('", "')}" still arriving`);
+  const got = F.texts.map(x => x.s), want = S.drawn;
+  const miss = want.filter(s => !got.includes(s)), extra = got.filter(s => !want.includes(s));
+  if (miss.length || extra.length) console.error(`card ${S.id} holds ${JSON.stringify(got)}, data.json says ${JSON.stringify(want)}`);
+  if (!S.ref) return;
+  const seen = {};
+  for (const x of F.texts) {
+    const n = seen[x.s] = (seen[x.s] || 0) + 1, r = S.ref.filter(q => q.s === x.s)[n - 1];
+    if (r && Math.max(...x.box.map((v, i) => Math.abs(v - r.box[i]))) > 0.5)
+      console.error(`card ${S.id}: "${x.s}" moved ${Math.max(...x.box.map((v, i) => Math.abs(v - r.box[i]))).toFixed(1)} px in its hold`);
+  }
+}
+function seek(t) {
+  const S = segAt(t);
+  if (S.kind === "card" && t >= S.still && !S.ref) { draw(S.still); S.ref = F.texts.map(x => ({ s: x.s, box: x.box })); }
+  draw(t); checks(S, t); hold(S, t);
+}
+window.seek = seek;
+function build() {
+  TL = D.timeline; P = TL.period;
+  if (D.film !== window.FILM) throw new Error(`data.json is for ${D.film}, not ${window.FILM}`);
+  SEG = TL.segments;
+  for (const S of SEG) { if (!SCN[S.id]) throw new Error(`no scene ${S.id}`); BY[S.id] = S; }
+  STR = new Set(); collect(D.copy);
+  NUM_SIZE = 600 / (adv(D.copy.decode_n, false, 100, 380, true) / 100);   // 86.69 set 600 px wide
+  HEAD_SIZE = 840 / (adv(D.copy.spark_h1, false, 62, 900) / 100);          // SPARKS' head 840 px wide
+}
+(async () => {
+  try {
+    D = await (await fetch(new URLSearchParams(location.search).get("data") || "data.json", { cache: "no-store" })).json();
+    await Promise.all([380, 600, 700, 800, 900].map(w => document.fonts.load(`${w} 100px Anybody`))
+      .concat([document.fonts.load('500 44px "Martian Mono"')]));
+    await document.fonts.ready;
+    build();
+    window.T = TL.T;
+    seek(0);
+  } catch (e) { window.fault = String(e && e.stack || e); window.T = 0; }
+  window.ready = true;
+})();
+</script>
+</body>
+</html>

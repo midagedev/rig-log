@@ -1,0 +1,138 @@
+### 3090-512.log
+[lease] card | term: pp tok/s @ P = 512, ours e92fa8bde default vs lcpppp4096, RTX 3090
+[binary] target/release/generate_qwen3moe sha256=44c5015fd113 mtime=2026-10-17T11:09:50Z (newer than its sources: dep-info)
+[lease] card | term: pp tok/s @ P = 512, ours e92fa8bde default vs lcpppp4096, RTX 3090
+[config] ours: target/release/generate_qwen3moe ctx=D+N rounded up to 256
+[config] cold tag: majflt in the row's measured window (ours: from its prompt_ids line; lcpp: from its --progress line; mrs: from its Iteration line; ik and bin: the whole process) × 75 µs ≥ 1 % of that window
+[config] lcpp: /home/user/llama.cpp-mainline-bolt/build-cuda/bin/llama-bench flags=-ngl 99 -fa on (lcpp and lcpppp: --progress)
+[config] prefill: ikpp/lcpppp run llama-bench -p P -n 0 -r 1 at the flags above (<U>: -ub U -b max(U, 2048)), mrspp mistralrs bench --prompt-len P --gen-len 1; ours from its time prompt row
+    binary: target/release/generate_qwen3moe sha256=44c5015fd113 mtime=2026-10-17T11:09:50Z
+    lcpp: /home/user/llama.cpp-mainline-bolt/build-cuda/bin/llama-bench sha256=5d610a487946 head=cd0a5b6a1 dirty_files=0
+    binary: target/release/generate_qwen3moe sha256=44c5015fd113 mtime=2026-10-17T11:09:50Z
+    binary: target/release/generate_qwen3moe sha256=44c5015fd113 mtime=2026-10-17T11:09:50Z
+    binary: target/release/generate_qwen3moe sha256=44c5015fd113 mtime=2026-10-17T11:09:50Z
+    lcpp: /home/user/llama.cpp-mainline-bolt/build-cuda/bin/llama-bench sha256=5d610a487946 head=cd0a5b6a1 dirty_files=0
+    binary: target/release/generate_qwen3moe sha256=44c5015fd113 mtime=2026-10-17T11:09:50Z
+    binary: target/release/generate_qwen3moe sha256=44c5015fd113 mtime=2026-10-17T11:09:50Z
+    lcpp: /home/user/llama.cpp-mainline-bolt/build-cuda/bin/llama-bench sha256=5d610a487946 head=cd0a5b6a1 dirty_files=0
+    binary: target/release/generate_qwen3moe sha256=44c5015fd113 mtime=2026-10-17T11:09:50Z
+    binary: target/release/generate_qwen3moe sha256=44c5015fd113 mtime=2026-10-17T11:09:50Z
+    binary: target/release/generate_qwen3moe sha256=44c5015fd113 mtime=2026-10-17T11:09:50Z
+    binary: target/release/generate_qwen3moe sha256=44c5015fd113 mtime=2026-10-17T11:09:50Z
+    binary: target/release/generate_qwen3moe sha256=44c5015fd113 mtime=2026-10-17T11:09:50Z
+    binary: target/release/generate_qwen3moe sha256=44c5015fd113 mtime=2026-10-17T11:09:50Z
+    lcpp: /home/user/llama.cpp-mainline-bolt/build-cuda/bin/llama-bench sha256=5d610a487946 head=cd0a5b6a1 dirty_files=0
+    binary: target/release/generate_qwen3moe sha256=44c5015fd113 mtime=2026-10-17T11:09:50Z
+    binary: target/release/generate_qwen3moe sha256=44c5015fd113 mtime=2026-10-17T11:09:50Z
+    lcpp: /home/user/llama.cpp-mainline-bolt/build-cuda/bin/llama-bench sha256=5d610a487946 head=cd0a5b6a1 dirty_files=0
+    binary: target/release/generate_qwen3moe sha256=44c5015fd113 mtime=2026-10-17T11:09:50Z
+    binary: target/release/generate_qwen3moe sha256=44c5015fd113 mtime=2026-10-17T11:09:50Z
+    binary: target/release/generate_qwen3moe sha256=44c5015fd113 mtime=2026-10-17T11:09:50Z
+mean ours d=512        87.14 tok/s  [86.71..87.86, spread 1.33%]  88.98 tok/s(p50) (n=4)  [cold 0/4] [probe-off 0/4]  untagged mean 87.14 tok/s (n=4)
+mean pp lcpppp4096 p=512  1353.27 tok/s(pp)  [1346.61..1359.21, spread 0.94%]  (n=4)  [cpu-busy 0/4] [other-busy 0/4] [cold 0/4] [probe-off 0/4]  untagged mean 1353.27 tok/s(pp) (n=4)
+mean pp ours p=512      1773.24 tok/s(pp)  [1740.17..1806.60, spread 3.82%]  (n=4)  [cpu-busy 0/4] [other-busy 0/4] [cold 0/4] [probe-off 0/4]  untagged mean 1773.24 tok/s(pp) (n=4)
+ratio pp p=512   ours/lcpppp4096  mean 1.3103 ± 0.0271 (n=4)  of means 1.3103  per round: r1 1.3308 r2 1.3131 r3 1.2893 r4 1.3080  busy: ours [cpu-busy 0/4] [other-busy 0/4], lcpppp4096 [cpu-busy 0/4] [other-busy 0/4]  cold: ours 0/4, lcpppp4096 0/4  probe-off
+    binary: target/release/generate_qwen3moe sha256=44c5015fd113 mtime=2026-10-17T11:09:50Z
+    lcpp: /home/user/llama.cpp-mainline-bolt/build-cuda/bin/llama-bench sha256=5d610a487946 head=cd0a5b6a1 dirty_files=0
+### 3090.log
+[lease] card | term: pp tok/s @ P = 4096, ours a11557577 default vs lcpppp4096, RTX 3090
+[binary] target/release/generate_qwen3moe sha256=96f01747dd03 mtime=2026-10-17T11:00:35Z (newer than its sources: dep-info)
+[lease] card | term: pp tok/s @ P = 4096, ours a11557577 default vs lcpppp4096, RTX 3090
+[config] ours: target/release/generate_qwen3moe ctx=D+N rounded up to 256
+[config] cold tag: majflt in the row's measured window (ours: from its prompt_ids line; lcpp: from its --progress line; mrs: from its Iteration line; ik and bin: the whole process) × 75 µs ≥ 1 % of that window
+[config] lcpp: /home/user/llama.cpp-mainline-bolt/build-cuda/bin/llama-bench flags=-ngl 99 -fa on (lcpp and lcpppp: --progress)
+[config] prefill: ikpp/lcpppp run llama-bench -p P -n 0 -r 1 at the flags above (<U>: -ub U -b max(U, 2048)), mrspp mistralrs bench --prompt-len P --gen-len 1; ours from its time prompt row
+    binary: target/release/generate_qwen3moe sha256=96f01747dd03 mtime=2026-10-17T11:00:35Z
+    lcpp: /home/user/llama.cpp-mainline-bolt/build-cuda/bin/llama-bench sha256=5d610a487946 head=cd0a5b6a1 dirty_files=0
+    binary: target/release/generate_qwen3moe sha256=96f01747dd03 mtime=2026-10-17T11:00:35Z
+    binary: target/release/generate_qwen3moe sha256=96f01747dd03 mtime=2026-10-17T11:00:35Z
+    binary: target/release/generate_qwen3moe sha256=96f01747dd03 mtime=2026-10-17T11:00:35Z
+    lcpp: /home/user/llama.cpp-mainline-bolt/build-cuda/bin/llama-bench sha256=5d610a487946 head=cd0a5b6a1 dirty_files=0
+    binary: target/release/generate_qwen3moe sha256=96f01747dd03 mtime=2026-10-17T11:00:35Z
+    binary: target/release/generate_qwen3moe sha256=96f01747dd03 mtime=2026-10-17T11:00:35Z
+    lcpp: /home/user/llama.cpp-mainline-bolt/build-cuda/bin/llama-bench sha256=5d610a487946 head=cd0a5b6a1 dirty_files=0
+    binary: target/release/generate_qwen3moe sha256=96f01747dd03 mtime=2026-10-17T11:00:35Z
+    binary: target/release/generate_qwen3moe sha256=96f01747dd03 mtime=2026-10-17T11:00:35Z
+    binary: target/release/generate_qwen3moe sha256=96f01747dd03 mtime=2026-10-17T11:00:35Z
+    binary: target/release/generate_qwen3moe sha256=96f01747dd03 mtime=2026-10-17T11:00:35Z
+    binary: target/release/generate_qwen3moe sha256=96f01747dd03 mtime=2026-10-17T11:00:35Z
+    binary: target/release/generate_qwen3moe sha256=96f01747dd03 mtime=2026-10-17T11:00:35Z
+    lcpp: /home/user/llama.cpp-mainline-bolt/build-cuda/bin/llama-bench sha256=5d610a487946 head=cd0a5b6a1 dirty_files=0
+    binary: target/release/generate_qwen3moe sha256=96f01747dd03 mtime=2026-10-17T11:00:35Z
+    binary: target/release/generate_qwen3moe sha256=96f01747dd03 mtime=2026-10-17T11:00:35Z
+    lcpp: /home/user/llama.cpp-mainline-bolt/build-cuda/bin/llama-bench sha256=5d610a487946 head=cd0a5b6a1 dirty_files=0
+    binary: target/release/generate_qwen3moe sha256=96f01747dd03 mtime=2026-10-17T11:00:35Z
+    binary: target/release/generate_qwen3moe sha256=96f01747dd03 mtime=2026-10-17T11:00:35Z
+    binary: target/release/generate_qwen3moe sha256=96f01747dd03 mtime=2026-10-17T11:00:35Z
+mean ours d=4096       86.69 tok/s  [86.27..87.26, spread 1.15%]  87.30 tok/s(p50) (n=4)  [cold 0/4] [probe-off 0/4]  untagged mean 86.69 tok/s (n=4)
+mean pp lcpppp4096 p=4096  1963.99 tok/s(pp)  [1951.38..1978.81, spread 1.41%]  (n=4)  [cpu-busy 0/4] [other-busy 0/4] [cold 0/4] [probe-off 0/4]  untagged mean 1963.99 tok/s(pp) (n=4)
+mean pp ours p=4096     2047.32 tok/s(pp)  [2015.47..2076.79, spread 3.04%]  (n=4)  [cpu-busy 0/4] [other-busy 0/4] [cold 0/4] [probe-off 0/4]  untagged mean 2047.32 tok/s(pp) (n=4)
+ratio pp p=4096  ours/lcpppp4096  mean 1.0424 ± 0.0128 (n=4)  of means 1.0424  per round: r1 1.0495 r2 1.0386 r3 1.0486 r4 1.0328  busy: ours [cpu-busy 0/4] [other-busy 0/4], lcpppp4096 [cpu-busy 0/4] [other-busy 0/4]  cold: ours 0/4, lcpppp4096 0/4  probe-off
+    binary: target/release/generate_qwen3moe sha256=96f01747dd03 mtime=2026-10-17T11:00:35Z
+    lcpp: /home/user/llama.cpp-mainline-bolt/build-cuda/bin/llama-bench sha256=5d610a487946 head=cd0a5b6a1 dirty_files=0
+### tg-3090.log
+BLOOMERY_MODEL="${BLOOMERY_MODEL:-qwen3moe}" ./tools/box.sh "${BLOOMERY_AB_ROUNDS:+export BLOOMERY_AB_ROUNDS=$BLOOMERY_AB_ROUNDS && }"'bash tools/ref/card-precheck.sh && { ours=; [ -n "512 lcpp:512 4096 lcpp:4096" ] || ours=1; for a in 512 lcpp:512 4096 lcpp:4
+[lease] card | # The release decode row on the RTX 3090 (250 W): ours v0.3.4 (44495f0ba) vs llama.cpp mainline at depths 512 and
+[lease] card | term: decode tok/s @ n=96, depth 4096, ours 44495f0ba vs lcpp, RTX 3090 (250 W)
+[lease] card | condition: one lease, the 3090 (BLOOMERY_TIMING_GPU), BLOOMERY_AB_ROUNDS=4; arms 512 lcpp:512 4096 lcpp:4096
+[binary] target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z (newer than its sources: dep-info)
+[lease] card | # The release decode row on the RTX 3090 (250 W): ours v0.3.4 (44495f0ba) vs llama.cpp mainline at depths 512 and
+[lease] card | term: decode tok/s @ n=96, depth 4096, ours 44495f0ba vs lcpp, RTX 3090 (250 W)
+[lease] card | condition: one lease, the 3090 (BLOOMERY_TIMING_GPU), BLOOMERY_AB_ROUNDS=4; arms 512 lcpp:512 4096 lcpp:4096
+[config] ours: target/release/generate_qwen3moe ctx=D+N rounded up to 256
+[config] cold tag: majflt in the row's measured window (ours: from its prompt_ids line; lcpp: from its --progress line; mrs: from its Iteration line; ik and bin: the whole process) × 75 µs ≥ 1 % of that window
+[config] lcpp: /home/user/llama.cpp-mainline-bolt/build-cuda/bin/llama-bench flags=-ngl 99 -fa on (lcpp and lcpppp: --progress)
+[config] prefill: ikpp/lcpppp run llama-bench -p P -n 0 -r 1 at the flags above (<U>: -ub U -b max(U, 2048)), mrspp mistralrs bench --prompt-len P --gen-len 1; ours from its time prompt row
+[config] arms=512 lcpp:512 4096 lcpp:4096 timing_gpu=GPU-307fa0f6-daae-24e5-6fd3-cd50620de6b1 other_gpu=GPU-8c129fa6-7382-35a5-2464-9ff01d99fcd4 CUDA_VISIBLE_DEVICES=GPU-307fa0f6-daae-24e5-6fd3-cd50620de6b1
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    lcpp: /home/user/llama.cpp-mainline-bolt/build-cuda/bin/llama-bench sha256=5d610a487946 head=cd0a5b6a1 dirty_files=0
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    lcpp: /home/user/llama.cpp-mainline-bolt/build-cuda/bin/llama-bench sha256=5d610a487946 head=cd0a5b6a1 dirty_files=0
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    lcpp: /home/user/llama.cpp-mainline-bolt/build-cuda/bin/llama-bench sha256=5d610a487946 head=cd0a5b6a1 dirty_files=0
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    lcpp: /home/user/llama.cpp-mainline-bolt/build-cuda/bin/llama-bench sha256=5d610a487946 head=cd0a5b6a1 dirty_files=0
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    lcpp: /home/user/llama.cpp-mainline-bolt/build-cuda/bin/llama-bench sha256=5d610a487946 head=cd0a5b6a1 dirty_files=0
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    lcpp: /home/user/llama.cpp-mainline-bolt/build-cuda/bin/llama-bench sha256=5d610a487946 head=cd0a5b6a1 dirty_files=0
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    lcpp: /home/user/llama.cpp-mainline-bolt/build-cuda/bin/llama-bench sha256=5d610a487946 head=cd0a5b6a1 dirty_files=0
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    lcpp: /home/user/llama.cpp-mainline-bolt/build-cuda/bin/llama-bench sha256=5d610a487946 head=cd0a5b6a1 dirty_files=0
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    lcpp: /home/user/llama.cpp-mainline-bolt/build-cuda/bin/llama-bench sha256=5d610a487946 head=cd0a5b6a1 dirty_files=0
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+mean lcpp d=4096       77.28 tok/s  [77.09..77.53, spread 0.57%]   (n=4)  [cold 0/4] [probe-off 0/4]  untagged mean 77.28 tok/s (n=4)
+mean lcpp d=512        77.89 tok/s  [77.25..78.58, spread 1.72%]   (n=4)  [cold 0/4] [probe-off 0/4]  untagged mean 77.89 tok/s (n=4)
+mean ours d=4096       86.92 tok/s  [86.58..87.25, spread 0.77%]  87.57 tok/s(p50) (n=4)  [cold 0/4] [probe-off 0/4]  untagged mean 86.92 tok/s (n=4)
+mean ours d=512        87.04 tok/s  [86.47..88.14, spread 1.93%]  89.02 tok/s(p50) (n=4)  [cold 0/4] [probe-off 0/4]  untagged mean 87.04 tok/s (n=4)
+ratio d=512   ours/lcpp    mean 1.1174 ± 0.0059 (n=4)  of means 1.1174  per round: r1 1.1217 r2 1.1147 r3 1.1139 r4 1.1194  cpu-busy: ours 0/4, lcpp 0/4  cold: ours 0/4, lcpp 0/4  probe-off: ours 0/4
+ratio d=4096  ours/lcpp    mean 1.1246 ± 0.0025 (n=4)  of means 1.1246  per round: r1 1.1254 r2 1.1264 r3 1.1235 r4 1.1231  cpu-busy: ours 0/4, lcpp 0/4  cold: ours 0/4, lcpp 0/4  probe-off: ours 0/4
+mean pp ours p=4096     2041.37 tok/s(pp)  [2013.33..2077.03, spread 3.16%]  (n=4)  [cpu-busy 0/4] [other-busy 0/4] [cold 0/4] [probe-off 0/4]  untagged mean 2041.37 tok/s(pp) (n=4)
+mean pp ours p=512      1787.22 tok/s(pp)  [1776.85..1795.86, spread 1.07%]  (n=4)  [cpu-busy 0/4] [other-busy 0/4] [cold 0/4] [probe-off 0/4]  untagged mean 1787.22 tok/s(pp) (n=4)
+    binary: target/release/generate_qwen3moe sha256=5ef023fd3f13 mtime=2026-10-17T22:05:23Z
+    lcpp: /home/user/llama.cpp-mainline-bolt/build-cuda/bin/llama-bench sha256=5d610a487946 head=cd0a5b6a1 dirty_files=0
