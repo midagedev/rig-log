@@ -1224,7 +1224,15 @@ v0.2.3 is 2647030c. Everything below is 0.2.4 work. The handoffs it was read fro
 **worker1 — placement and Qwen3.8 serve**
 - placeunset: one common rule for an unset `--place` (the user, 10-06). Design final in the lead specs
   `release/placeunset/report.md`: keep a tier only when the plan's next-card tier experts reach the family's
-  break-even and exceed 0. V4.1 bp has never been sat; `docs/cards/v41bp-ab.card` predates f2593a62.
+  break-even and exceed 0. V4.1 bp was sat on 2026-10-19 (round v41bp, A6000+3090, public Q3_K_M + r8, 4 rounds):
+  decode bp/a 43.70/42.74 tok/s at P512 and 35.75/35.69 at P4096. The card's mean-tok/s verdict FAILed: its lower bound
+  was ≤ 0 at both P, and the run broke the card's conditions (all bp rows `[cold]`, 7/16 rows `cpu-busy`). The p50
+  step gain was 0.525 / 0.921 ms against a predicted 1.9..4.3 ms, so V4.1's `break_even` stays `None` (unset = `a`).
+  The flip patch is kept in the lead's job scratch. The wrong term was pool: P is per process (`mem_left`; a ran p4..p9,
+  bp p0). bp's majflt are prompt-pass rereads, 0 in decode steps; the tier's PageDrop is innocent by code
+  (`host_lock.rs:824`, inward rounding). Open:
+  - tier by heat: the id-order tier hits about 2–4 % of host slots against the 11 % uniform share [derived];
+  - a re-sit with P pinned on both arms and `BLOOMERY_STEP_STATS=1`.
 - The q38big bugs still open (0fee5846 closed q1 DraftReserve, q2 the idle-tier misreport, q4 NoHostExperts, q5 the
   idle tier's eligible layers and q6 Borrowed): q3 an empty host tier is built anyway (`body38.rs:1159-1211`, a
   q38tslots file); q7 the test census's free_bytes; q8 rank by free. The placeunset report's "bp + draft refuses on
