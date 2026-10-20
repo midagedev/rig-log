@@ -128,9 +128,13 @@ Ranked by value. Source = section in this file. Owner = suggested session.
   - `gate_dspark_experts` refuses at load on a stale `ref-draft/code64_n32_w3`; it owns `mxfp4_gate_up_sel`.
   - `tools/gpu-ab.py` knows only `time-gpu-generate` (qwen3moe), so no card-path A/B recipe exists for Qwen3.6 or the
     other families.
-- **Old V4.1 Q3_K_M (9 shards, 470 GB with r8)** (lead): 13 reference sets on the box name it (`greedy-ds41` and the
-  `ref_deepseek41*` sets); move `crates/gguf/src/v41.rs:35` and `r8file`'s paths to the 1017 file and re-dump those
-  sets, then delete it (the user approved the delete, 2026-10-20).
+- ~~**Old V4.1 Q3_K_M (9 shards, 470 GB with r8)**~~ done 2026-10-21: #559 moved `v41.rs` and `r8file` to the 1017
+  file and re-dumped the sets (gate-qdot 94/94 after it); the old file, its r8 and the old data dir are deleted
+  (/models 133 → 602 GB free).
+- **Static-tier flakes seen on 2026-10-21** (lead, report only):
+  - `tools/gate-bound.sh`'s cleanup-alive self-test case flakes under load (seen once in a mix, green alone).
+  - `check-emb2` goes red in a loaded mix (96–99 s against 4.7 s alone; green twice alone): a load-bound wait.
+  - The second Mac keeps static's `emb2-main` clone dir; it is harmless and can go at the next prune.
 - **Gate keys over-select by crate edge** (lead, round hfcut): three `crates/hf`-only commits moved 107 of 107 keys of
   a train (2026-10-20), because `crates/model` and `crates/gpu-gates` depend on hf whole.
 - **lease.sh FIFO reader hang on EINTR** (lead, 2026-10-20; from round leaseflk2): under load on the Mac,
