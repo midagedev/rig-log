@@ -1,0 +1,1 @@
+{"model":"Cloudflare_clef-flash-Q5_K_M.gguf","answers":{"도구":{"type":"choice","choice":"캘린더","confidence":0.9144,"probabilities":{"웹검색":0.0156,"계산기":0.0232,"캘린더":0.9358,"직접답변":0.0255}}},"usage":{"input_tokens":220,"output_tokens":0},"timings":{"prompt_n":220,"prompt_ms":63.503066,"head_ms":21.114687,"cache_n":0}}

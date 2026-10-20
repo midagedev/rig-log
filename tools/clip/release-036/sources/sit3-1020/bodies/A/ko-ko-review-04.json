@@ -1,0 +1,1 @@
+{"model":"Cloudflare_clef-flash-Q5_K_M.gguf","answers":{"감성":{"type":"choice","choice":"혼합","confidence":0.6975,"probabilities":{"긍정":0.0417,"부정":0.16,"혼합":0.7983}},"구성품누락":{"type":"noul","noul":0.9673}},"usage":{"input_tokens":270,"output_tokens":0},"timings":{"prompt_n":270,"prompt_ms":71.784136,"head_ms":22.329943,"cache_n":0}}

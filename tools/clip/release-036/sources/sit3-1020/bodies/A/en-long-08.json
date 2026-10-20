@@ -1,0 +1,1 @@
+{"model":"Cloudflare_clef-flash-Q5_K_M.gguf","answers":{"failed":{"type":"noul","noul":0.9621},"stage":{"type":"choice","choice":"deploy","confidence":0.9282,"probabilities":{"build":0.0138,"test":0.013,"deploy":0.9461,"none":0.027}}},"usage":{"input_tokens":8446,"output_tokens":0},"timings":{"prompt_n":8446,"prompt_ms":2216.839926,"head_ms":104.964528,"cache_n":0}}

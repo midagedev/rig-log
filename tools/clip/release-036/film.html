@@ -1,0 +1,406 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>bloomery 0.3.6</title>
+<style>
+  @font-face { font-family: "Anybody"; src: url("fonts/Anybody-VF.ttf") format("truetype");
+               font-weight: 100 900; font-stretch: 50% 150%; font-style: normal; }
+  @font-face { font-family: "Anybody"; src: url("fonts/Anybody-Italic-VF.ttf") format("truetype");
+               font-weight: 100 900; font-stretch: 50% 150%; font-style: italic; }
+  @font-face { font-family: "Martian Mono"; src: url("fonts/MartianMono-VF.ttf") format("truetype");
+               font-weight: 100 800; font-stretch: 75% 112.5%; }
+  @font-face { font-family: "Noto Sans KR"; src: url("fonts/NotoSansKR-subset.ttf") format("truetype");
+               font-weight: 100 900; }
+  html, body { margin: 0; padding: 0; background: #000; }
+  #stage { position: relative; width: 1080px; height: 1080px; overflow: hidden; background: #000; }
+  #stage > canvas, #stage > svg { position: absolute; left: 0; top: 0; width: 1080px; height: 1080px; }
+  text { font-kerning: normal; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="mx" width="1080" height="1080"></canvas>
+  <svg id="vec" viewBox="0 0 1080 1080" xmlns="http://www.w3.org/2000/svg"></svg>
+</div>
+<script>
+"use strict";
+// The bloomery 0.3.6 release film in the Instrument look: a general chat model (Qwen3.6 on one RTX A6000) answers a
+// decision request in a decision model's shape. First how (the title here, the rest parta.js): the request, one
+// token's trip through the model, plain structured output a call a token, schemajump's calls, the same text, a
+// decision. Then real requests (partb.js): each answer a count of 100 squares from its saved body; the answers kept;
+// the hard suite (shown while its rows are present) and DeepSeek-V4.1-Flash's two arms; the short and long requests as
+// rulers of squares; an optional Solar-Open2 slot; the end. Every frame is a pure function of t (seconds); every
+// string, number and beat comes from data.json (make_data.py, make_data_a.py, make_data_b.py), and the floors below
+// are console errors, which render.py turns into failures. A canvas draws the black ground (and the title's and the
+// end's matrix); one SVG layer draws type and marks above it.
+window.FILM = "release-036";
+const W = 1080, M = 72, FPS = 60;
+const C = { ink: "#15110E", soot: "#221C18", soot2: "#2E2621", ash: "#8F837A", bone: "#F4EBDC", body: "#D9CEBF",
+            ember: "#FF5A1F", sand: "#E9B98F", fire: "#FFC65A", dust: "#6E655D" };
+// Floors at 1080 (the phone shows half): settled text 44 px; a filled mark 12 px across (an ember mark 24 px); settled
+// text inside the margins less a 10 px optical allowance.
+const FLOOR = 44, MARK_DARK = 12, MARK_EMBER = 24, EDGE_TOL = 10;
+// A picture's axis marks (L0, EXPERT 0, ...) are not read: their own floor, outside the reading time and the holds.
+const AXIS_FLOOR = 28;
+let D = null, TL = null, P = 0.5, SEG = [], STR = null;
+const svg = document.getElementById("vec"), NS = "http://www.w3.org/2000/svg";
+window.LOG = null;        // render.py check: a Set of every "face\ttext" drawn
+window.NORASTER = false;  // render.py check: geometry and floors only, no canvas raster
+
+// ---- math ----------------------------------------------------------------------------------------------------------
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, u) => a + (b - a) * u;
+const oexp = u => (u = clamp(u)) >= 1 ? 1 : 1 - Math.pow(2, -10 * u);
+const smooth = u => (u = clamp(u)) * u * (3 - 2 * u);
+const on = b => Math.max(0, b * P - TL.lead);     // the switch time of film beat b (half a frame early)
+const bt = (S, k) => on(S.b0 + k);
+
+// ---- the frame -----------------------------------------------------------------------------------------------------
+let F = null;
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  (parent || F.g).appendChild(e); return e;
+}
+// An arrival at time t for an element landing at t0: opacity, scale, offset, and whether it has settled; null before.
+const SET = { a: 1, sc: 1, dx: 0, dy: 0, settled: true };
+function arrive(t, t0, kind = "slam") {
+  const u = t - t0;
+  if (u < 0) return null;
+  if (kind === "cut") return SET;     // the Instrument look: on the click, no motion
+  if (kind === "slam") { const d = 0.20; return { a: clamp(u / 0.06), sc: lerp(1.22, 1, oexp(u / d)), dx: 0, dy: 0, settled: u >= d }; }
+  if (kind === "bulk") { const d = 0.20; return { a: clamp(u / 0.04), sc: lerp(1.12, 1, oexp(u / d)), dx: 0, dy: 0, settled: u >= d }; }
+  if (kind === "rise") { const d = 0.16; return { a: clamp(u / 0.06), sc: 1, dx: 0, dy: lerp(16, 0, oexp(u / d)), settled: u >= d }; }
+  if (kind === "left") { const d = 0.20; return { a: clamp(u / 0.05), sc: 1, dx: lerp(-60, 0, oexp(u / d)), dy: 0, settled: u >= d }; }
+  if (kind === "piece") { const d = 0.12; return { a: clamp(u / 0.05), sc: lerp(1.14, 1, oexp(u / d)), dx: 0, dy: 0, settled: u >= d }; }
+  if (kind === "stamp") { const d = 0.30, e = smooth(u / d); return { a: e, sc: lerp(1.08, 1, e), dx: 0, dy: 0, settled: u >= d }; }
+  throw new Error(`no arrival ${kind}`);
+}
+function xf(e, k, ox, oy, rot, rx, ry) {
+  const parts = [];
+  if (k.sc !== 1 || k.dx || k.dy) parts.push(`translate(${ox + k.dx} ${oy + k.dy}) scale(${k.sc}) translate(${-ox} ${-oy})`);
+  if (rot) parts.push(`rotate(${rot} ${rx} ${ry})`);
+  if (parts.length) e.setAttribute("transform", parts.join(" "));
+  if (k.a < 1) e.setAttribute("opacity", +k.a.toFixed(4));
+}
+const still = k => k && (k.settled ? SET : { ...k, a: 1, sc: 1, dx: 0, dy: 0 });   // inside an arriving group
+
+// ---- the guards ----------------------------------------------------------------------------------------------------
+function collect(v) {
+  if (typeof v === "string") STR.add(v);
+  else if (Array.isArray(v)) v.forEach(collect);
+  else if (v && typeof v === "object") Object.values(v).forEach(collect);
+}
+function screenBox(e, x0, y0, x1, y1) {
+  const m = e.getCTM(), pts = [[x0, y0], [x1, y0], [x0, y1], [x1, y1]].map(([x, y]) => [m.a * x + m.c * y + m.e, m.b * x + m.d * y + m.f]);
+  return [Math.min(...pts.map(p => p[0])), Math.min(...pts.map(p => p[1])), Math.max(...pts.map(p => p[0])), Math.max(...pts.map(p => p[1]))];
+}
+function markFloor(e, w, h, ember, what) {
+  const m = e.getCTM(), s = Math.hypot(m.a, m.b), need = ember ? MARK_EMBER : MARK_DARK, got = Math.min(w, h) * s;
+  if (got < need - 1e-6) console.error(`${ember ? "ember" : "dark"} mark under ${need} px: ${got.toFixed(1)} px ${what}`);
+}
+
+// ---- type ----------------------------------------------------------------------------------------------------------
+// Three faces: Anybody (display), Martian Mono (labels, JSON punctuation), Noto Sans KR (the Korean request and keys).
+const MC = document.createElement("canvas").getContext("2d"), VM = new Map();
+const STRETCH = [[50, "ultra-condensed"], [62.5, "extra-condensed"], [75, "condensed"], [87.5, "semi-condensed"],
+                 [100, "normal"], [112.5, "semi-expanded"], [125, "expanded"], [150, "extra-expanded"]];
+const FAMILY = { any: "Anybody", mono: '"Martian Mono"', kr: '"Noto Sans KR"' };
+function vmet(s, fam, italic, wght, wdth) {
+  const key = `${fam}|${italic}|${wght}|${Math.round(wdth / 12.5)}|${s}`;
+  if (!VM.has(key)) {
+    MC.font = `${italic ? "italic " : ""}${wght} 100px ${FAMILY[fam]}`;
+    MC.fontStretch = fam === "kr" ? "normal" : STRETCH.reduce((a, b) => Math.abs(b[0] - wdth) < Math.abs(a[0] - wdth) ? b : a)[1];
+    const m = MC.measureText(s);
+    VM.set(key, [m.actualBoundingBoxAscent / 100, m.actualBoundingBoxDescent / 100]);
+  }
+  return VM.get(key);
+}
+const famOf = o => o.kr ? "kr" : o.mono ? "mono" : "any";
+const face = (fam, italic) => fam === "mono" ? "Mono" : fam === "kr" ? "KR" : italic ? "AnybodyItalic" : "Anybody";
+function style(e, fam, italic, size, wdth, wght) {
+  e.style.fontFamily = FAMILY[fam];
+  e.style.fontStyle = italic ? "italic" : "normal";
+  e.style.fontSize = size + "px";
+  e.style.fontVariationSettings = fam === "kr" ? `'wght' ${wght}` : `'wdth' ${wdth}, 'wght' ${wght}`;
+  if (fam === "kr") e.style.fontWeight = wght;
+  if (fam === "mono") { e.style.fontVariantLigatures = "none"; e.style.fontFeatureSettings = "'liga' 0, 'calt' 0"; }
+  e.style.whiteSpace = "pre";
+}
+const defW = fam => fam === "mono" ? 75 : 100, defG = fam => fam === "mono" ? 500 : fam === "kr" ? 700 : 900;
+// A label. o: mono | kr, italic, size, wdth, wght, fill, anchor, ls, k (its arrival; SET when omitted, null for not on
+// screen), rot (degrees about rx, ry), ox/oy (the arrival's origin), grp (texts of one group may touch), parent.
+// Settled text is held to the floor and the margins and collected for the overlap and hold checks; text still
+// arriving is collected as such.
+function txt(s, x, y, o = {}) {
+  if (typeof s !== "string") throw new Error(`txt was handed ${JSON.stringify(s)}, not a string`);
+  if (!STR.has(s)) console.error(`string not in data.json: "${s}"`);
+  const k = o.k === undefined ? SET : o.k;
+  if (!k) return null;
+  const fam = famOf(o), italic = !!o.italic, wdth = o.wdth ?? defW(fam), wght = o.wght ?? defG(fam);
+  const size = o.size ?? 44;
+  const e = el("text", { x, y, fill: o.fill ?? C.bone, "text-anchor": o.anchor ?? "start" }, o.parent);
+  style(e, fam, italic, size, wdth, wght);
+  if (o.ls) e.style.letterSpacing = o.ls + "px";
+  e.textContent = s;
+  if (window.LOG) LOG.add(face(fam, italic) + "\t" + s);
+  xf(e, k, o.ox ?? x, o.oy ?? y, o.rot, o.rx ?? x, o.ry ?? y);
+  if (o.stamp) return e;     // a stamp (PLACEHOLDER, DRAFT) claims nothing and sits outside the floors and holds
+  if (k.settled && !o.transient) {
+    const bb = e.getBBox(), [asc, desc] = vmet(s, fam, italic, wght, wdth);
+    const box = screenBox(e, bb.x, y - asc * size, bb.x + bb.width, y + desc * size);
+    e.box = box;
+    const floor = o.axis ? AXIS_FLOOR : FLOOR;
+    if (size < floor - 1e-6) console.error(`text under ${floor} px: ${size.toFixed(1)} px "${s}"`);
+    if (box[0] < M - EDGE_TOL - 0.5 || box[2] > W - M + EDGE_TOL + 0.5 || box[1] < M - EDGE_TOL - 0.5 || box[3] > W - M + EDGE_TOL + 0.5)
+      console.error(`text past the margin: x ${box[0].toFixed(0)}..${box[2].toFixed(0)} y ${box[1].toFixed(0)}..${box[3].toFixed(0)} "${s}"`);
+    F.texts.push({ s, box, grp: o.grp, axis: !!o.axis });
+  } else F.arriving.push(s);
+  return e;
+}
+// The advance of s at size px (a measuring line, drawn nowhere).
+const ADV = new Map();
+function adv(s, size, o = {}) {
+  const fam = famOf(o), italic = !!o.italic, wdth = o.wdth ?? defW(fam), wght = o.wght ?? defG(fam);
+  const key = `${fam}|${italic}|${wdth}|${wght}|${s}`;
+  if (!ADV.has(key)) {
+    const e = el("text", { x: 0, y: -1000 }, svg);
+    style(e, fam, italic, 100, wdth, wght); e.textContent = s;
+    ADV.set(key, e.getComputedTextLength()); e.remove();
+  }
+  return ADV.get(key) / 100 * size;
+}
+
+// ---- marks ---------------------------------------------------------------------------------------------------------
+function poly(pts, fill, o = {}) {
+  const e = el("polygon", { points: pts.map(p => p.map(v => +v.toFixed(2)).join(",")).join(" "), fill }, o.parent);
+  if (o.a !== undefined && o.a < 1) e.setAttribute("opacity", +o.a.toFixed(4));
+  return e;
+}
+function rect(x, y, w, h, o = {}) {
+  const e = el("rect", { x, y, width: Math.max(0, w), height: h, rx: o.r ?? 0, fill: o.fill ?? "none",
+                         stroke: o.stroke ?? "none", "stroke-width": o.sw ?? 0 }, o.parent);
+  const k = o.k || SET;
+  xf(e, k, o.ox ?? x + w / 2, o.oy ?? y + h / 2, o.rot, o.rx ?? x + w / 2, o.ry ?? y + h / 2);
+  if (o.a !== undefined && o.a < 1) e.setAttribute("opacity", +o.a.toFixed(4));
+  if (o.floor && k.settled) markFloor(e, o.sw ? o.sw : w, o.sw ? o.sw : h, (o.fill || o.stroke) === C.ember, o.floor);
+  return e;
+}
+function circle(cx, cy, r, o = {}) {
+  const e = el("circle", { cx, cy, r, fill: o.fill ?? "none", stroke: o.stroke ?? "none", "stroke-width": o.sw ?? 0 }, o.parent);
+  if (o.floor) markFloor(e, o.sw ? o.sw : 2 * r, o.sw ? o.sw : 2 * r, (o.fill || o.stroke) === C.ember, o.floor);
+  return e;
+}
+
+// ---- the scenes ----------------------------------------------------------------------------------------------------
+const SCN = {};
+// ---- the Instrument look (the first half) ---------------------------------------------------------------------------
+// Black, white, greys, and one signal colour used only for a decision; Martian Mono, Noto Sans KR heavy for Hangul.
+// The whole model is one matrix, 40 layer rows by 256 expert columns and the shared expert's, and each engine call
+// writes on it. Cut to the click: decode's calls fall on 16ths, text lands without easing. The lit cells and the routes
+// are a picture of the mechanism (seeded; no routing was measured) and carry no numbers; every number is data.json's.
+const K = { bg: "#000000", w: "#F4F4F0", cell: "#161616", mark: "#5A5A58", lab: "#9A9A96", dim: "#6E6E6A",
+            sig: "#FF5A1F", past: ["#4E4E4C", "#444442", "#3C3C3A", "#343432", "#2C2C2A", "#242422"] };
+// Type at 1080 (half at the phone's 540): labels and captions 44 px, the head 104 px fitted to the width, axis marks
+// 28 px (a picture's labels, not counted in the reading time). The second half's requests take req (>= 46 px), their
+// pick pick (>= 50 px) and a figure fig (>= 64 px).
+const TY = { label: { mono: true, size: 44, wght: 600, wdth: 75, fill: K.lab },
+             cap: { mono: true, size: 44, wght: 600, wdth: 75, fill: K.w },
+             head: { mono: true, size: 104, wght: 800, wdth: 87.5, fill: K.w },
+             axis: { mono: true, size: AXIS_FLOOR, wght: 500, wdth: 75, fill: K.lab, axis: true },
+             kr: { kr: true, size: 44, wght: 800, fill: K.w },
+             req: { kr: true, size: 48, wght: 800, fill: K.w },
+             pick: { kr: true, size: 52, wght: 800, fill: K.sig },
+             fig: { mono: true, size: 72, wght: 800, wdth: 87.5, fill: K.w } };
+const Y = { label: 116, head: 228, cap: 900, foot: 990, ruler: 864, rlab2: 950, ruler2: 964 };
+const q16 = (S, k) => on(S.b0 + k / 4);      // the k-th 16th note after a shot's cut: the picture's clock
+
+// A label in one of the faces above, fitted down to the width w when given.
+function ktxt(s, x, y, ty, o = {}) {
+  const t = { ...ty, ...o };
+  if (o.fit) t.size = Math.min(t.size, t.size * o.fit / adv(s, t.size, t));
+  return txt(s, x, y, t);
+}
+
+// The matrix: one canvas under the vector layer. Columns 0-255 then a gap and the shared expert; rows L0-L39.
+const MX = { x: 128, y: 280, cw: 3.336, ch: 13, gx: 0.6, gy: 2, sx: 994, sw: 14, rows: 40, n: 256 };
+const mxc = document.getElementById("mx"), MG = mxc.getContext("2d");
+let MXBG = null;
+const cellX = e => e < MX.n ? MX.x + e * MX.cw : MX.sx;
+const cellW = e => e < MX.n ? MX.cw - MX.gx : MX.sw;
+const rowY = l => MX.y + l * MX.ch;
+function mxBackground() {
+  const c = document.createElement("canvas"); c.width = c.height = W;
+  const g = c.getContext("2d"); g.fillStyle = K.cell;
+  for (let l = 0; l < MX.rows; l++) for (let e = 0; e <= MX.n; e++) g.fillRect(cellX(e), rowY(l), cellW(e), MX.ch - MX.gy);
+  return c;
+}
+// One frame of the canvas: black; the empty matrix up to sweep (0..1, left to right) at alpha base; then the cells
+// cells(l, e) colours (null leaves the empty cell), at alpha a.
+function mxFrame(o = {}) {
+  if (window.NORASTER) return;
+  MG.globalAlpha = 1; MG.fillStyle = K.bg; MG.fillRect(0, 0, W, W);
+  if (o.none) return;
+  const sw = o.sweep ?? 1;
+  if (sw <= 0) return;
+  MG.save();
+  if (sw < 1) { MG.beginPath(); MG.rect(0, 0, MX.x + (MX.sx + MX.sw - MX.x) * sw, W); MG.clip(); }
+  MG.globalAlpha = o.base ?? 1; MG.drawImage(MXBG, 0, 0);
+  MG.globalAlpha = o.a ?? 1;
+  if (o.cells) for (const [k, col] of o.cells) { const l = k >> 9, e = k & 511; MG.fillStyle = col; MG.fillRect(cellX(e), rowY(l), cellW(e), MX.ch - MX.gy); }
+  if (o.fill) for (let l = 0; l < MX.rows; l++) for (let e = 0; e <= MX.n; e++) { MG.fillStyle = o.fill(l, e); MG.fillRect(cellX(e), rowY(l), cellW(e), MX.ch - MX.gy); }
+  MG.restore();
+  MG.globalAlpha = 1;
+}
+const key = (l, e) => (l << 9) | e;
+// The routes, a picture: id i's 8 experts in layer l from a seeded generator (the same id reaches the same experts in
+// both arms); the shared expert reads every id.
+const RT = new Map();
+function route(i, l) {
+  const k = i * 64 + l;
+  if (!RT.has(k)) {
+    let a = (20261020 + 7919 * (i + 3) + 104729 * l) >>> 0;
+    const r = () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1);
+                      t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    const s = new Set(); while (s.size < 8) s.add(Math.floor(r() * MX.n));
+    RT.set(k, [...s]);
+  }
+  return RT.get(k);
+}
+// Isotype: a share as a count of 100 equal squares (10 x 10, s px a square with its gap), never a bigger square.
+// parts: [[count, colour], ...] in order from the top left; the rest empty. s >= ISO_MIN keeps a signal square over
+// the 24 px mark floor (a square s - s/8).
+const ISO_MIN = 28;
+function iso(x, y, s, parts, o = {}) {
+  const cols = []; parts.forEach(([n, c]) => { for (let i = 0; i < n; i++) cols.push(c); });
+  if (cols.length > 100) console.error(`iso: ${cols.length} squares, over 100`);
+  if (s < ISO_MIN) console.error(`iso: a square of ${s} px, under ${ISO_MIN}`);
+  const g = Math.max(2, Math.round(s / 8));
+  for (let i = 0; i < 100; i++) rect(x + (i % 10) * s, y + Math.floor(i / 10) * s, s - g, s - g, { fill: cols[i] ?? o.empty ?? K.cell, floor: "iso" });
+}
+// A confidence line: a track of w filled to n of 100 (labelled "confidence", never read as a probability). A fill
+// narrower than the 12 px mark floor is drawn at the floor; the number beside it carries the value.
+function iso100(x, y, w, h, n, col) {
+  rect(x, y, w, h, { fill: K.cell, floor: "conf" });
+  if (n > 0) rect(x, y, Math.max(MARK_DARK, w * n / 100), h, { fill: col, floor: "conf" });
+}
+
+SCN.title = (t, S) => {
+  // black; the lockup lands on the first downbeat after the cut
+  mxFrame({ none: true });
+  const k = arrive(t, bt(S, 1), "cut");
+  ktxt(D.copy.name, 72, Y.head, TY.head, { k, size: 150, fit: 560 });
+  ktxt(D.copy.version, 1008, Y.head, TY.head, { k, size: 96, fill: K.lab, anchor: "end" });
+  ktxt(D.copy.claim1, 72, Y.cap, TY.cap, { k });
+  ktxt(D.copy.claim2, 72, Y.foot, TY.cap, { k });
+};
+
+// A red stamp: no claim, drawn over everything, outside the text checks.
+function stampBox(s, cx, cy, rot) {
+  const w = adv(s, 30, { mono: true, wght: 700 }) + 36, g = el("g", { transform: `rotate(${rot} ${cx} ${cy})` });
+  rect(cx - w / 2, cy - 26, w, 48, { fill: "#C0182B", parent: g });
+  txt(s, cx, cy + 9, { stamp: true, mono: true, size: 30, wght: 700, fill: C.bone, anchor: "middle", parent: g });
+}
+
+// ---- the film ------------------------------------------------------------------------------------------------------
+function segAt(t) { let i = 0; for (let j = 1; j < SEG.length; j++) if (t >= SEG[j].t0) i = j; return SEG[i]; }
+function draw(t) {
+  svg.replaceChildren();
+  F = { t, texts: [], arriving: [], g: el("g", {}, svg) };
+  const S = segAt(t);
+  SCN[S.id](t, S);
+  if (D.placeholder) {      // the call counts are derived, not the server's: every frame says so
+    rect(0, 0, W, 50, { fill: "#C0182B" });
+    txt(D.copy.ph_stamp, 540, 36, { stamp: true, mono: true, size: 30, wght: 700, fill: C.bone, anchor: "middle" });
+  }
+  if (D.fixture) {          // Part B's rows or bodies are made up (probe/bfx.py): every frame says so
+    rect(0, 1030, W, 50, { fill: "#C0182B" });
+    txt(D.copy.fx_stamp, 540, 1066, { stamp: true, mono: true, size: 30, wght: 700, fill: C.bone, anchor: "middle" });
+  }
+  if (t > TL.T - TL.fade_out_s) {   // the fade to black, linear as the track's afade, starting on a beat
+    rect(0, 0, W, W, { fill: K.bg, a: (t - (TL.T - TL.fade_out_s)) / TL.fade_out_s });
+  }
+  return S;
+}
+function checks() {
+  const T = F.texts;
+  for (let i = 0; i < T.length; i++) for (let j = i + 1; j < T.length; j++) {
+    const a = T[i].box, b = T[j].box;
+    if (T[i].grp && T[i].grp === T[j].grp) continue;
+    if (Math.min(a[2], b[2]) - Math.max(a[0], b[0]) > 1 && Math.min(a[3], b[3]) - Math.max(a[1], b[1]) > 1)
+      console.error(`settled text overlaps: "${T[i].s}" and "${T[j].s}"`);
+  }
+}
+// The holds: from each group's still moment to the cut, the group's strings are drawn, settled, where they settled (a
+// string drawn n times is matched n-th to n-th). A card after its last group's still draws exactly its groups'
+// strings and nothing arriving.
+function boxesOf(s) { return F.texts.filter(q => q.s === s).map(q => q.box); }
+function hold(S, t) {
+  if (t > TL.T - TL.fade_out_s) return;
+  if (!S.groups.length) {   // a shot that holds nothing (the rest) draws no text
+    if (F.texts.length || F.arriving.length) console.error(`${S.id} holds no text, draws ${JSON.stringify(F.texts.map(x => x.s).concat(F.arriving))}`);
+    return;
+  }
+  for (const G of S.groups) {
+    if (t < G.still) continue;
+    const miss = [...new Set(G.strings)].filter(s => boxesOf(s).length < G.strings.filter(x => x === s).length);
+    if (miss.length) console.error(`${S.id}.${G.name} at ${(t - G.still).toFixed(3)} s into its hold: ${JSON.stringify(miss)} not settled`);
+    if (!G.ref) continue;
+    for (const s of new Set(G.strings)) {
+      const now = boxesOf(s), ref = G.ref[s] || [];
+      now.forEach((x, i) => { const r = ref[i]; if (r && Math.max(...x.map((v, j) => Math.abs(v - r[j]))) > 0.5)
+        console.error(`${S.id}.${G.name}: "${s}" moved ${Math.max(...x.map((v, j) => Math.abs(v - r[j]))).toFixed(1)} px in its hold`); });
+    }
+  }
+  const last = S.groups[S.groups.length - 1];
+  if (t >= last.still) {
+    const want = new Set(S.groups.flatMap(G => G.strings));
+    if (F.arriving.length) console.error(`${S.id} holds while "${F.arriving.join('", "')}" is still arriving`);
+    const extra = F.texts.filter(x => !x.axis).map(x => x.s).filter(s => !want.has(s));
+    if (extra.length) console.error(`${S.id} holds ${JSON.stringify(extra)}, which no group reads`);
+  }
+}
+function seek(t) {
+  const S = segAt(t);
+  for (const G of S.groups) if (t >= G.still && !G.ref) {
+    draw(G.still); G.ref = {};
+    for (const s of new Set(G.strings)) G.ref[s] = boxesOf(s);
+  }
+  draw(t); checks(); hold(S, t);
+}
+window.seek = seek;
+function flatStrings(v) {
+  if (typeof v === "string") return [v];
+  if (Array.isArray(v) && v.length === 3 && typeof v[1] === "string" && (v[2] === "mono" || v[2] === "kr")) return [v[1]];
+  if (Array.isArray(v) && v.length === 4 && typeof v[0] === "string" && (v[1] === "mono" || v[1] === "kr")) return [v[0]];   // a piece
+  return Array.isArray(v) ? v.flatMap(flatStrings) : [];
+}
+function build() {
+  TL = D.timeline; P = TL.period;
+  if (D.film !== window.FILM) throw new Error(`data.json is for ${D.film}, not ${window.FILM}`);
+  SEG = TL.segments;
+  for (const S of SEG) { if (!SCN[S.id]) throw new Error(`no scene ${S.id}`);
+                         for (const G of S.groups) G.strings = G.keys.flatMap(k => { if (!(k in D.copy)) throw new Error(`no copy ${k}`); return flatStrings(D.copy[k]); }); }
+  STR = new Set(); collect(D.copy);
+  F = { g: svg, texts: [], arriving: [] };
+  MXBG = mxBackground();
+}
+(async () => {
+  try {
+    D = await (await fetch(new URLSearchParams(location.search).get("data") || "data.json", { cache: "no-store" })).json();
+    await Promise.all([500, 600, 700, 800, 900].map(w => document.fonts.load(`${w} 100px Anybody`))
+      .concat([document.fonts.load('italic 900 100px Anybody'), document.fonts.load('500 44px "Martian Mono"'),
+               document.fonts.load('700 48px "Noto Sans KR"', "의도")]));
+    await document.fonts.ready;
+    build();
+    window.T = TL.T;
+    seek(0);
+  } catch (e) { window.fault = String(e && e.stack || e); window.T = 0; }
+  window.ready = true;
+})();
+</script>
+<script src="parta.js"></script>
+<script src="partb.js"></script>
+</body>
+</html>

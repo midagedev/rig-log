@@ -1,0 +1,1 @@
+{"model":"Qwen_Qwen3.6 35B A3B","answers":{"상태":{"type":"choice","choice":"연체","confidence":0.9999,"probabilities":{"완납":0.0,"연체":0.9999,"대기":0.0001}},"고액":{"type":"noul","noul":0.9945}},"usage":{"input_tokens":297,"output_tokens":15},"timings":{"prompt_n":297,"prompt_ms":70.007508,"head_ms":71.111671,"cache_n":0}}

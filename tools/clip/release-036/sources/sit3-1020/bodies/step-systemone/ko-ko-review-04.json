@@ -1,0 +1,1 @@
+{"model":"Qwen_Qwen3.6 35B A3B","answers":{"감성":{"type":"choice","choice":"혼합","confidence":0.9829,"probabilities":{"긍정":0.0,"부정":0.0114,"혼합":0.9886}},"구성품누락":{"type":"noul","noul":0.9295}},"usage":{"input_tokens":260,"output_tokens":18},"timings":{"prompt_n":260,"prompt_ms":66.26115300000001,"head_ms":86.509385,"cache_n":0}}

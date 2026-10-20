@@ -1,0 +1,63 @@
+{
+ "en/guard-04": {
+  "injection": "yes",
+  "severity": "2"
+ },
+ "en/invoice-02": {
+  "large": "yes",
+  "status": "overdue"
+ },
+ "en/ko-06": {
+  "angry": "yes",
+  "intent": "refund"
+ },
+ "en/long-08": {
+  "failed": "yes",
+  "stage": "deploy"
+ },
+ "en/review-05": {
+  "needs_human": "no",
+  "risk": "1"
+ },
+ "en/route-01": {
+  "department": "technical",
+  "outage": "yes",
+  "urgency": "2"
+ },
+ "en/sentiment-07": {
+  "bug_report": "yes",
+  "sentiment": "mixed"
+ },
+ "en/tool-03": {
+  "tool": "web_search"
+ },
+ "ko/ko-cs-01": {
+  "긴급도": "2",
+  "부서": "결제",
+  "환불요청": "no"
+ },
+ "ko/ko-guard-02": {
+  "위험도": "2",
+  "인젝션": "yes"
+ },
+ "ko/ko-invoice-05": {
+  "고액": "yes",
+  "상태": "연체"
+ },
+ "ko/ko-long-07": {
+  "심각도": "2",
+  "원인": "배포설정",
+  "해결됨": "yes"
+ },
+ "ko/ko-mail-06": {
+  "답장필요": "yes",
+  "의도": "일정변경"
+ },
+ "ko/ko-review-04": {
+  "감성": "혼합",
+  "구성품누락": "yes"
+ },
+ "ko/ko-tool-03": {
+  "도구": "캘린더"
+ }
+}

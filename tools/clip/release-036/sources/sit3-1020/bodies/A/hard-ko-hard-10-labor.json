@@ -1,0 +1,1 @@
+{"model":"Cloudflare_clef-flash-Q5_K_M.gguf","answers":{"주휴수당":{"type":"noul","noul":0.2806},"산재보험료":{"type":"choice","choice":"사업주","confidence":0.9235,"probabilities":{"사업주":0.9427,"국가":0.0283,"근로자":0.0121,"노사":0.0169}}},"usage":{"input_tokens":383,"output_tokens":0},"timings":{"prompt_n":383,"prompt_ms":103.68813,"head_ms":24.337237000000002,"cache_n":0}}

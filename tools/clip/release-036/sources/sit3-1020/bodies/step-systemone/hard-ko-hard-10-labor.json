@@ -1,0 +1,1 @@
+{"model":"Qwen_Qwen3.6 35B A3B","answers":{"주휴수당":{"type":"noul","noul":0.032},"산재보험료":{"type":"choice","choice":"사업주","confidence":0.9893,"probabilities":{"사업주":0.992,"국가":0.0005,"근로자":0.0061,"노사":0.0014}}},"usage":{"input_tokens":373,"output_tokens":20},"timings":{"prompt_n":373,"prompt_ms":79.642436,"head_ms":96.57938100000001,"cache_n":0}}

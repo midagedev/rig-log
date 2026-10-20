@@ -1,0 +1,8 @@
+[
+  {"id": "instrument", "bpm": 128,
+   "caption": "instrumental minimal glitch techno, precise sine-wave clicks and data blips on sixteenth notes, deep dry sub kick, white-noise bursts, bit-crushed stabs, cold clinical futuristic sound design, two sudden one-bar silences each followed by one massive noise-burst hit, tight clean mix, ends on one hard final hit"},
+  {"id": "pulse", "bpm": 124,
+   "caption": "instrumental minimal electronic, pulsing sine bass, clicking hi-hat sixteenths, digital chirps, sparse claps, stop-time breaks, a riser into a hard hit, precise and bright, ends on one hard final hit"},
+  {"id": "break", "bpm": 136,
+   "caption": "instrumental glitchy electronic breakbeat, stuttering hi-hats, granular clicks, deep reese bass, tape stops, a one-bar silence before an explosive drop, futuristic data aesthetic, ends on one hard final hit"}
+]

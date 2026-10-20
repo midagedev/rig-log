@@ -1,0 +1,43 @@
+{
+  "version": "0.3.6",
+  "sitting": "sitting 3, 2026-10-20, RTX A6000",
+  "rows": "sources/sit3-1020",
+  "calls_sum": [
+    "next_calls",
+    "prefill_calls",
+    "next_after_calls"
+  ],
+  "tokens": "sources/tokens-qwen36.json",
+  "answer_body": "sources/sit3-1020/bodies/jump-systemone/en-route-01.json",
+  "body_hide": [],
+  "sjcmp_rev": "3657328ca",
+  "route_measured": "response_format",
+  "route_cite": {
+    "file": "",
+    "rev": "",
+    "line": 0,
+    "quote": ""
+  },
+  "readme_rev": "a88152bca",
+  "request": "en/route-01",
+  "state_em": 16.5,
+  "verdict": "",
+  "solar": {
+    "name": "Solar-Open2",
+    "decode": "",
+    "prefill": "",
+    "cond": ""
+  },
+  "and_line": "",
+  "draft": true,
+  "hard": {
+    "rows": "sources/sit3-1020",
+    "suite": "../../../../bloomery-rel036/tools/ref/clef/suite-hard.jsonl",
+    "gold": "../../../../bloomery-rel036/tools/ref/clef/suite-hard.gold.jsonl",
+    "v41_cards": "RTX A6000 + RTX 3090"
+  },
+  "b": {
+    "rows": "sources/sit3-1020",
+    "bodies": "sources/sit3-1020/bodies"
+  }
+}

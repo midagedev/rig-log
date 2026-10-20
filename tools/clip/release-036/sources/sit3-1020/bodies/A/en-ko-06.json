@@ -1,0 +1,1 @@
+{"model":"Cloudflare_clef-flash-Q5_K_M.gguf","answers":{"intent":{"type":"choice","choice":"refund","confidence":0.8497,"probabilities":{"refund":0.8873,"tracking":0.0178,"cancel":0.0884,"other":0.0065}},"angry":{"type":"noul","noul":0.726}},"usage":{"input_tokens":266,"output_tokens":0},"timings":{"prompt_n":266,"prompt_ms":71.43771699999999,"head_ms":22.649091,"cache_n":0}}

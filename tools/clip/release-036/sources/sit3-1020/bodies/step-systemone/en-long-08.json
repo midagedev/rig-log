@@ -1,0 +1,1 @@
+{"model":"Qwen_Qwen3.6 35B A3B","answers":{"failed":{"type":"noul","noul":0.947},"stage":{"type":"choice","choice":"deploy","confidence":0.9997,"probabilities":{"build":0.0,"test":0.0,"deploy":0.9998,"none":0.0002}}},"usage":{"input_tokens":8436,"output_tokens":13},"timings":{"prompt_n":8436,"prompt_ms":1132.450945,"head_ms":64.79116499999999,"cache_n":0}}

@@ -1,0 +1,1 @@
+{"model":"Cloudflare_clef-flash-Q5_K_M.gguf","answers":{"status":{"type":"choice","choice":"overdue","confidence":0.9569,"probabilities":{"paid":0.0186,"overdue":0.9713,"draft":0.0101}},"large":{"type":"noul","noul":0.9729}},"usage":{"input_tokens":260,"output_tokens":0},"timings":{"prompt_n":260,"prompt_ms":70.96567800000001,"head_ms":23.041089,"cache_n":0}}

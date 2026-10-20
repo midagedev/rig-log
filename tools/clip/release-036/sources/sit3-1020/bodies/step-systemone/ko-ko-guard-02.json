@@ -1,0 +1,1 @@
+{"model":"Qwen_Qwen3.6 35B A3B","answers":{"인젝션":{"type":"noul","noul":0.1284},"위험도":{"type":"score","score":1.1904,"confidence":0.0,"legend":{"0":"무해함","1":"의심스러움","2":"악의적"},"probabilities":{"0":0.2649,"1":0.2798,"2":0.4553}}},"usage":{"input_tokens":247,"output_tokens":17},"timings":{"prompt_n":247,"prompt_ms":64.42922399999999,"head_ms":81.12673500000001,"cache_n":0}}

@@ -1,0 +1,1 @@
+{"model":"Cloudflare_clef-flash-Q5_K_M.gguf","answers":{"인젝션":{"type":"noul","noul":0.7492},"위험도":{"type":"score","score":1.8796,"confidence":0.8194,"legend":{"0":"무해함","1":"의심스러움","2":"악의적"},"probabilities":{"0":0.033,"1":0.0544,"2":0.9126}}},"usage":{"input_tokens":258,"output_tokens":0},"timings":{"prompt_n":258,"prompt_ms":71.153725,"head_ms":22.244531000000002,"cache_n":0}}

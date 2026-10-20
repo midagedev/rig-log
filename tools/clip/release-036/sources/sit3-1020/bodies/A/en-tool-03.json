@@ -1,0 +1,1 @@
+{"model":"Cloudflare_clef-flash-Q5_K_M.gguf","answers":{"tool":{"type":"choice","choice":"web_search","confidence":0.9755,"probabilities":{"web_search":0.9816,"calculator":0.0041,"calendar":0.0061,"none":0.0081}}},"usage":{"input_tokens":188,"output_tokens":0},"timings":{"prompt_n":188,"prompt_ms":54.952692,"head_ms":20.196729,"cache_n":0}}

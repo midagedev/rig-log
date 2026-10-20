@@ -1,0 +1,1 @@
+{"model":"Qwen_Qwen3.6 35B A3B","answers":{"ticket_a":{"type":"choice","choice":"limit","confidence":0.7429,"probabilities":{"host":0.0097,"legal":0.0695,"limit":0.8072,"gone":0.1136}},"ticket_b":{"type":"noul","noul":0.1727}},"usage":{"input_tokens":338,"output_tokens":15},"timings":{"prompt_n":338,"prompt_ms":75.129532,"head_ms":71.737592,"cache_n":0}}

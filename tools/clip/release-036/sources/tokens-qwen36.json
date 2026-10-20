@@ -1,0 +1,2246 @@
+{
+ "what": "the answer programs' ids from Qwen3.6's tokenizer and the engine calls sjcmp.py predicts (a derivation)",
+ "tokenizer": {
+  "file": "nvidia/Qwen3.6-35B-A3B-NVFP4 tokenizer.json (Qwen3.6-35B-A3B's tokenizer, copied from <box>)",
+  "sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42"
+ },
+ "command": "python tokens.py <tokenizer.json> sources/sit2-1020",
+ "sjcmp": "tools/ref/clef/sjcmp.py @ 3657328ca",
+ "convention": "next_calls are the steps after the prompt (the prompt's closing step left out), as check_counts predicts",
+ "requests": {
+  "en/route-01": {
+   "parts": [
+    [
+     "T",
+     "{\"department\": \""
+    ],
+    [
+     "P",
+     [
+      "billing",
+      "technical"
+     ]
+    ],
+    [
+     "T",
+     "\", \"urgency\": "
+    ],
+    [
+     "P",
+     [
+      "0",
+      "1",
+      "2"
+     ]
+    ],
+    [
+     "T",
+     ", \"outage\": "
+    ],
+    [
+     "P",
+     [
+      "true",
+      "false"
+     ]
+    ],
+    [
+     "T",
+     "}"
+    ]
+   ],
+   "picks": [
+    1,
+    2,
+    1
+   ],
+   "pieces": [
+    [
+     4754,
+     "{\"",
+     false
+    ],
+    [
+     26431,
+     "department",
+     false
+    ],
+    [
+     763,
+     "\":",
+     false
+    ],
+    [
+     328,
+     " \"",
+     false
+    ],
+    [
+     69685,
+     "technical",
+     true
+    ],
+    [
+     487,
+     "\",",
+     false
+    ],
+    [
+     328,
+     " \"",
+     false
+    ],
+    [
+     5382,
+     "urg",
+     false
+    ],
+    [
+     2179,
+     "ency",
+     false
+    ],
+    [
+     763,
+     "\":",
+     false
+    ],
+    [
+     220,
+     " ",
+     false
+    ],
+    [
+     17,
+     "2",
+     true
+    ],
+    [
+     11,
+     ",",
+     false
+    ],
+    [
+     328,
+     " \"",
+     false
+    ],
+    [
+     403,
+     "out",
+     false
+    ],
+    [
+     416,
+     "age",
+     false
+    ],
+    [
+     763,
+     "\":",
+     false
+    ],
+    [
+     220,
+     " ",
+     false
+    ],
+    [
+     1802,
+     "true",
+     true
+    ],
+    [
+     92,
+     "}",
+     false
+    ]
+   ],
+   "step": {
+    "next_calls": 20,
+    "prefill_calls": 0
+   },
+   "jump": {
+    "next_calls": 5,
+    "prefill_calls": 3
+   },
+   "jump_plan": [
+    [
+     "prefill",
+     3
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "prefill",
+     6
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "prefill",
+     6
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "next",
+     1
+    ]
+   ]
+  },
+  "en/invoice-02": {
+   "parts": [
+    [
+     "T",
+     "{\"status\": \""
+    ],
+    [
+     "P",
+     [
+      "draft",
+      "overdue",
+      "paid"
+     ]
+    ],
+    [
+     "T",
+     "\", \"large\": "
+    ],
+    [
+     "P",
+     [
+      "true",
+      "false"
+     ]
+    ],
+    [
+     "T",
+     "}"
+    ]
+   ],
+   "picks": [
+    1,
+    1
+   ],
+   "pieces": [
+    [
+     4754,
+     "{\"",
+     false
+    ],
+    [
+     2738,
+     "status",
+     false
+    ],
+    [
+     763,
+     "\":",
+     false
+    ],
+    [
+     328,
+     " \"",
+     false
+    ],
+    [
+     1908,
+     "over",
+     true
+    ],
+    [
+     22906,
+     "due",
+     false
+    ],
+    [
+     487,
+     "\",",
+     false
+    ],
+    [
+     328,
+     " \"",
+     false
+    ],
+    [
+     16275,
+     "large",
+     false
+    ],
+    [
+     763,
+     "\":",
+     false
+    ],
+    [
+     220,
+     " ",
+     false
+    ],
+    [
+     1802,
+     "true",
+     true
+    ],
+    [
+     92,
+     "}",
+     false
+    ]
+   ],
+   "step": {
+    "next_calls": 13,
+    "prefill_calls": 0
+   },
+   "jump": {
+    "next_calls": 4,
+    "prefill_calls": 2
+   },
+   "jump_plan": [
+    [
+     "prefill",
+     3
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "prefill",
+     6
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "next",
+     1
+    ]
+   ]
+  },
+  "en/tool-03": {
+   "parts": [
+    [
+     "T",
+     "{\"tool\": \""
+    ],
+    [
+     "P",
+     [
+      "calculator",
+      "calendar",
+      "none",
+      "web_search"
+     ]
+    ],
+    [
+     "T",
+     "\"}"
+    ]
+   ],
+   "picks": [
+    3
+   ],
+   "pieces": [
+    [
+     4754,
+     "{\"",
+     false
+    ],
+    [
+     13766,
+     "tool",
+     false
+    ],
+    [
+     763,
+     "\":",
+     false
+    ],
+    [
+     328,
+     " \"",
+     false
+    ],
+    [
+     2817,
+     "web",
+     true
+    ],
+    [
+     10400,
+     "_search",
+     false
+    ],
+    [
+     8934,
+     "\"}",
+     false
+    ]
+   ],
+   "step": {
+    "next_calls": 7,
+    "prefill_calls": 0
+   },
+   "jump": {
+    "next_calls": 2,
+    "prefill_calls": 2
+   },
+   "jump_plan": [
+    [
+     "prefill",
+     3
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "prefill",
+     2
+    ],
+    [
+     "next",
+     1
+    ]
+   ]
+  },
+  "en/guard-04": {
+   "parts": [
+    [
+     "T",
+     "{\"injection\": "
+    ],
+    [
+     "P",
+     [
+      "true",
+      "false"
+     ]
+    ],
+    [
+     "T",
+     ", \"severity\": "
+    ],
+    [
+     "P",
+     [
+      "0",
+      "1",
+      "2"
+     ]
+    ],
+    [
+     "T",
+     "}"
+    ]
+   ],
+   "picks": [
+    0,
+    0
+   ],
+   "pieces": [
+    [
+     4754,
+     "{\"",
+     false
+    ],
+    [
+     258,
+     "in",
+     false
+    ],
+    [
+     7365,
+     "jection",
+     false
+    ],
+    [
+     763,
+     "\":",
+     false
+    ],
+    [
+     220,
+     " ",
+     false
+    ],
+    [
+     3721,
+     "false",
+     true
+    ],
+    [
+     11,
+     ",",
+     false
+    ],
+    [
+     328,
+     " \"",
+     false
+    ],
+    [
+     74385,
+     "severity",
+     false
+    ],
+    [
+     763,
+     "\":",
+     false
+    ],
+    [
+     220,
+     " ",
+     false
+    ],
+    [
+     15,
+     "0",
+     true
+    ],
+    [
+     92,
+     "}",
+     false
+    ]
+   ],
+   "step": {
+    "next_calls": 13,
+    "prefill_calls": 0
+   },
+   "jump": {
+    "next_calls": 4,
+    "prefill_calls": 2
+   },
+   "jump_plan": [
+    [
+     "prefill",
+     4
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "prefill",
+     5
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "next",
+     1
+    ]
+   ]
+  },
+  "en/review-05": {
+   "parts": [
+    [
+     "T",
+     "{\"risk\": "
+    ],
+    [
+     "P",
+     [
+      "0",
+      "1",
+      "2"
+     ]
+    ],
+    [
+     "T",
+     ", \"needs_human\": "
+    ],
+    [
+     "P",
+     [
+      "true",
+      "false"
+     ]
+    ],
+    [
+     "T",
+     "}"
+    ]
+   ],
+   "picks": [
+    0,
+    0
+   ],
+   "pieces": [
+    [
+     4754,
+     "{\"",
+     false
+    ],
+    [
+     78151,
+     "risk",
+     false
+    ],
+    [
+     763,
+     "\":",
+     false
+    ],
+    [
+     220,
+     " ",
+     false
+    ],
+    [
+     15,
+     "0",
+     true
+    ],
+    [
+     11,
+     ",",
+     false
+    ],
+    [
+     328,
+     " \"",
+     false
+    ],
+    [
+     53390,
+     "needs",
+     false
+    ],
+    [
+     83268,
+     "_human",
+     false
+    ],
+    [
+     763,
+     "\":",
+     false
+    ],
+    [
+     220,
+     " ",
+     false
+    ],
+    [
+     3721,
+     "false",
+     true
+    ],
+    [
+     92,
+     "}",
+     false
+    ]
+   ],
+   "step": {
+    "next_calls": 13,
+    "prefill_calls": 0
+   },
+   "jump": {
+    "next_calls": 4,
+    "prefill_calls": 2
+   },
+   "jump_plan": [
+    [
+     "prefill",
+     3
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "prefill",
+     6
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "next",
+     1
+    ]
+   ]
+  },
+  "en/ko-06": {
+   "parts": [
+    [
+     "T",
+     "{\"intent\": \""
+    ],
+    [
+     "P",
+     [
+      "cancel",
+      "other",
+      "refund",
+      "tracking"
+     ]
+    ],
+    [
+     "T",
+     "\", \"angry\": "
+    ],
+    [
+     "P",
+     [
+      "true",
+      "false"
+     ]
+    ],
+    [
+     "T",
+     "}"
+    ]
+   ],
+   "picks": [
+    2,
+    1
+   ],
+   "pieces": [
+    [
+     4754,
+     "{\"",
+     false
+    ],
+    [
+     54537,
+     "intent",
+     false
+    ],
+    [
+     763,
+     "\":",
+     false
+    ],
+    [
+     328,
+     " \"",
+     false
+    ],
+    [
+     66165,
+     "refund",
+     true
+    ],
+    [
+     487,
+     "\",",
+     false
+    ],
+    [
+     328,
+     " \"",
+     false
+    ],
+    [
+     512,
+     "ang",
+     false
+    ],
+    [
+     856,
+     "ry",
+     false
+    ],
+    [
+     763,
+     "\":",
+     false
+    ],
+    [
+     220,
+     " ",
+     false
+    ],
+    [
+     1802,
+     "true",
+     true
+    ],
+    [
+     92,
+     "}",
+     false
+    ]
+   ],
+   "step": {
+    "next_calls": 13,
+    "prefill_calls": 0
+   },
+   "jump": {
+    "next_calls": 4,
+    "prefill_calls": 2
+   },
+   "jump_plan": [
+    [
+     "prefill",
+     3
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "prefill",
+     6
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "next",
+     1
+    ]
+   ]
+  },
+  "en/sentiment-07": {
+   "parts": [
+    [
+     "T",
+     "{\"sentiment\": \""
+    ],
+    [
+     "P",
+     [
+      "mixed",
+      "negative",
+      "positive"
+     ]
+    ],
+    [
+     "T",
+     "\", \"bug_report\": "
+    ],
+    [
+     "P",
+     [
+      "true",
+      "false"
+     ]
+    ],
+    [
+     "T",
+     "}"
+    ]
+   ],
+   "picks": [
+    0,
+    1
+   ],
+   "pieces": [
+    [
+     4754,
+     "{\"",
+     false
+    ],
+    [
+     23737,
+     "sent",
+     false
+    ],
+    [
+     3691,
+     "iment",
+     false
+    ],
+    [
+     763,
+     "\":",
+     false
+    ],
+    [
+     328,
+     " \"",
+     false
+    ],
+    [
+     54789,
+     "mixed",
+     true
+    ],
+    [
+     487,
+     "\",",
+     false
+    ],
+    [
+     328,
+     " \"",
+     false
+    ],
+    [
+     2238,
+     "bug",
+     false
+    ],
+    [
+     14384,
+     "_report",
+     false
+    ],
+    [
+     763,
+     "\":",
+     false
+    ],
+    [
+     220,
+     " ",
+     false
+    ],
+    [
+     1802,
+     "true",
+     true
+    ],
+    [
+     92,
+     "}",
+     false
+    ]
+   ],
+   "step": {
+    "next_calls": 14,
+    "prefill_calls": 0
+   },
+   "jump": {
+    "next_calls": 4,
+    "prefill_calls": 2
+   },
+   "jump_plan": [
+    [
+     "prefill",
+     4
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "prefill",
+     6
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "next",
+     1
+    ]
+   ]
+  },
+  "en/long-08": {
+   "parts": [
+    [
+     "T",
+     "{\"failed\": "
+    ],
+    [
+     "P",
+     [
+      "true",
+      "false"
+     ]
+    ],
+    [
+     "T",
+     ", \"stage\": \""
+    ],
+    [
+     "P",
+     [
+      "build",
+      "deploy",
+      "none",
+      "test"
+     ]
+    ],
+    [
+     "T",
+     "\"}"
+    ]
+   ],
+   "picks": [
+    1,
+    1
+   ],
+   "pieces": [
+    [
+     4754,
+     "{\"",
+     false
+    ],
+    [
+     15618,
+     "failed",
+     false
+    ],
+    [
+     763,
+     "\":",
+     false
+    ],
+    [
+     220,
+     " ",
+     false
+    ],
+    [
+     1802,
+     "true",
+     true
+    ],
+    [
+     11,
+     ",",
+     false
+    ],
+    [
+     328,
+     " \"",
+     false
+    ],
+    [
+     20113,
+     "stage",
+     false
+    ],
+    [
+     763,
+     "\":",
+     false
+    ],
+    [
+     328,
+     " \"",
+     false
+    ],
+    [
+     34608,
+     "deploy",
+     true
+    ],
+    [
+     8934,
+     "\"}",
+     false
+    ]
+   ],
+   "step": {
+    "next_calls": 12,
+    "prefill_calls": 0
+   },
+   "jump": {
+    "next_calls": 4,
+    "prefill_calls": 2
+   },
+   "jump_plan": [
+    [
+     "prefill",
+     3
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "prefill",
+     5
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "next",
+     1
+    ]
+   ]
+  },
+  "ko/ko-cs-01": {
+   "parts": [
+    [
+     "T",
+     "{\"부서\": \""
+    ],
+    [
+     "P",
+     [
+      "결제",
+      "기술",
+      "기타",
+      "배송"
+     ]
+    ],
+    [
+     "T",
+     "\", \"긴급도\": "
+    ],
+    [
+     "P",
+     [
+      "0",
+      "1",
+      "2"
+     ]
+    ],
+    [
+     "T",
+     ", \"환불요청\": "
+    ],
+    [
+     "P",
+     [
+      "true",
+      "false"
+     ]
+    ],
+    [
+     "T",
+     "}"
+    ]
+   ],
+   "picks": [
+    0,
+    1,
+    0
+   ],
+   "pieces": [
+    [
+     4754,
+     "{\"",
+     false
+    ],
+    [
+     60959,
+     "부",
+     false
+    ],
+    [
+     25845,
+     "서",
+     false
+    ],
+    [
+     763,
+     "\":",
+     false
+    ],
+    [
+     328,
+     " \"",
+     false
+    ],
+    [
+     222790,
+     "결제",
+     true
+    ],
+    [
+     487,
+     "\",",
+     false
+    ],
+    [
+     328,
+     " \"",
+     false
+    ],
+    [
+     154882,
+     "긴",
+     false
+    ],
+    [
+     149470,
+     "급",
+     false
+    ],
+    [
+     46384,
+     "도",
+     false
+    ],
+    [
+     763,
+     "\":",
+     false
+    ],
+    [
+     220,
+     " ",
+     false
+    ],
+    [
+     16,
+     "1",
+     true
+    ],
+    [
+     11,
+     ",",
+     false
+    ],
+    [
+     328,
+     " \"",
+     false
+    ],
+    [
+     63035,
+     "환",
+     false
+    ],
+    [
+     150856,
+     "불",
+     false
+    ],
+    [
+     34530,
+     "요",
+     false
+    ],
+    [
+     149605,
+     "청",
+     false
+    ],
+    [
+     763,
+     "\":",
+     false
+    ],
+    [
+     220,
+     " ",
+     false
+    ],
+    [
+     3721,
+     "false",
+     true
+    ],
+    [
+     92,
+     "}",
+     false
+    ]
+   ],
+   "step": {
+    "next_calls": 24,
+    "prefill_calls": 0
+   },
+   "jump": {
+    "next_calls": 5,
+    "prefill_calls": 3
+   },
+   "jump_plan": [
+    [
+     "prefill",
+     4
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "prefill",
+     7
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "prefill",
+     8
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "next",
+     1
+    ]
+   ]
+  },
+  "ko/ko-guard-02": {
+   "parts": [
+    [
+     "T",
+     "{\"인젝션\": "
+    ],
+    [
+     "P",
+     [
+      "true",
+      "false"
+     ]
+    ],
+    [
+     "T",
+     ", \"위험도\": "
+    ],
+    [
+     "P",
+     [
+      "0",
+      "1",
+      "2"
+     ]
+    ],
+    [
+     "T",
+     "}"
+    ]
+   ],
+   "picks": [
+    0,
+    2
+   ],
+   "pieces": [
+    [
+     4754,
+     "{\"",
+     false
+    ],
+    [
+     30297,
+     "인",
+     false
+    ],
+    [
+     154967,
+     "젝",
+     false
+    ],
+    [
+     88857,
+     "션",
+     false
+    ],
+    [
+     763,
+     "\":",
+     false
+    ],
+    [
+     220,
+     " ",
+     false
+    ],
+    [
+     3721,
+     "false",
+     true
+    ],
+    [
+     11,
+     ",",
+     false
+    ],
+    [
+     328,
+     " \"",
+     false
+    ],
+    [
+     78110,
+     "위",
+     false
+    ],
+    [
+     149763,
+     "험",
+     false
+    ],
+    [
+     46384,
+     "도",
+     false
+    ],
+    [
+     763,
+     "\":",
+     false
+    ],
+    [
+     220,
+     " ",
+     false
+    ],
+    [
+     17,
+     "2",
+     true
+    ],
+    [
+     92,
+     "}",
+     false
+    ]
+   ],
+   "step": {
+    "next_calls": 16,
+    "prefill_calls": 0
+   },
+   "jump": {
+    "next_calls": 4,
+    "prefill_calls": 2
+   },
+   "jump_plan": [
+    [
+     "prefill",
+     5
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "prefill",
+     7
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "next",
+     1
+    ]
+   ]
+  },
+  "ko/ko-tool-03": {
+   "parts": [
+    [
+     "T",
+     "{\"도구\": \""
+    ],
+    [
+     "P",
+     [
+      "계산기",
+      "웹검색",
+      "직접답변",
+      "캘린더"
+     ]
+    ],
+    [
+     "T",
+     "\"}"
+    ]
+   ],
+   "picks": [
+    3
+   ],
+   "pieces": [
+    [
+     4754,
+     "{\"",
+     false
+    ],
+    [
+     46384,
+     "도",
+     false
+    ],
+    [
+     85218,
+     "구",
+     false
+    ],
+    [
+     763,
+     "\":",
+     false
+    ],
+    [
+     328,
+     " \"",
+     false
+    ],
+    [
+     169607,
+     "캘",
+     true
+    ],
+    [
+     149982,
+     "린",
+     false
+    ],
+    [
+     149968,
+     "더",
+     false
+    ],
+    [
+     8934,
+     "\"}",
+     false
+    ]
+   ],
+   "step": {
+    "next_calls": 9,
+    "prefill_calls": 0
+   },
+   "jump": {
+    "next_calls": 2,
+    "prefill_calls": 2
+   },
+   "jump_plan": [
+    [
+     "prefill",
+     4
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "prefill",
+     3
+    ],
+    [
+     "next",
+     1
+    ]
+   ]
+  },
+  "ko/ko-review-04": {
+   "parts": [
+    [
+     "T",
+     "{\"감성\": \""
+    ],
+    [
+     "P",
+     [
+      "긍정",
+      "부정",
+      "혼합"
+     ]
+    ],
+    [
+     "T",
+     "\", \"구성품누락\": "
+    ],
+    [
+     "P",
+     [
+      "true",
+      "false"
+     ]
+    ],
+    [
+     "T",
+     "}"
+    ]
+   ],
+   "picks": [
+    2,
+    1
+   ],
+   "pieces": [
+    [
+     4754,
+     "{\"",
+     false
+    ],
+    [
+     150482,
+     "감",
+     false
+    ],
+    [
+     31743,
+     "성",
+     false
+    ],
+    [
+     763,
+     "\":",
+     false
+    ],
+    [
+     328,
+     " \"",
+     false
+    ],
+    [
+     158767,
+     "혼",
+     true
+    ],
+    [
+     148652,
+     "합",
+     false
+    ],
+    [
+     487,
+     "\",",
+     false
+    ],
+    [
+     328,
+     " \"",
+     false
+    ],
+    [
+     236736,
+     "구성",
+     false
+    ],
+    [
+     148655,
+     "품",
+     false
+    ],
+    [
+     154865,
+     "누",
+     false
+    ],
+    [
+     150508,
+     "락",
+     false
+    ],
+    [
+     763,
+     "\":",
+     false
+    ],
+    [
+     220,
+     " ",
+     false
+    ],
+    [
+     1802,
+     "true",
+     true
+    ],
+    [
+     92,
+     "}",
+     false
+    ]
+   ],
+   "step": {
+    "next_calls": 17,
+    "prefill_calls": 0
+   },
+   "jump": {
+    "next_calls": 4,
+    "prefill_calls": 2
+   },
+   "jump_plan": [
+    [
+     "prefill",
+     4
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "prefill",
+     9
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "next",
+     1
+    ]
+   ]
+  },
+  "ko/ko-invoice-05": {
+   "parts": [
+    [
+     "T",
+     "{\"상태\": \""
+    ],
+    [
+     "P",
+     [
+      "대기",
+      "연체",
+      "완납"
+     ]
+    ],
+    [
+     "T",
+     "\", \"고액\": "
+    ],
+    [
+     "P",
+     [
+      "true",
+      "false"
+     ]
+    ],
+    [
+     "T",
+     "}"
+    ]
+   ],
+   "picks": [
+    1,
+    1
+   ],
+   "pieces": [
+    [
+     4754,
+     "{\"",
+     false
+    ],
+    [
+     215706,
+     "상태",
+     false
+    ],
+    [
+     763,
+     "\":",
+     false
+    ],
+    [
+     328,
+     " \"",
+     false
+    ],
+    [
+     148881,
+     "연",
+     true
+    ],
+    [
+     47878,
+     "체",
+     false
+    ],
+    [
+     487,
+     "\",",
+     false
+    ],
+    [
+     328,
+     " \"",
+     false
+    ],
+    [
+     33253,
+     "고",
+     false
+    ],
+    [
+     151333,
+     "액",
+     false
+    ],
+    [
+     763,
+     "\":",
+     false
+    ],
+    [
+     220,
+     " ",
+     false
+    ],
+    [
+     1802,
+     "true",
+     true
+    ],
+    [
+     92,
+     "}",
+     false
+    ]
+   ],
+   "step": {
+    "next_calls": 14,
+    "prefill_calls": 0
+   },
+   "jump": {
+    "next_calls": 4,
+    "prefill_calls": 2
+   },
+   "jump_plan": [
+    [
+     "prefill",
+     3
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "prefill",
+     7
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "next",
+     1
+    ]
+   ]
+  },
+  "ko/ko-mail-06": {
+   "parts": [
+    [
+     "T",
+     "{\"의도\": \""
+    ],
+    [
+     "P",
+     [
+      "기타",
+      "일정변경",
+      "정보요청",
+      "취소"
+     ]
+    ],
+    [
+     "T",
+     "\", \"답장필요\": "
+    ],
+    [
+     "P",
+     [
+      "true",
+      "false"
+     ]
+    ],
+    [
+     "T",
+     "}"
+    ]
+   ],
+   "picks": [
+    1,
+    1
+   ],
+   "pieces": [
+    [
+     4754,
+     "{\"",
+     false
+    ],
+    [
+     19779,
+     "의",
+     false
+    ],
+    [
+     46384,
+     "도",
+     false
+    ],
+    [
+     763,
+     "\":",
+     false
+    ],
+    [
+     328,
+     " \"",
+     false
+    ],
+    [
+     31020,
+     "일",
+     true
+    ],
+    [
+     28322,
+     "정",
+     false
+    ],
+    [
+     151315,
+     "변",
+     false
+    ],
+    [
+     63100,
+     "경",
+     false
+    ],
+    [
+     487,
+     "\",",
+     false
+    ],
+    [
+     328,
+     " \"",
+     false
+    ],
+    [
+     152065,
+     "답",
+     false
+    ],
+    [
+     39504,
+     "장",
+     false
+    ],
+    [
+     158737,
+     "필",
+     false
+    ],
+    [
+     34530,
+     "요",
+     false
+    ],
+    [
+     763,
+     "\":",
+     false
+    ],
+    [
+     220,
+     " ",
+     false
+    ],
+    [
+     1802,
+     "true",
+     true
+    ],
+    [
+     92,
+     "}",
+     false
+    ]
+   ],
+   "step": {
+    "next_calls": 19,
+    "prefill_calls": 0
+   },
+   "jump": {
+    "next_calls": 4,
+    "prefill_calls": 2
+   },
+   "jump_plan": [
+    [
+     "prefill",
+     4
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "prefill",
+     11
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "next",
+     1
+    ]
+   ]
+  },
+  "ko/ko-long-07": {
+   "parts": [
+    [
+     "T",
+     "{\"원인\": \""
+    ],
+    [
+     "P",
+     [
+      "네트워크",
+      "데이터베이스",
+      "배포설정",
+      "외부API"
+     ]
+    ],
+    [
+     "T",
+     "\", \"해결됨\": "
+    ],
+    [
+     "P",
+     [
+      "true",
+      "false"
+     ]
+    ],
+    [
+     "T",
+     ", \"심각도\": "
+    ],
+    [
+     "P",
+     [
+      "0",
+      "1",
+      "2"
+     ]
+    ],
+    [
+     "T",
+     "}"
+    ]
+   ],
+   "picks": [
+    2,
+    1,
+    2
+   ],
+   "pieces": [
+    [
+     4754,
+     "{\"",
+     false
+    ],
+    [
+     52497,
+     "원",
+     false
+    ],
+    [
+     30297,
+     "인",
+     false
+    ],
+    [
+     763,
+     "\":",
+     false
+    ],
+    [
+     328,
+     " \"",
+     false
+    ],
+    [
+     156501,
+     "배포",
+     true
+    ],
+    [
+     231866,
+     "설정",
+     false
+    ],
+    [
+     487,
+     "\",",
+     false
+    ],
+    [
+     328,
+     " \"",
+     false
+    ],
+    [
+     32762,
+     "해",
+     false
+    ],
+    [
+     85726,
+     "결",
+     false
+    ],
+    [
+     169332,
+     "됨",
+     false
+    ],
+    [
+     763,
+     "\":",
+     false
+    ],
+    [
+     220,
+     " ",
+     false
+    ],
+    [
+     1802,
+     "true",
+     true
+    ],
+    [
+     11,
+     ",",
+     false
+    ],
+    [
+     328,
+     " \"",
+     false
+    ],
+    [
+     149044,
+     "심",
+     false
+    ],
+    [
+     149252,
+     "각",
+     false
+    ],
+    [
+     46384,
+     "도",
+     false
+    ],
+    [
+     763,
+     "\":",
+     false
+    ],
+    [
+     220,
+     " ",
+     false
+    ],
+    [
+     17,
+     "2",
+     true
+    ],
+    [
+     92,
+     "}",
+     false
+    ]
+   ],
+   "step": {
+    "next_calls": 24,
+    "prefill_calls": 0
+   },
+   "jump": {
+    "next_calls": 5,
+    "prefill_calls": 3
+   },
+   "jump_plan": [
+    [
+     "prefill",
+     4
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "prefill",
+     8
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "prefill",
+     7
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "next",
+     1
+    ],
+    [
+     "next",
+     1
+    ]
+   ]
+  }
+ }
+}

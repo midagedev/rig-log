@@ -1,0 +1,1 @@
+{"model":"Qwen_Qwen3.6 35B A3B","answers":{"도구":{"type":"choice","choice":"캘린더","confidence":1.0,"probabilities":{"웹검색":0.0,"계산기":0.0,"캘린더":1.0,"직접답변":0.0}}},"usage":{"input_tokens":213,"output_tokens":10},"timings":{"prompt_n":213,"prompt_ms":59.63815,"head_ms":45.88089,"cache_n":0}}
