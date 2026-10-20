@@ -102,6 +102,16 @@ Ranked by value. Source = section in this file. Owner = suggested session.
   PPL A (3) 4.1625 ± 0.091, B (2) 4.3732 ± 0.096 (paired B/A 1.051, 95 % [1.026, 1.076]). The delta sat in the card's
   -0.1..0.3 range, so the trained gate stays open; (1), HF's clamp at -5, was not measured ([derived] equal to (3)
   where the clamp does not bind).
+- **Solar-Open2-250B after 0.3.6** (models; plan a landed in 0.3.6 on 2026-10-20). Open, in order:
+  (1) bp, the two-card placement (`gpu-solar2/src/tier.rs` describe, LOAD_ROWS, NODE_FAMILY, a boundary-moving tier
+  mutant); (2) the card vs host expert gap: the prompt reserve moves 64 experts to the host, and prompt d's worst
+  Δlogprob goes 0.82 → 1.36 (inside the derived band, z 2.75 of 3.97); an `exact_ref` look at one expert's two tiers;
+  (3) a narrower P = 1 prefill band needs per-site transients derived (GLM's `Crest` pattern); (4) a Solar fixture
+  file (the fixture tier defers every Solar clause today); (5) copies to lift: `gdn_conv_prep`'s inline body (the third
+  conv body, ~50 lines), the seat's `run` vs `serve_seats/mimo2.rs` (~150 lines), `gate_solar2_serve`'s args vs
+  `gate_nemotron_serve` (~60), glm5next's `refuse_front`/`card_terms` vs place_hybrid's (~25), four `q8_act_bytes`
+  copies (~20), a `Program` name owner for `routed_legs::family_name`; (6) `[e~[` (MiniMax-M3) is in the reference's
+  end-of-generation list and not ours. The Q6_K card down arm is inert for Solar: card experts are bytes-bound [derived].
 - **Old V4.1 Q3_K_M (9 shards, 470 GB with r8)** (lead): 13 reference sets on the box name it (`greedy-ds41` and the
   `ref_deepseek41*` sets); move `crates/gguf/src/v41.rs:35` and `r8file`'s paths to the 1017 file and re-dump those
   sets, then delete it (the user approved the delete, 2026-10-20).
