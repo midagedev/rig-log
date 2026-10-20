@@ -97,6 +97,16 @@ Ranked by value. Source = section in this file. Owner = suggested session.
 - **PF-1:** parked.
 - **feed-cache deploy:** waits on the user's Cloudflare re-login and approval.
 - Release cut (tag) and gpu-verified labels stay with the user.
+- **Solar-Open2 KDA decay gate** (models): SO0 (2026-10-20, card `docs/cards/solar-so0-gate.card`) kept gate (3),
+  `-exp(A_log)·softplus(x+dt)` as Upstage's vLLM and the PAI patch ship it. Wikitext-2 512 × 40, IQ4_XS, both cards:
+  PPL A (3) 4.1625 ± 0.091, B (2) 4.3732 ± 0.096 (paired B/A 1.051, 95 % [1.026, 1.076]). The delta sat in the card's
+  -0.1..0.3 range, so the trained gate stays open; (1), HF's clamp at -5, was not measured ([derived] equal to (3)
+  where the clamp does not bind).
+- **Old V4.1 Q3_K_M (9 shards, 470 GB with r8)** (lead): 13 reference sets on the box name it (`greedy-ds41` and the
+  `ref_deepseek41*` sets); move `crates/gguf/src/v41.rs:35` and `r8file`'s paths to the 1017 file and re-dump those
+  sets, then delete it (the user approved the delete, 2026-10-20).
+- **Gate keys over-select by crate edge** (lead, round hfcut): three `crates/hf`-only commits moved 107 of 107 keys of
+  a train (2026-10-20), because `crates/model` and `crates/gpu-gates` depend on hf whole.
 
 ## [history — shipped as v0.3.0..v0.3.2; open rows above supersede] Release 0.3.0 (or 0.2.10) — orchestration (the user, 2026-10-10 ~08:40: "worker들과 협력해서 릴리즈를 위한 오케스트레이션 가속")
 
