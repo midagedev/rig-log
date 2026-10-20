@@ -1,0 +1,55 @@
+{
+  "_about": "signalbox's resource ledger: what the box has, the headroom, the classes and their ranks. tools/signalbox/ledger.py loads it once at start and refuses a file it cannot read, a key it does not know or a rank order that breaks the user's order (daemon.py --check validates a copy before a restart). Every number has a <name>_why beside it that says where it comes from; the loader ignores the comments. Install: cp configs/box-resources.json /home/user/signalbox/box-resources.json.",
+  "ram": {
+    "os_other_bytes": 6694629376,
+    "os_other_bytes_why": "What the OS holds that no job owns: bloomery's OS_OTHER (crates/placement workstation.rs), read with free -b on the box, 6,694,629,376 B = 6.69 GB [measured]. G = MemTotal - max(this, unowned) - headroom, with unowned = (MemTotal - MemAvailable) - the holders' measured resident.",
+    "headroom_bytes": 4294967296,
+    "headroom_bytes_why": "H = 4 GiB [derived]: zone watermarks about 0.6 GB (min_free_kbytes 66 MiB, watermark_scale_factor 10, 251 GiB), page tables of a 99 GB mapping about 0.19 GB (24.2 M PTEs x 8 B), HOST_DRIFT 0.5 GiB, slab growth; about 1.4 GB named, taken x3. Accepted as the start (lead, 2026-10-20).",
+    "memory_high_factor": 1.1,
+    "memory_high_factor_why": "A unit's MemoryHigh = this x its resident need: it is throttled before it is stopped. Accepted as the start (lead, 2026-10-20). MemoryHigh and MemoryMax bind on a cgroup's charge, and a file page is charged to the cgroup that first read it: a model file read before the unit started (a download in an ssh session's user.slice) is not throttled by a fresh slice.",
+    "memory_max_factor": 1.5,
+    "memory_max_factor_why": "MemoryMax = this x the resident need + memory_max_add_bytes: an under-declarer is stopped inside its own cgroup, never a neighbour. Accepted as the start (lead, 2026-10-20); same charge rule as memory_high_factor.",
+    "memory_max_add_bytes": 2147483648,
+    "memory_max_add_bytes_why": "2 GiB: the process image and its stacks, which a resident-set declaration (the plan's page classes) does not count. Accepted as the start (lead, 2026-10-20)."
+  },
+  "grants": {
+    "appear_s": 30,
+    "appear_s_why": "A grant is posted before its owner exists (the client asks, then starts the unit): this long for the unit or pid to show up before the grant is expired and named. Design round boxres, 2026-10-20, case 'a grant whose unit never appears within 30 s'.",
+    "history": 200,
+    "history_why": "Ended grants kept in state.json for /ledger's recent list: the last 200 decisions, as the design asks (docs: design round boxres, section 9)."
+  },
+  "cpus": {
+    "all": "0-63",
+    "all_why": "4 CCDs x (8 cores + 8 SMT siblings) = 64 logical CPUs; CCD k has primaries 8k..8k+7 and siblings 32+8k..32+8k+7 (lscpu -e on the box, 2026-10-20). Grants name their cpus as explicit lists, siblings included."
+  },
+  "nvme": {
+    "nvme0": {
+      "dev": "nvme0n1",
+      "mount": "/models",
+      "mount_why": "nvme0n1p1 is /models (3.7 TB): the files gates, benches and serving read [read: findmnt, 2026-10-20]."
+    },
+    "nvme1": {
+      "dev": "nvme1n1",
+      "mount": "/",
+      "mount_why": "nvme1n1p2 is / (980 PRO 2 TB): cargo targets and the download workshop /home/user/stage [read: findmnt, 2026-10-20]."
+    }
+  },
+  "classes": {
+    "sitting": 950,
+    "sitting_why": "The timing sitting is the top: the user's order (2026-10-20) is timing sitting > media and the release pass > toktape > landing batch > round batch > static tier > downloads. It owns the box (exclusive) and is the drain barrier for every lower class, media included. The design's 950 media / 900 sitting is swapped by that order.",
+    "media": 900,
+    "media_why": "Media (ltx, img, music, echo takes and ComfyUI windows) sits below the sitting and level with the release pass; the jobs keep their own semantics (ahead of the queue, preempting nothing, holding their card).",
+    "release": 900,
+    "release_why": "The release pass (the user-facing pass and the union batch before a tag) is level with media: user order, 2026-10-20.",
+    "tape": 800,
+    "tape_why": "The toktape recording: below media and release, above every batch. Design round boxres, class 'tape' 800.",
+    "lead": 700,
+    "lead_why": "The landing batch (the lead's jobs): unchanged from the live CLASS_PRIORITY.",
+    "round": 400,
+    "round_why": "The round batch (gates and builds a round queues): unchanged from the live CLASS_PRIORITY.",
+    "static": 300,
+    "static_why": "The static tier (rounds.slice units): below the round batch. Design round boxres, class 'static' 300.",
+    "fill": -500,
+    "fill_why": "Downloads, requants and idle fill: unchanged from the live CLASS_PRIORITY."
+  }
+}

@@ -17,11 +17,26 @@ import urllib.request
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# The ledger's config is the repo's own file: the tests read the same numbers the box does.
+os.environ.setdefault("SIGNALBOX_RESOURCES", os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "..", "configs", "box-resources.json"))
 import daemon as D
 
 # The exact argv checks expect a unit to inherit nothing from the test's own environment.
 for _k in D.PASS_ENV:
     os.environ.pop(_k, None)
+
+
+# A machine like the box: MemTotal 270.07 GB, MemAvailable 252.4 GB (rig-log: design round boxres, 1.2).
+BOX_MEM = {"MemTotal": 270_071_005_184, "MemAvailable": 252_400_000_000}
+
+
+def reading(state="alive", why="fake", resident=None, cpus=None):
+    """What Probes.owner_reading answers: an owner that is alive, dead or unknown, and the
+    resident bytes it holds (None when nothing was read)."""
+    measured = None if resident is None else {"resident": resident, "anon": resident, "file": 0,
+                                              "locked": 0, "pinned": 0}
+    return {"state": state, "why": why, "measured": measured, "cpus_allowed": cpus}
 
 
 class FakeProbes(D.Probes):
@@ -31,12 +46,46 @@ class FakeProbes(D.Probes):
         self.lease_state, self.lock_state = lease, dict(locks)
         self.hold_state, self.vram_state = list(holds), dict(vram or {})
         self.hold_age_state = dict(hold_ages or {})   # hold file name -> seconds since written
+        self.mem_state = dict(BOX_MEM)                # None: /proc/meminfo cannot be read
+        self.card_apps = {}                           # card -> [{pid, mib, unit}]
+        self.hold_owner_state = {}                    # hold file name -> the owner its words name
+        self.owner_state = {}                         # owner_key -> reading(); absent: alive
+        self.card_calls = 0                           # how often the driver was asked
+        self.snapshot_calls = 0
+        self.probe_hook = None                        # called at every probe: the lock check below
 
     def uuids(self):
         return {"a6000": "GPU-fake-a6000", "3090": "GPU-fake-3090"}
 
     def vram_mib(self, card):
+        if self.probe_hook:
+            self.probe_hook()
         return self.vram_state.get(card, 0)
+
+    def snapshot(self, watch):
+        self.snapshot_calls += 1
+        return super().snapshot(watch)
+
+    def card_readings(self):
+        self.card_calls += 1
+        return {c: {"state": "ok", "why": "", "used_mib": self.vram_mib(c), "total_mib": 49140,
+                    "apps": self.card_apps.get(c, [])} for c in D.CARDS}
+
+    def meminfo(self):
+        if self.mem_state is None:
+            raise OSError("fake: /proc/meminfo is not there")
+        return dict(self.mem_state)
+
+    def hold_owner(self, path):
+        return self.hold_owner_state.get(os.path.basename(path))
+
+    def owner_reading(self, live):
+        if "bad" in live:
+            return reading("unknown", live["bad"])
+        return self.owner_state.get(D.owner_key(live), reading())
+
+    def nvme_counters(self, devs):
+        return {}
 
     def gpu_lease(self):
         if not self.lease_state or not self.lease_state.get("tag"):
@@ -1128,13 +1177,26 @@ def later(clock, seconds):
     clock["now"] += D.timedelta(seconds=seconds)
 
 
-NEW_CLASSES = ("media", "sitting", "lead", "round", "fill")
+NEW_CLASSES = ("sitting", "media", "release", "tape", "lead", "round", "static", "fill")
 
 # -- 1. classes and priority
 s, _, fk = new_sched()
-got = {c: unit_job(s, "c-" + c, job_class=c)["priority"] for c in NEW_CLASSES}
-check("class: media, sitting, lead, round and fill set the priority 950, 900, 700, 400 and -500",
-      got == {"media": 950, "sitting": 900, "lead": 700, "round": 400, "fill": -500}, got)
+got = {}
+for c in NEW_CLASSES:
+    try:
+        got[c] = unit_job(s, "c-" + c, job_class=c)["priority"]
+    except ValueError as e:     # a daemon without the class is a red line below, not a crash
+        got[c] = str(e)
+# PIN(2026-10-20): the ranks are the user's order, timing sitting > media and the release pass >
+# toktape > landing batch > round batch > static tier > downloads. Derivation: the sitting is
+# 950 and media 900 (they were 900 and 950: media ahead of the sitting, against that order);
+# release 900 is level with media, tape 800 and static 300 are new, lead 700, round 400 and fill
+# -500 are unchanged. configs/box-resources.json owns the numbers. FAIL-first: today's daemon
+# has five classes and media above the sitting.
+check("class: sitting, media, release, tape, lead, round, static and fill set the priority "
+      "950, 900, 900, 800, 700, 400, 300 and -500",
+      got == {"sitting": 950, "media": 900, "release": 900, "tape": 800, "lead": 700,
+              "round": 400, "static": 300, "fill": -500}, got)
 kept = {c: unit_job(s, "k-" + c, job_class=c, priority=7)["priority"] for c in ("normal", "host", "solo")}
 plain, clamped = unit_job(s, "plain"), unit_job(s, "clamped", priority=5000)
 check("class: normal, host and solo keep the body's priority (default 0, clamped to 1000)",
@@ -1143,8 +1205,9 @@ check("class: normal, host and solo keep the body's priority (default 0, clamped
 mk = unit_job(s, "mk", kind="media-take", script="img", job_class="round")
 ck = unit_job(s, "ck", kind="comfy-session", job_class="fill", card="3090")
 pk = unit_job(s, "pk", kind="media-take", script="img", priority=-9)
-check("class: media-take and comfy-session are always class media at 950, whatever the body says",
-      all((j["job_class"], j["priority"]) == ("media", 950) for j in (mk, ck, pk)),
+# PIN(2026-10-20): media is 900, below the sitting's 950 (the user's order; see the class pin above).
+check("class: media-take and comfy-session are always class media at 900, whatever the body says",
+      all((j["job_class"], j["priority"]) == ("media", 900) for j in (mk, ck, pk)),
       [(j["job_class"], j["priority"]) for j in (mk, ck, pk)])
 bad = []
 for c in NEW_CLASSES:
@@ -1155,7 +1218,7 @@ for c in NEW_CLASSES:
         except ValueError as e:
             if not (c in str(e) and '"priority"' in str(e)):
                 bad.append((c, pr, str(e)))
-check("class: a body that names one of the five classes and carries priority is refused, by name",
+check("class: a body that names one of the eight classes and carries priority is refused, by name",
       not bad, bad)
 refused_other = []
 for v in ("vip", None, 5):
@@ -1256,8 +1319,18 @@ sit = unit_job(s, "sit", card="both", job_class="sitting", expected_s=900)
 m = unit_job(s, "m", kind="media-take", script="img")
 fk.finish(a, 0)
 s.tick()
-check("sitting: a queued sitting does not hold media, which has the higher priority",
-      m["status"] == "running" and sit["status"] == "queued", (m["status"], sit["status"]))
+# PIN(2026-10-20): media sits below the sitting (user order, see the class pin): a queued sitting
+# is the drain barrier for media too, and the sitting starts first on the drained box. It was
+# "does not hold media" while media was ranked 950 above the sitting's 900. FAIL-first: today's
+# daemon starts the media job.
+check("sitting: a queued sitting holds media, which is below it, and starts first on the drained box",
+      m["status"] == "queued" and "sitting sit" in why(m) and sit["status"] == "queued",
+      (m["status"], why(m), sit["status"]))
+fk.finish(b, 0)
+s.tick()
+check("sitting: ...the media job then waits for the box the sitting owns",
+      sit["status"] == "running" and m["status"] == "queued" and "sitting job owns the box" in why(m),
+      (sit["status"], m["status"], why(m)))
 
 # -- 4. media: ahead of the queue, never preempting, holding its card
 s, clock, fk = new_sched()
@@ -1268,7 +1341,7 @@ m = unit_job(s, "m", kind="media-take", script="img")
 s.tick()
 fk.finish(x, 0)
 s.tick()
-check("media: started at 950 ahead of a queued lead at 700 on the a6000",
+check("media: started at 900 ahead of a queued lead at 700 on the a6000",
       m["status"] == "running" and lead["status"] == "queued", (m["status"], lead["status"]))
 s, clock, fk = new_sched()
 x = unit_job(s, "x", job_class="round", card="a6000", expected_s=600)
@@ -1311,9 +1384,15 @@ for cls, card in (("sitting", "3090"), ("solo", "none")):
     ex = unit_job(s, "ex", card=card, job_class=cls, expected_s=100)
     s.tick()
     seen.append((m["status"], ex["status"], why(ex)))
-check("media: a sitting or solo job naming the 3090 or no card takes every card once it starts, "
-      "so media queued for the a6000 goes first",
-      all(m_st == ex_st == "queued" and "media job m" in w for m_st, ex_st, w in seen), seen)
+# PIN(2026-10-20): a solo job still waits for the media queued for the a6000, but a sitting does
+# not: it is ranked 950 above media's 900 (the user's order, see the class pin), so it takes the
+# empty box first and media waits behind it. Both used to wait for media. FAIL-first: today's
+# daemon holds the sitting off.
+check("media: a solo job naming no card takes every card once it starts, so media queued for the "
+      "a6000 goes first",
+      seen[1][0] == seen[1][1] == "queued" and "media job m" in seen[1][2], seen)
+check("media: a sitting is above media: it starts on the empty box and the queued media waits for it",
+      seen[0][0] == "queued" and seen[0][1] == "running", seen)
 
 # cache groups reach only between media jobs, and only between bloomery jobs
 s, clock, fk = new_sched(cooldown=60)
@@ -1663,9 +1742,707 @@ code, listing = call("GET", "/jobs")
 check("wire: GET /jobs lists job_class, expected_s and resolved_card",
       code == 200 and {"job_class", "expected_s", "resolved_card"} <= set(listing[0]), listing[0])
 code, out = call("POST", "/gen/image", {"prompt": "a red kite", "priority": 3, "wait": 0})
-check("wire: a /gen body's priority is not read: the job is media at 950",
-      code == 201 and (out["job_class"], out["priority"]) == ("media", 950), (code, out))
+check("wire: a /gen body's priority is not read: the job is media at 900",
+      code == 201 and (out["job_class"], out["priority"]) == ("media", 900), (code, out))
 httpd2.shutdown()
+
+# ---------------------------------------------------------------- boxres R1a: the ledger and its grants
+# The seven gates of round boxres R1a (design: rig-log round boxres, 2026-10-20), then the rules they
+# stand on. A case that raises is a FAIL line that names the exception, so a daemon without the
+# ledger is red case by case instead of a crash.
+import http.server
+
+GB = 10 ** 9
+GIB = 1 << 30
+# The tape's cpus: 24 workers on primaries 0-5, 8-13, 16-21, 24-29 and their SMT siblings (+32).
+TAPE_CPUS = "0-5,8-13,16-21,24-29,32-37,40-45,48-53,56-61"
+# What the rounds keep beside it: one core pair per CCD, the design's AllowedCPUs list.
+ROUNDS_CPUS = [6, 7, 14, 15, 22, 23, 30, 31, 38, 39, 46, 47, 54, 55, 62, 63]
+# G on BOX_MEM: MemTotal - max(OS_OTHER, unowned) - H, unowned 0 while the holders are not read.
+CFG = None
+
+
+def gate(name, fn):
+    try:
+        fn()
+    except Exception as e:     # a missing feature is a red case, not a crash
+        check(name, False, "raised %s: %s" % (type(e).__name__, e))
+
+
+def serve(s, token_file="/nonexistent"):
+    """The scheduler on its own loopback port: (call(method, path, body, headers), shutdown)."""
+    handler = type("H", (D.Handler,), {"sched": s, "token_file": token_file})
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = "http://127.0.0.1:%d" % srv.server_address[1]
+
+    def go(method, path, body=None, headers=None):
+        data = json.dumps(body).encode() if body is not None else None
+        req = urllib.request.Request(base + path, data=data, method=method, headers=dict(headers or {}))
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return r.status, json.loads(r.read().decode())
+        except urllib.error.HTTPError as e:
+            raw = e.read().decode()
+            try:
+                return e.code, json.loads(raw)
+            except ValueError:
+                return e.code, {"raw": raw}
+    return go, srv.shutdown
+
+
+def ledger_sched(**kw):
+    """A scheduler on fake probes whose memory leaves the OS share as the unowned part (6 GB used
+    is below OS_OTHER 6.69 GB), so G = 270.07 - 6.69 - 4.29 = 259.08 GB as in the design."""
+    s, clock, fk = new_sched(**kw)
+    s.probes.mem_state = {"MemTotal": 270_071_005_184, "MemAvailable": 270_071_005_184 - 6 * GB}
+    return s, clock, fk
+
+
+def tape_body(unit="tape.scope", ram=None, cpus=TAPE_CPUS, cards=("3090",), hold=None, **kw):
+    ram = ram or {"locked": 99 * GB, "file_hot": 17 * GB, "pinned": 2 * GB, "anon": 15 * GB}
+    body = {"holder": "tape", "class": "tape",
+            "need": {"ram": ram, "cards": list(cards), "cpus": cpus, "host_lock": True},
+            "liveness": {"unit": unit}}
+    if hold:
+        body["hold"] = hold
+    body.update(kw)
+    return body
+
+
+def fill_body(unit, gb, holder="bulk", klass="fill", **need):
+    return {"holder": holder, "class": klass, "need": dict({"ram": {"anon": gb * GB}}, **need),
+            "liveness": {"unit": unit}}
+
+
+def g_of(s):
+    cfg = s.res
+    mt, ma = 270_071_005_184, 270_071_005_184 - 6 * GB
+    return mt - max(cfg.os_other, mt - ma) - cfg.headroom
+
+
+# -- gate 1: admit, refuse at 75 with the holder and the numbers, release
+def case_1():
+    s, clock, fk = ledger_sched(fake=False)
+    go, stop = serve(s)
+    code, tape = go("POST", "/grants", tape_body())
+    check("grant 1: a tape grant that fits is admitted (201) with its id, state and limits",
+          code == 201 and tape.get("id") == "g1" and tape.get("state") == "pending"
+          and tape.get("limits", {}).get("memory_high") == int(133 * GB * 1.1)
+          and tape.get("limits", {}).get("memory_max") == int(133 * GB * 1.5) + 2 * GIB, (code, tape))
+    code, out = go("POST", "/grants", fill_body("dl.scope", 150))
+    g = g_of(s)
+    free = g - 133 * GB
+    want = ("ram needs 150.00 GB, free %.2f GB of cap %.2f GB" % (free / GB, g / GB))
+    check("grant 1: a request past the free RAM is refused 409 rc 75 and the line names the holder "
+          "(id, class, name, unit) and the numbers (need, free, cap, unowned, headroom)",
+          code == 409 and out.get("rc") == 75 and out["error"].startswith("boxres: bulk (class fill) refused rc 75:")
+          and want in out["error"] and "held by g1 tape tape tape.scope since " in out["error"]
+          and "unowned 6.00 GB; headroom 4.29 GB" in out["error"], (code, out))
+    code, rel = go("DELETE", "/grants/g1")
+    check("grant 1: DELETE /grants/<id> releases it (state released); a second DELETE is the same answer",
+          code == 200 and rel["state"] == "released" and go("DELETE", "/grants/g1")[1]["state"] == "released",
+          (code, rel))
+    code, out = go("POST", "/grants", fill_body("dl.scope", 150))
+    check("grant 1: ...and the refused request is then admitted", code == 201 and out["id"] == "g2", (code, out))
+    code, nope = go("DELETE", "/grants/g99")
+    check("grant 1: DELETE of an id no grant has is 404 with rc 66, by name",
+          code == 404 and nope.get("rc") == 66 and "g99" in nope["error"], (code, nope))
+    code, led = go("GET", "/ledger")
+    check("grant 1: GET /ledger lists the holders with need, charge and the headroom and G",
+          code == 200 and [h["id"] for h in led["holders"]] == ["g2"] and led["holders"][0]["charge"] == 150 * GB
+          and led["ram"]["g"] == g and led["ram"]["headroom"] == 4294967296 and led["ram"]["free"] == g - 150 * GB,
+          (code, led.get("ram"), [h["id"] for h in led.get("holders", [])]))
+    stop()
+
+
+gate("grant 1", case_1)
+
+
+# -- gate 2: two admissions on one tick: exactly one
+def case_2():
+    s, clock, fk = ledger_sched(fake=False)
+    go, stop = serve(s)
+    rounds = []
+    for n in range(6):
+        results, barrier = [], threading.Barrier(2)
+
+        def post(unit):
+            barrier.wait()
+            results.append(go("POST", "/grants", fill_body(unit, 150, holder="h-" + unit)))
+        threads = [threading.Thread(target=post, args=("u%d-%d.scope" % (n, i),)) for i in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        codes = sorted(c for c, _ in results)
+        won = next((o for c, o in results if c == 201), None)
+        lost = next((o for c, o in results if c == 409), None)
+        rounds.append((codes, bool(won and lost and won["id"] in lost["error"])))
+        if won:
+            go("DELETE", "/grants/" + won["id"])
+    check("grant 2: two 150 GB requests racing on G = 259 GB: exactly one admitted, the other refused 409 "
+          "naming the winner, in each of 6 rounds",
+          all(c == [201, 409] and named for c, named in rounds), rounds)
+    stop()
+
+
+gate("grant 2", case_2)
+
+
+# -- gate 3: a grant whose owner dies is reclaimed within one tick, by name
+def case_3():
+    s, clock, fk = ledger_sched(fake=False)
+    go, stop = serve(s)
+    go("POST", "/grants", tape_body())
+    s.tick()
+    live = s.grants[0]["state"]
+    s.probes.owner_state[D.owner_key({"unit": "tape.scope"})] = reading("dead", "unit tape.scope is not-found")
+    s.tick()
+    g = s.grants[0]
+    check("grant 3: an owner that was alive and is not-found: the grant is reclaimed in one tick, and the "
+          "reason names the unit",
+          live == "live" and g["state"] == "reclaimed" and "tape.scope is not-found" in g["ended_why"]
+          and any("grant g1 (tape tape) reclaimed" in e and "tape.scope" in e for e in s.events), (live, g, s.events[-3:]))
+    code, out = go("POST", "/grants", fill_body("big.scope", 250))
+    check("grant 3: ...and its RAM is free again for the next request", code == 201, (code, out))
+    # a pid owner: the pid is reused by another process (its start time differs)
+    s2, clock, fk = ledger_sched(fake=False)
+    go2, stop2 = serve(s2)
+    go2("POST", "/grants", {"holder": "dump", "class": "fill", "need": {"ram": {"anon": GB}},
+                            "liveness": {"pid": 4242, "start": 777}})
+    s2.tick()
+    s2.probes.owner_state[("pid", 4242, 777)] = reading("dead", "pid 4242 now has start 999, not 777 (the pid was reused)")
+    s2.tick()
+    check("grant 3: a pid whose start time changed is a dead owner (the pid was reused), reclaimed by name",
+          s2.grants[0]["state"] == "reclaimed" and "was reused" in s2.grants[0]["ended_why"], s2.grants[0])
+    # an owner that never appears: expired after the config's appear_s, not before
+    s3, clock, fk = ledger_sched(fake=False)
+    go3, stop3 = serve(s3)
+    s3.probes.owner_state[("unit", "late.scope")] = reading("dead", "unit late.scope is not-found")
+    go3("POST", "/grants", fill_body("late.scope", 1))
+    later(clock, 10)
+    s3.tick()
+    still = s3.grants[0]["state"]
+    later(clock, 25)
+    s3.tick()
+    check("grant 3: a grant whose unit never appears stays pending for 30 s, then is expired, by name",
+          still == "pending" and s3.grants[0]["state"] == "expired" and "late.scope" in s3.grants[0]["ended_why"]
+          and "30 s" in s3.grants[0]["ended_why"], (still, s3.grants[0]))
+    stop(); stop2(); stop3()
+
+
+gate("grant 3", case_3)
+
+
+# -- gate 4: a stale hold is named and ignored
+def case_4():
+    holds = dict(holds=["bloomery-t-hold"], hold_ages={"bloomery-t-hold": 5000})
+    s, clock, fk = ledger_sched(fake=False, **holds)
+    s.probes.hold_owner_state["bloomery-t-hold"] = {"pid": 4242, "start": 777}
+    s.probes.owner_state[("pid", 4242, 777)] = reading("dead", "pid 4242 is gone")
+    j = unit_job(s, "j", card="a6000", job_class="round")
+    s.tick()
+    check("hold 4: a hold whose owner is dead does not block: the job starts within one tick",
+          j["status"] == "running", (j["status"], why(j)))
+    named = sum("hold bloomery-t-hold ignored" in e and "pid 4242 is gone" in e for e in s.events)
+    s.tick()
+    check("hold 4: ...and the hold is named once, with the dead owner",
+          named == 1 and sum("hold bloomery-t-hold ignored" in e for e in s.events) == 1, s.events)
+    go, stop = serve(s)
+    code, led = go("GET", "/ledger")
+    check("hold 4: /ledger lists the hold as dead with its reason",
+          code == 200 and [(h["name"], h["state"], h["why"]) for h in led["holds"]]
+          == [("bloomery-t-hold", "dead", "pid 4242 is gone")], (code, led.get("holds")))
+    stop()
+    s, clock, fk = ledger_sched(fake=False, **holds)
+    s.probes.hold_owner_state["bloomery-t-hold"] = {"pid": 4242, "start": 777}   # alive by default
+    j = unit_job(s, "j", card="a6000", job_class="round")
+    s.tick()
+    check("hold 4: the same hold with a live owner blocks, as a hold did",
+          j["status"] == "queued" and "hold bloomery-t-hold up 5000 s" in why(j), (j["status"], why(j)))
+    s, clock, fk = ledger_sched(fake=False, **holds)
+    j = unit_job(s, "j", card="a6000", job_class="round")
+    s.tick()
+    check("hold 4: a hold that names no owner (made with touch) is up while it exists, as before",
+          j["status"] == "queued" and "hold bloomery-t-hold up 5000 s" in why(j), (j["status"], why(j)))
+    s, clock, fk = ledger_sched(fake=False, **holds)
+    s.probes.hold_owner_state["bloomery-t-hold"] = {"bad": "pid=N start=T needs both numbers (pid >= 2), got pid=12"}
+    j = unit_job(s, "j", card="a6000", job_class="round")
+    s.tick()
+    check("hold 4: a hold that names its owner badly stays up and says why",
+          j["status"] == "queued" and "owner cannot be asked" in why(j) and "pid=12" in why(j), (j["status"], why(j)))
+
+
+gate("hold 4", case_4)
+
+
+# -- gate 5: the tape's hold and grant live: an A6000 job that declared its need is admitted, confined
+def case_5():
+    s, clock, fk = ledger_sched(fake=False)
+    go, stop = serve(s)
+    code, tape = go("POST", "/grants", tape_body(hold="bloomery-tape-hold"))
+    # the grant first, then its hold file (the order the tape's wrapper takes)
+    s.probes.hold_state.append("bloomery-tape-hold")
+    s.probes.hold_age_state["bloomery-tape-hold"] = 30
+    s.probes.hold_owner_state["bloomery-tape-hold"] = {"unit": "tape.scope"}
+    plain = unit_job(s, "plain", card="none", job_class="round")
+    need = unit_job(s, "need", card="a6000", job_class="round",
+                    need={"ram": {"anon": 4 * GIB}, "cpus": 8})
+    on3090 = unit_job(s, "on3090", card="3090", job_class="round", need={"ram": {"anon": GB}})
+    big = unit_job(s, "big", card="none", job_class="round", need={"ram": {"anon": 200 * GB}})
+    s.tick()
+    run = next((c for c in fk.systemd_runs() if "sb-%s" % need["id"] in c), [])
+    props = [run[i + 1] for i, a in enumerate(run) if a == "-p"]
+    check("hold 5: the tape's hold and grant are live: an A6000 round job that declared its need is "
+          "admitted, confined to the cpus the tape leaves and to memory caps of its need",
+          code == 201 and need["status"] == "running"
+          and need["confine"]["cpus"] == ROUNDS_CPUS
+          and "AllowedCPUs=6-7,14-15,22-23,30-31,38-39,46-47,54-55,62-63" in props
+          and "MemoryHigh=%d" % int(4 * GIB * 1.1) in props
+          and "MemoryMax=%d" % (int(4 * GIB * 1.5) + 2 * GIB) in props, (code, need["status"], why(need), props))
+    check("hold 5: ...a job that declared no need still waits on the hold, and the reason names the grant",
+          plain["status"] == "queued" and "hold bloomery-tape-hold up 30 s" in why(plain)
+          and "grant g1 tape" in why(plain), (plain["status"], why(plain)))
+    check("hold 5: ...a job for the 3090 waits on the grant's card, by name; a need past what the grant "
+          "leaves waits with the numbers and the holder",
+          on3090["status"] == "queued" and "card 3090 is held by grant g1 (tape tape, unit tape.scope)" in why(on3090)
+          and big["status"] == "queued" and "ram needs 200.00 GB" in why(big)
+          and "held by g1 tape tape tape.scope" in why(big), (why(on3090), why(big)))
+    code, led = go("GET", "/ledger")
+    check("hold 5: /ledger names the hold as the grant's, the free cpus, and why each job waits",
+          [h["grant"] for h in led["holds"]] == ["g1"] and led["cpu"]["free"] == "6-7,14-15,22-23,30-31,38-39,46-47,54-55,62-63"
+          and {w["name"] for w in led["waiters"]} == {"plain", "on3090", "big"}
+          and all(w["why"] for w in led["waiters"]), (led.get("holds"), led.get("cpu"), led.get("waiters")))
+    # its unit goes not-found: one tick and the hold is ignored, the grant reclaimed, the jobs go
+    s.probes.owner_state[("unit", "tape.scope")] = reading("dead", "unit tape.scope is not-found")
+    s.tick()
+    check("hold 5: the same hold with its unit not-found is ignored within one tick: the job that "
+          "declared no need and the 3090 job start, the grant is reclaimed",
+          s.grants[0]["state"] == "reclaimed" and plain["status"] == "running"
+          and on3090["status"] == "running", (s.grants[0]["state"], plain["status"], why(plain), on3090["status"]))
+    stop()
+
+
+gate("hold 5", case_5)
+
+
+# -- gate 6: signalbox down is rc 69 named; BOXRES_OFF=1 prints the bypass line and goes on
+def case_6():
+    import socket
+    import client as C
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    dead_url = "http://127.0.0.1:%d" % probe.getsockname()[1]
+    probe.close()
+    here = os.path.dirname(os.path.abspath(__file__))
+    env = {k: v for k, v in os.environ.items() if k != "BOXRES_OFF"}
+    p = subprocess.run([sys.executable, os.path.join(here, "client.py"), "GET", "/ledger"],
+                       capture_output=True, text=True, timeout=60, env=dict(env, BOXRES_URL=dead_url))
+    check("client 6: signalbox unreachable is rc 69 and one named line: where it looked, the unit's "
+          "state, that nothing was admitted, and the override",
+          p.returncode == 69 and p.stdout == "" and dead_url in p.stderr and "signalbox is unreachable" in p.stderr
+          and "systemctl is-active signalbox:" in p.stderr and "nothing was admitted" in p.stderr
+          and "BOXRES_OFF=1" in p.stderr and len(p.stderr.strip().splitlines()) == 1, (p.returncode, p.stdout, p.stderr))
+    p = subprocess.run([sys.executable, os.path.join(here, "client.py"), "GET", "/ledger"],
+                       capture_output=True, text=True, timeout=60,
+                       env=dict(env, BOXRES_URL=dead_url, BOXRES_OFF="1"))
+    check("client 6: BOXRES_OFF=1 prints the one bypass line, asks nothing, and the caller goes on (rc 0)",
+          p.returncode == 0 and p.stdout == "" and p.stderr.strip() == C.BYPASS_LINE, (p.returncode, p.stdout, p.stderr))
+
+
+gate("client 6", case_6)
+
+
+def case_6b():
+    import client as C
+    s, clock, fk = ledger_sched(fake=False)
+    handler = type("H", (D.Handler,), {"sched": s, "token_file": "/nonexistent"})
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    url = "http://127.0.0.1:%d" % srv.server_address[1]
+    code, obj = C.ask("GET", "/health", url=url, env={})
+    refused = C.ask("POST", "/grants", fill_body("c.scope", 400), url=url, env={})
+    out = C.ask("DELETE", "/grants/g99", url=url, env={})
+    check("client 6: with signalbox up the client returns the reply, and a refusal's exit is the reply's rc "
+          "(75 contention, 66 not there); it is not rc 69",
+          (code, obj) == (200, {"ok": True}) and refused[0] == 409 and C.exit_code(*refused) == 75
+          and C.exit_code(*out) == 66 and C.exit_code(200, {}) == 0, (code, obj, refused, out))
+    srv.shutdown()
+
+
+gate("client 6b", case_6b)
+
+
+# -- gate 7: an under-declared grant that grows is named over in /ledger, never silently re-charged
+def case_7():
+    s, clock, fk = ledger_sched(fake=False)
+    go, stop = serve(s)
+    go("POST", "/grants", fill_body("a.scope", 10, holder="grower", klass="round"))
+    s.probes.owner_state[("unit", "a.scope")] = reading(resident=30 * GB)
+    s.tick()
+    code, led = go("GET", "/ledger")
+    a = led["holders"][0]
+    check("over 7: a grant that declared 10 GB and measures 30 GB is named over by 20 GB in /ledger, its "
+          "declared need is left as declared, and it is charged what it measures",
+          a["over"] is True and a["over_by"] == 20 * GB and a["declared"] == 10 * GB
+          and a["measured"] == 30 * GB and a["charge"] == 30 * GB and a["need"]["ram"]["anon"] == 10 * GB, a)
+    said = sum("is over its need by 20.00 GB: declared 10.00 GB, measures 30.00 GB, charged 30.00 GB" in e
+               for e in s.events)
+    s.tick()
+    check("over 7: ...and the event says so once, with the three numbers",
+          said == 1 and sum("is over its need by" in e for e in s.events) == 1, s.events[-4:])
+    code, out = go("POST", "/grants", fill_body("b.scope", 230, holder="late"))
+    g = g_of(s)
+    check("over 7: a 230 GB request is then refused 75 naming the grower and the free RAM that counts "
+          "its 30 GB (the design's case: B refused, not admitted on the declared 10 GB)",
+          code == 409 and "free %.2f GB of cap %.2f GB" % ((g - 30 * GB) / GB, g / GB) in out["error"]
+          and "held by g1 round grower a.scope" in out["error"], (code, out))
+    stop()
+
+
+gate("over 7", case_7)
+
+
+# -- the rules the gates stand on
+def case_ranks():
+    s, clock, fk = ledger_sched(fake=False)
+    go, stop = serve(s)
+    go("POST", "/grants", tape_body())                              # 133 GB, free 126.08 GB
+    waiter = unit_job(s, "waiter", card="a6000", job_class="round", need={"ram": {"anon": 150 * GB}})
+    s.tick()
+    check("ranks: a job whose need does not fit waits with the numbers and the holder, outside the queue (eta unknown)",
+          waiter["status"] == "queued" and "ram needs 150.00 GB" in why(waiter) and s.eta_seconds(waiter) is None,
+          (waiter["status"], why(waiter)))
+    code, low = go("POST", "/grants", fill_body("low.scope", 100))
+    check("ranks: a lower-rank grant cannot take the bytes a higher queued job waits for (100 GB fits the "
+          "free 126 GB, but 150 GB are held back for the round job)",
+          code == 409 and "ram needs 100.00 GB" in low["error"], (code, low))
+    code, high = go("POST", "/grants", fill_body("high.scope", 100, holder="rel", klass="release"))
+    check("ranks: a grant of a higher class than the waiting job is not held back by it",
+          code == 201, (code, high))
+    stop()
+
+
+gate("ranks", case_ranks)
+
+
+def case_resources():
+    s, clock, fk = ledger_sched(fake=False)
+    go, stop = serve(s)
+    ok, _ = go("POST", "/grants", tape_body())
+    code, out = go("POST", "/grants", {"holder": "x", "class": "tape", "need": {"cards": ["3090"]},
+                                       "liveness": {"unit": "x.scope"}})
+    check("resources: a card another grant holds is refused 75 naming that grant",
+          code == 409 and "card.3090 is held by a grant" in out["error"] and "held by g1 tape tape tape.scope" in out["error"],
+          (code, out))
+    code, out = go("POST", "/grants", {"holder": "x", "class": "round", "need": {"cpus": "0-3"},
+                                       "liveness": {"unit": "x.scope"}})
+    check("resources: cpus an exclusive set holds are refused 75 and named as a list",
+          code == 409 and "cpus 0-3 are held by an exclusive set" in out["error"], (code, out))
+    code, out = go("POST", "/grants", {"holder": "x", "class": "round", "need": {"cpus": "6-7,14-15"},
+                                       "liveness": {"unit": "x.scope"}})
+    check("resources: cpus the tape leaves are granted, and a grant that declared no RAM carries no memory cap",
+          code == 201 and out["limits"] == {}, (code, out))
+    ok2, _ = go("POST", "/grants", {"holder": "tapelat", "class": "tape", "need": {"nvme": {"nvme0": "lat"}},
+                                    "liveness": {"unit": "lat.scope"}})
+    code, out = go("POST", "/grants", {"holder": "dl", "class": "fill", "need": {"nvme": {"nvme0": "bulk"}},
+                                       "liveness": {"unit": "dl.scope"}})
+    check("resources: nvme bulk is refused 75 while a latency holder is up on the drive; the other drive is free",
+          ok2 == 201 and code == 409 and "nvme0 bulk is refused while a latency holder is up" in out["error"]
+          and go("POST", "/grants", {"holder": "dl", "class": "fill", "need": {"nvme": {"nvme1": "bulk"}},
+                                     "liveness": {"unit": "dl1.scope"}})[0] == 201, (ok2, code, out))
+    code, out = go("POST", "/grants", fill_body("x.scope", 1, holder="again"))
+    check("resources: one liveness holds one grant (a second for the same unit is a usage error 400, rc 64)",
+          code == 400 and out["rc"] == 64 and "already holds grant" in out["error"], (code, out))
+    for bad, field in (({"class": "tape", "need": {}, "liveness": {"unit": "a.scope"}}, "holder"),
+                       ({"holder": "h", "class": "vip", "need": {}, "liveness": {"unit": "a.scope"}}, "class"),
+                       ({"holder": "h", "class": "tape", "need": {"ram": {"anon": -1}}, "liveness": {"unit": "a.scope"}}, "need.ram.anon"),
+                       ({"holder": "h", "class": "tape", "need": {"ram": {"heap": 1}}, "liveness": {"unit": "a.scope"}}, "need.ram.heap"),
+                       ({"holder": "h", "class": "tape", "need": {"cpus": "70-71"}, "liveness": {"unit": "a.scope"}}, "70-71"),
+                       ({"holder": "h", "class": "tape", "need": {"cards": ["4090"]}, "liveness": {"unit": "a.scope"}}, "4090"),
+                       ({"holder": "h", "class": "tape", "need": {}, "liveness": {"pid": 1, "start": 5}}, "liveness"),
+                       ({"holder": "h", "class": "tape", "need": {}}, "liveness"),
+                       ({"holder": "h", "class": "tape", "need": {}, "liveness": {"unit": "a.scope"}, "extra": 1}, "extra")):
+        code, out = go("POST", "/grants", bad)
+        check("resources: a bad grant body (%s) is 400 rc 64 and the error names the field" % field,
+              code == 400 and out.get("rc") == 64 and field in out["error"], (code, out))
+    stop()
+
+
+gate("resources", case_resources)
+
+
+def case_blind():
+    s, clock, fk = ledger_sched(fake=False)
+    go, stop = serve(s)
+    s.probes.mem_state = None
+    code, out = go("POST", "/grants", fill_body("a.scope", 1))
+    check("blind: when memory cannot be read a grant with a RAM need is refused 503 rc 69, naming it",
+          code == 503 and out["rc"] == 69 and "memory is unreadable" in out["error"], (code, out))
+    code, out = go("POST", "/grants", {"holder": "c", "class": "round", "need": {"cpus": "6-7"},
+                                       "liveness": {"unit": "c.scope"}})
+    check("blind: ...a grant with no RAM need does not need the reading", code == 201, (code, out))
+    stop()
+
+
+gate("blind", case_blind)
+
+
+def case_outside_lock():
+    s, clock, fk = ledger_sched(fake=False)
+    free = []
+
+    def hook():
+        got = []
+
+        def other():
+            got.append(s.lock.acquire(timeout=1))
+            if got[0]:
+                s.lock.release()
+        t = threading.Thread(target=other)
+        t.start()
+        t.join()
+        free.append(got[0])
+    s.probes.probe_hook = hook
+    unit_job(s, "q1", card="a6000", job_class="round")
+    unit_job(s, "q2", card="3090", job_class="round")
+    s.probes.lock_state = {"bloomery-gate.lock": "held", "bloomery-gate-a6000.lock": "held"}
+    s.tick()
+    check("snapshot: every probe of a tick runs with the scheduler lock free (a second thread takes it "
+          "while the driver is being asked), and a tick with two queued jobs reads the box once",
+          free and all(free) and s.probes.snapshot_calls == 1, (free, s.probes.snapshot_calls))
+
+
+gate("outside lock", case_outside_lock)
+
+
+def case_idle():
+    s, clock, fk = ledger_sched(fake=False)
+    for _ in range(3):
+        s.tick()
+    idle = s.probes.card_calls
+    blocked = unit_job(s, "blocked", card="a6000", job_class="round")
+    s.probes.lock_state = {"bloomery-gate-a6000.lock": "held"}
+    s.tick()
+    queued = s.probes.card_calls
+    check("idle: a box with nothing queued does not ask the driver in a tick; a queued job makes the tick ask",
+          idle == 0 and blocked["status"] == "queued" and queued == 1, (idle, queued, blocked["status"]))
+    s, clock, fk = ledger_sched(fake=False)
+    free = unit_job(s, "free", card="a6000", job_class="round")
+    s.tick()    # the job is started by this tick; a second one is submitted after it
+    later_job = unit_job(s, "later", card="3090", job_class="round")
+    eta = s.job_view(later_job)["eta_s"]
+    check("idle: a job submitted after an idle tick is answered from a reading of the driver (it could start now: eta 0)",
+          free["status"] == "running" and eta == 0, (free["status"], eta, why(later_job)))
+
+
+gate("idle", case_idle)
+
+
+def case_migrate():
+    home = tempfile.mkdtemp(prefix="signalbox-migrate-")
+    jobs = []
+    for jid, klass, prio, status in (("s1", "media", 950, "queued"), ("s2", "sitting", 900, "queued"),
+                                     ("s3", "round", 400, "queued"), ("s4", "media", 950, "done"),
+                                     ("s5", "normal", 7, "queued")):
+        jobs.append({"id": jid, "owner": "t", "name": "n" + jid, "title": "", "expected_min": 0, "expected_s": 0,
+                     "kind": "fake", "job_class": klass, "priority": prio, "script": "", "card": "a6000",
+                     "cache_group": "", "env": {}, "argv": "", "bound_s": None, "status": status,
+                     "submitted": "2026-10-20T10:00:00", "started": None, "finished": None, "rc": None,
+                     "sentinel": None, "pid": None, "wait_reason": None, "artifacts": []})
+    with open(os.path.join(home, "state.json"), "w") as f:
+        json.dump({"seq": 5, "jobs": jobs, "events": []}, f)
+    s, clock, fk = ledger_sched(home=home)
+    got = {j["id"]: j["priority"] for j in s.jobs}
+    check("migrate: a state.json written under the old ranks: queued jobs of a ranked class take the config's "
+          "rank (media 900, sitting 950), a finished job and a body-priority job keep theirs, and each move is an event",
+          got == {"s1": 900, "s2": 950, "s3": 400, "s4": 950, "s5": 7}
+          and sum("priority 950 -> 900" in e for e in s.events) == 1
+          and sum("priority 900 -> 950" in e for e in s.events) == 1, (got, s.events))
+
+
+gate("migrate", case_migrate)
+
+
+def case_door():
+    tdir = tempfile.mkdtemp(prefix="signalbox-door-")
+    tfile = os.path.join(tdir, "token")
+    with open(tfile, "w") as f:
+        f.write("sekrit\n")
+    os.chmod(tfile, 0o600)
+    s, clock, fk = ledger_sched(fake=False)
+    go, stop = serve(s, tfile)
+    tail = {"X-Forwarded-For": "203.0.113.7", "Authorization": "Bearer sekrit"}
+    code, out = go("POST", "/grants", tape_body(), headers=tail)
+    code2, out2 = go("DELETE", "/grants/g1", headers=tail)
+    code3, out3 = go("GET", "/ledger", headers=tail)
+    check("door: a grant is not made or deleted from the tailnet (403, rc 77) and /ledger reads with the token",
+          code == 403 and out["rc"] == 77 and code2 == 403 and out2["rc"] == 77 and not s.grants
+          and code3 == 200 and "holders" in out3, (code, code2, code3, s.grants))
+    stop()
+
+
+gate("door", case_door)
+
+
+def case_persist():
+    s, clock, fk = ledger_sched(fake=False)
+    go, stop = serve(s)
+    go("POST", "/grants", tape_body())
+    go("POST", "/grants", fill_body("gone.scope", 1))
+    go("DELETE", "/grants/g2")
+    s2, _, _ = ledger_sched(fake=False, home=s.home)
+    kept = [(g["id"], g["state"]) for g in s2.grants]
+    go2, stop2 = serve(s2)
+    code, out = go2("POST", "/grants", fill_body("n.scope", 1))
+    check("persist: grants survive a restart (the live one and the ended one) and the ids go on",
+          kept == [("g1", "pending"), ("g2", "released")] and code == 201 and out["id"] == "g3",
+          (kept, code, out))
+    stop()
+    stop2()
+
+
+gate("persist", case_persist)
+
+
+def case_config():
+    import ledger as L
+    here = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(here, "..", "..", "configs", "box-resources.json")
+    with open(path) as f:
+        raw = json.load(f)
+    bare = []
+
+    def walk(d, where):
+        for k, v in d.items():
+            if k.endswith("_why") or k.endswith("_about"):
+                continue
+            if isinstance(v, dict):
+                walk(v, where + [k])
+            elif (isinstance(v, (int, float)) or k == "all") and not (k + "_why") in d:
+                bare.append(".".join(where + [k]))
+    walk(raw, [])
+    check("config: every number in box-resources.json has its derivation comment beside it", not bare, bare)
+    cfg = L.load_config(path)
+    check("config: the ranks are the user's order and the live ones are unchanged",
+          cfg.class_priority == {"sitting": 950, "media": 900, "release": 900, "tape": 800, "lead": 700,
+                                 "round": 400, "static": 300, "fill": -500}
+          and cfg.headroom == 4 * GIB and cfg.os_other == 6694629376 and cfg.high_factor == 1.1
+          and cfg.max_factor == 1.5 and cfg.max_add == 2 * GIB, vars(cfg))
+
+    def refused(mutate, want):
+        d = json.loads(json.dumps(raw))
+        mutate(d)
+        t = os.path.join(tempfile.mkdtemp(prefix="signalbox-cfg-"), "c.json")
+        with open(t, "w") as f:
+            json.dump(d, f)
+        try:
+            L.load_config(t)
+        except L.ConfigError as e:
+            return want in str(e)
+        return False
+    check("config: a rank order that breaks the user's order is refused by name (media above the sitting)",
+          refused(lambda d: d["classes"].update(media=960), "break the order"), "accepted")
+    check("config: a key the ledger does not read is refused by name",
+          refused(lambda d: d["ram"].update(headrom_bytes=1), "headrom_bytes"), "accepted")
+    check("config: a missing class is refused by name",
+          refused(lambda d: d["classes"].pop("tape"), "lacks tape"), "accepted")
+    try:
+        L.load_config("/nonexistent/box-resources.json")
+        err = None
+    except L.ConfigError as e:
+        err = str(e)
+    check("config: a file that is not there is a ConfigError that names the path",
+          err is not None and "/nonexistent/box-resources.json is unreadable" in err, err)
+
+
+gate("config", case_config)
+
+
+def case_charge():
+    import ledger as L
+    need = lambda **kw: L.normalize_need(dict({"ram": {"churn": 15 * GB}}, **kw), "grant")  # noqa: E731
+    hosted_lock = L.charge_classes(need(host_lock=True))
+    hosted = L.charge_classes(need())
+    unhosted = L.charge_classes(need(churn_hosting="unhosted"))
+    check("charge: the churn pool is charged as locked under BLOOMERY_HOST_LOCK=1 when hosting is Hosted "
+          "(the default), file-hot when hosted without the lock, and nothing when Unhosted",
+          hosted_lock["locked"] == 15 * GB and hosted_lock["file_hot"] == 0
+          and hosted["file_hot"] == 15 * GB and hosted["locked"] == 0
+          and sum(unhosted.values()) == 0, (hosted_lock, hosted, unhosted))
+    check("charge: cpu lists parse and print as the kernel does",
+          L.parse_cpus("0-5,8-13") == [0, 1, 2, 3, 4, 5, 8, 9, 10, 11, 12, 13]
+          and L.fmt_cpus(L.parse_cpus(TAPE_CPUS)) == TAPE_CPUS
+          and L.fmt_cpus([c for c in range(64) if c not in L.parse_cpus(TAPE_CPUS)]) == "6-7,14-15,22-23,30-31,38-39,46-47,54-55,62-63",
+          L.fmt_cpus(L.parse_cpus(TAPE_CPUS)))
+
+
+gate("charge", case_charge)
+
+
+def case_readers():
+    """The real Probes readers on fixture files in the kernel's own format."""
+    root = tempfile.mkdtemp(prefix="signalbox-proc-")
+    proc = os.path.join(root, "proc")
+    for pid, state, start, extra in ((4242, "S", 98765, ""), (4243, "Z", 5, "")):
+        os.makedirs(os.path.join(proc, str(pid)))
+        # fields 3..: state ppid pgrp session tty tpgid flags minflt cminflt majflt cmajflt utime stime
+        # cutime cstime priority nice num_threads itrealvalue starttime vsize rss
+        fields = [state, 1, pid, pid, 0, -1, 4194304, 0, 0, 0, 0, 5, 5, 0, 0, 20, 0, 1, 0, start, 100, 200]
+        with open(os.path.join(proc, str(pid), "stat"), "w") as f:
+            f.write("%d (my) cmd ) %s\n" % (pid, " ".join(str(x) for x in fields)))
+    with open(os.path.join(proc, "4242", "status"), "w") as f:
+        f.write("Name:\ttape\nRssAnon:\t  1000 kB\nRssFile:\t 2000 kB\nRssShmem:\t    0 kB\n"
+                "VmLck:\t  1500 kB\nVmPin:\t   500 kB\nCpus_allowed_list:\t0-5,8-13\n")
+    with open(os.path.join(proc, "meminfo"), "w") as f:
+        f.write("MemTotal:       263741216 kB\nMemFree:  1 kB\nMemAvailable:   246484356 kB\nHugePages_Total:       0\n")
+    p = D.Probes(proc=proc, cgroup=os.path.join(root, "cg"), sysblock=os.path.join(root, "blk"))
+    alive = p.owner_reading({"pid": 4242, "start": 98765})
+    reused = p.owner_reading({"pid": 4242, "start": 1})
+    gone = p.owner_reading({"pid": 4244, "start": 1})
+    zombie = p.owner_reading({"pid": 4243, "start": 5})
+    check("readers: a pid with its start time is alive, and its resident bytes and cpu mask are read "
+          "(a comm with spaces and a ')' does not move the fields)",
+          alive["state"] == "alive" and alive["measured"] == {"resident": 3000 * 1024, "anon": 1000 * 1024,
+                                                              "file": 2000 * 1024, "locked": 1500 * 1024,
+                                                              "pinned": 500 * 1024}
+          and alive["cpus_allowed"] == "0-5,8-13", alive)
+    check("readers: a reused pid, a missing pid and a zombie are dead, each said",
+          reused["state"] == "dead" and "reused" in reused["why"] and gone["state"] == "dead" and "gone" in gone["why"]
+          and zombie["state"] == "dead" and "zombie" in zombie["why"], (reused, gone, zombie))
+    mem = p.meminfo()
+    check("readers: /proc/meminfo is read in bytes", mem["MemTotal"] == 263741216 * 1024
+          and mem["MemAvailable"] == 246484356 * 1024, mem)
+    hold = os.path.join(root, "bloomery-x-hold")
+    owners = []
+    for words in ("unit=tape.scope", "pid=4242 start=98765 grant=g1", "", "pid=4242", "unit=../x"):
+        with open(hold, "w") as f:
+            f.write(words)
+        owners.append(p.hold_owner(hold))
+    check("readers: a hold file's owner is a unit, a pid + start, none (a touched file), or named bad",
+          owners[0] == {"unit": "tape.scope"} and owners[1] == {"pid": 4242, "start": 98765} and owners[2] is None
+          and "bad" in owners[3] and "bad" in owners[4], owners)
+    spent = D.Probes(gpu_order="/nonexistent", lease="/nonexistent", lock_glob=root + "/none-*",
+                     hold_glob=root + "/bloomery-*-hold", proc=proc, cgroup=os.path.join(root, "cg"),
+                     sysblock=os.path.join(root, "blk"), unit_budget_s=-1)
+    snap = spent.snapshot({"owners": [{"unit": "x.scope"}, {"pid": 4242, "start": 98765}], "nvme": {}, "cards": False})
+    check("readers: a snapshot reads no card unless asked, reads memory, and once its unit budget is spent a unit "
+          "is `unknown` (kept, never reclaimed on a guess) while a pid is still read",
+          snap.cards_read is False and snap.cards == {} and snap.mem["MemTotal"] == 263741216 * 1024
+          and snap.owners[("unit", "x.scope")]["state"] == "unknown"
+          and "budget" in snap.owners[("unit", "x.scope")]["why"]
+          and snap.owners[("pid", 4242, 98765)]["state"] == "alive", (snap.cards_read, snap.owners))
+    cards = D.parse_cards({"a6000": "GPU-aaa", "3090": "GPU-bbb"},
+                          "GPU-aaa, 312, 49140\n", "GPU-aaa, 4242, 300\n", lambda pid: "tape.scope")
+    check("readers: nvidia-smi's answer gives each card's use and compute apps with their unit; a card the query "
+          "does not list is lost",
+          cards["a6000"]["used_mib"] == 312 and cards["a6000"]["apps"] == [{"pid": 4242, "mib": 300, "unit": "tape.scope"}]
+          and cards["3090"]["state"] == "lost" and "GPU-bbb" in cards["3090"]["why"], cards)
+
+
+gate("readers", case_readers)
+
 
 print("\n%d passed, %d failed" % (PASS, FAIL))
 sys.exit(1 if FAIL else 0)

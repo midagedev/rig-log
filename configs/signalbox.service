@@ -1,6 +1,13 @@
 # signalbox's systemd unit. Install on the box:
 #   cp configs/signalbox.service /etc/systemd/system/signalbox.service
 #   systemctl daemon-reload && systemctl restart signalbox
+# The daemon is three modules and a config in /home/user/signalbox/ (daemon.py imports ledger.py;
+# client.py is the box-side tools' one way to ask it; box-resources.json is the ledger's numbers).
+# Copy them before the restart, and restart only when the check prints ok (it ends 78 and names the
+# fault otherwise):
+#   cp tools/signalbox/{daemon,ledger,client}.py /home/user/signalbox/
+#   cp configs/box-resources.json /home/user/signalbox/box-resources.json
+#   python3 /home/user/signalbox/daemon.py --check
 [Unit]
 Description=signalbox — the box's job dispatcher (lease-aware, one lane per card)
 After=network.target
