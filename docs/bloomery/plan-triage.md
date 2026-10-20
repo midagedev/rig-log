@@ -131,6 +131,14 @@ Ranked by value. Source = section in this file. Owner = suggested session.
 - ~~**Old V4.1 Q3_K_M (9 shards, 470 GB with r8)**~~ done 2026-10-21: #559 moved `v41.rs` and `r8file` to the 1017
   file and re-dumped the sets (gate-qdot 94/94 after it); the old file, its r8 and the old data dir are deleted
   (/models 133 → 602 GB free).
+- **vscale (verification must not grow with the model count; user 2026-10-21)** (lead): landed on main the
+  ptx-spill JIT cache (56701473c), the class tables (`tools/gate-class.tsv`, `families.tsv`, `owners.tsv`, f1b0dd394),
+  registry dispatch precision in `recipes.py` reach (959183c3b; e.g. qwen3moe/spec.rs selects 183 -> 55) and a canned
+  mutant for each of the 46 common owners with `tools/owners_check.py` (fc8e0824e). `owners_check.py check` names 7
+  owners with no common gate the fixture tier runs: elem_kernels and quant_gemm (their gates are real-file), and
+  fixture_writer, node_link, placement_nodes, quant_gated, serve_embed (no common gate). Next: V2, the class stage in
+  `affected`, default off; V4/V5, model-free or arch-fact-fixture gates for those 7; then the box audit (derived
+  4–6 h, one weekly sitting); the class stage goes on, owner by owner, once that owner's mutant is red on an S0 gate.
 - **Static-tier flakes seen on 2026-10-21** (lead, report only):
   - `tools/gate-bound.sh`'s cleanup-alive self-test case flakes under load (seen once in a mix, green alone).
   - `check-emb2` goes red in a loaded mix (96–99 s against 4.7 s alone; green twice alone): a load-bound wait.
