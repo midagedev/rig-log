@@ -106,12 +106,28 @@ Ranked by value. Source = section in this file. Owner = suggested session.
   (1) bp, the two-card placement (`gpu-solar2/src/tier.rs` describe, LOAD_ROWS, NODE_FAMILY, a boundary-moving tier
   mutant); (2) the card vs host expert gap: the prompt reserve moves 64 experts to the host, and prompt d's worst
   Δlogprob goes 0.82 → 1.36 (inside the derived band, z 2.75 of 3.97); an `exact_ref` look at one expert's two tiers;
-  (3) a narrower P = 1 prefill band needs per-site transients derived (GLM's `Crest` pattern); (4) a Solar fixture
-  file (the fixture tier defers every Solar clause today); (5) copies to lift: `gdn_conv_prep`'s inline body (the third
-  conv body, ~50 lines), the seat's `run` vs `serve_seats/mimo2.rs` (~150 lines), `gate_solar2_serve`'s args vs
-  `gate_nemotron_serve` (~60), glm5next's `refuse_front`/`card_terms` vs place_hybrid's (~25), four `q8_act_bytes`
-  copies (~20), a `Program` name owner for `routed_legs::family_name`; (6) `[e~[` (MiniMax-M3) is in the reference's
-  end-of-generation list and not ours. The Q6_K card down arm is inert for Solar: card experts are bytes-bound [derived].
+  (3) a narrower P = 1 prefill band needs per-site transients derived (GLM's `Crest` pattern). Done 2026-10-21, in
+  review: (4) the fixture file, PR #554 (`/models/fixtures/solar2`, sets `fx_ref_solar2_a`–`d`); (5) the copies:
+  `gdn_conv_prep` #556 (one `conv_body`), the seat's `run` and the serve gate's args #553 (`serve_seats/tiered.rs`,
+  `SeatGate`), `refuse_front`/`card_terms`, `q8_act_bytes` and the `Program` name #555, and the routed block's router
+  hand-off #558 (`crates/gpu/src/routed_block.rs`, Solar, MiMo, GLM, Nemotron); (6) `[e~[` in the EOG list #553.
+  The Q6_K card down arm is inert for Solar: card experts are bytes-bound [derived].
+- **Q6_K card down arm, parked** (models, 2026-10-21): WIP `0d2d6a3ac` on the local branch `q6mm`. The arm alone
+  cards nothing, because the plan rule keys gate/up and down on one type and Q6_K has no gate/up rows. A per-role rule
+  makes MiniMax-M3's 3 Q6_K-down layers card candidates, but it also moves GLM layers 11, 12 and 44 and Solar's
+  candidates (24 → 48), for a derived Δt ≈ 0 (the host DRAM leg is the wall; the card budget holds the bytes). Reopen
+  when the card budget grows or a family's Q6_K-down layers carry the step. Left: re-record glm5next's fixture budget,
+  a `q3kdown` fixture, the real-tier GLM gates, and a check-arch literal at `accepts.rs:462`.
+- **Small debts seen on 2026-10-21** (models, report only):
+  - Solar's fixture misses the card-sum mutant M5; it needs a card on/off clause at `gate_solar2_e2e.rs:184`.
+  - mimo2-serve's `BLOOMERY_CARD=both` pin; `gate_mimo2_serve.rs:427` is a third copy of the launch.
+  - The default-profile regex lives in two places (`gate-batch.sh` and `fixture_dirs.py`).
+  - `q5.rs:756` has an unused `x_rows` warning.
+  - The `routed_legs` adapters keep their own `fn name()`.
+  - `glm5next_card.rs` `gemv_pair` duplicates `card_leg`'s down-arm table (~40 lines; it missed Q6k once).
+  - `gate_dspark_experts` refuses at load on a stale `ref-draft/code64_n32_w3`; it owns `mxfp4_gate_up_sel`.
+  - `tools/gpu-ab.py` knows only `time-gpu-generate` (qwen3moe), so no card-path A/B recipe exists for Qwen3.6 or the
+    other families.
 - **Old V4.1 Q3_K_M (9 shards, 470 GB with r8)** (lead): 13 reference sets on the box name it (`greedy-ds41` and the
   `ref_deepseek41*` sets); move `crates/gguf/src/v41.rs:35` and `r8file`'s paths to the 1017 file and re-dump those
   sets, then delete it (the user approved the delete, 2026-10-20).
