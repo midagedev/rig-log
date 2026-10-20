@@ -1,0 +1,21 @@
+# The parent of the box's queued classes (boxres, signalbox): boxres-round.slice and boxres-fill.slice are inside it,
+# because a dash in a slice name puts it in the slice before the dash. Its one job is the weight against system.slice,
+# where the lead's jobs, the toktape and the timing sittings run: under CPU contention a queued round or fill job gets
+# half the share of a system.slice job. Weights decide nothing on an idle box and nothing for cpus a grant holds alone
+# (a unit's AllowedCPUs comes from its grant, not from here).
+#
+# CPUWeight=50 is a policy, not a measurement: the class order lead (700) > round (400) > fill (-500) written as the
+# ratio the kernel can enforce, and the same half weight configs/rounds.slice gives the static tier. Change it here and
+# nowhere else; the caps of each unit come from its grant (MemoryHigh, MemoryMax, AllowedCPUs).
+#
+# Install (box, root): cp configs/boxres.slice configs/boxres-round.slice configs/boxres-fill.slice /etc/systemd/system/
+#                      && systemctl daemon-reload
+# Check: systemctl show boxres.slice boxres-round.slice boxres-fill.slice -p FragmentPath -p CPUWeight
+[Unit]
+Description=signalbox's queued classes (round, fill) and boxres runs: half the CPU weight of system.slice
+
+[Slice]
+CPUWeight=50
+CPUAccounting=yes
+MemoryAccounting=yes
+IOAccounting=yes

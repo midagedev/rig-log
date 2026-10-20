@@ -1,0 +1,17 @@
+# The round batch (signalbox class `round`): the gates and builds a round queues, and `boxres run --class round`.
+# configs/box-resources.json (slices.round) names this file's unit; a queued round job whose slice is not installed is
+# refused rc 69 by name, and so is `daemon.py --check` before a restart.
+#
+# No cap lives here. A round gate may legitimately load a host set bigger than any share of the box, so the ledger
+# admits each job by its declared need and gives its unit MemoryHigh = 1.1 x and MemoryMax = 1.5 x + 2 GiB of it
+# (box-resources.json ram.*); the slice only names the class in the cgroup tree and reports its use to `boxres status`.
+# The weight is the parent's (configs/boxres.slice).
+#
+# Install: see configs/boxres.slice.
+[Unit]
+Description=Round batch: gates and builds queued through signalbox (class round)
+
+[Slice]
+CPUAccounting=yes
+MemoryAccounting=yes
+IOAccounting=yes

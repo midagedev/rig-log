@@ -1,5 +1,5 @@
 {
-  "_about": "signalbox's resource ledger: what the box has, the headroom, the classes and their ranks. tools/signalbox/ledger.py loads it once at start and refuses a file it cannot read, a key it does not know or a rank order that breaks the user's order (daemon.py --check validates a copy before a restart). Every number has a <name>_why beside it that says where it comes from; the loader ignores the comments. Install: cp configs/box-resources.json /home/user/signalbox/box-resources.json.",
+  "_about": "signalbox's resource ledger: what the box has, the headroom, the classes and their ranks, the class slices and the tape's cpus. tools/signalbox/ledger.py loads it once at start and refuses a file it cannot read, a key it does not know, a rank order that breaks the user's order or a tape cpu list that is not what its pool occupies (daemon.py --check validates a copy before a restart; tools/boxres/boxres.py reads the same file). Every number has a <name>_why beside it that says where it comes from; the loader ignores the comments. Install: cp configs/box-resources.json /home/user/signalbox/box-resources.json.",
   "ram": {
     "os_other_bytes": 6694629376,
     "os_other_bytes_why": "What the OS holds that no job owns: bloomery's OS_OTHER (crates/placement workstation.rs), read with free -b on the box, 6,694,629,376 B = 6.69 GB [measured]. G = MemTotal - max(this, unowned) - headroom, with unowned = (MemTotal - MemAvailable) - the holders' measured resident.",
@@ -16,11 +16,21 @@
     "appear_s": 30,
     "appear_s_why": "A grant is posted before its owner exists (the client asks, then starts the unit): this long for the unit or pid to show up before the grant is expired and named. Design round boxres, 2026-10-20, case 'a grant whose unit never appears within 30 s'.",
     "history": 200,
-    "history_why": "Ended grants kept in state.json for /ledger's recent list: the last 200 decisions, as the design asks (docs: design round boxres, section 9)."
+    "history_why": "Ended grants kept in state.json for /ledger's recent list: the last 200 decisions, as the design asks (docs: design round boxres, section 9).",
+    "idle_card_s": 600,
+    "idle_card_s_why": "A grant that holds a card while the card shows 0 % utilization this long is named `held` in /ledger (a forgotten serve, a hung run); nothing is stopped. 10 min, the design's case 'a card holder at 0 % SM for 10 min' (design round boxres, 2026-10-20, section 7). A chosen threshold, not a measurement; 0 turns the word off.",
+    "overdue_factor": 2,
+    "overdue_factor_why": "A grant that declared expected_s and has run past this many times it is named `overdue` in /ledger (the unit's own RuntimeMaxSec, from boxres run --bound, is what stops it). 2, the design's case 'unit alive past 2 x expected_s' (design round boxres, section 7). A chosen threshold, not a measurement; 0 turns the word off."
   },
   "cpus": {
     "all": "0-63",
-    "all_why": "4 CCDs x (8 cores + 8 SMT siblings) = 64 logical CPUs; CCD k has primaries 8k..8k+7 and siblings 32+8k..32+8k+7 (lscpu -e on the box, 2026-10-20). Grants name their cpus as explicit lists, siblings included."
+    "all_why": "4 CCDs x (8 cores + 8 SMT siblings) = 64 logical CPUs; CCD k has primaries 8k..8k+7 and siblings 32+8k..32+8k+7 (lscpu -e on the box, 2026-10-20). Grants name their cpus as explicit lists, siblings included.",
+    "ccds": 4,
+    "ccds_why": "4 CCDs [read: lscpu -e on the box, 2026-10-20; CCD k = L3 group k]. The pool's spread rule needs it.",
+    "cores_per_ccd": 8,
+    "cores_per_ccd_why": "8 primary cores a CCD: CCD k has primaries 8k..8k+7 [read: lscpu -e on the box, 2026-10-20].",
+    "smt_offset": 32,
+    "smt_offset_why": "A core's SMT sibling is the core + 32: siblings are 32+8k..32+8k+7 on CCD k [read: lscpu -e on the box, 2026-10-20]."
   },
   "nvme": {
     "nvme0": {
@@ -51,5 +61,31 @@
     "static_why": "The static tier (rounds.slice units): below the round batch. Design round boxres, class 'static' 300.",
     "fill": -500,
     "fill_why": "Downloads, requants and idle fill: unchanged from the live CLASS_PRIORITY."
+  },
+  "slices": {
+    "_about": "Class -> the slice unit a queued job of that class (signalbox) or a boxres run starts in. A class not listed runs where it ran before (system.slice for a queued job, the caller's cgroup for boxres). The caps live in each slice's own unit file in configs/ and nowhere else; the per-unit caps (MemoryHigh, MemoryMax, AllowedCPUs) come from the grant's need. A slice that is not installed (systemctl show: FragmentPath empty) is refused by name, rc 69: systemd makes an implicit slice with no caps out of any name, so LoadState=loaded says nothing.",
+    "round": "boxres-round.slice",
+    "round_why": "The round batch's gates and builds: configs/boxres-round.slice. A dash in a slice name makes boxres.slice its implicit parent.",
+    "static": "rounds.slice",
+    "static_why": "The static tier's rounds.slice (configs/rounds.slice: CCDs 2-3, half weight, the 40G/56G caps); the design makes it the static class's slice (design round boxres, sections 6 and 8), so its caps are spelled in that one file.",
+    "fill": "boxres-fill.slice",
+    "fill_why": "Downloads, requants and idle fill: configs/boxres-fill.slice. A fill unit's page cache is charged to the unit, so its MemoryHigh keeps a download from filling the page cache that holds an unlocked host set."
+  },
+  "tape": {
+    "_about": "The toktape recording on the 3090 with the host tier: what boxres run --class tape defaults to. The lists are held by the loader against the pool rule they are derived from (ledger.pool_cpus), so a comment cannot drift from them.",
+    "hold": "tape",
+    "hold_why": "The hold boxres run --class tape writes, /root/bloomery-tape-hold with pid= and start=: bloomery's lease_guard makes every direct tools/box.sh call wait while it exists (its owner passes with BLOOMERY_HOLD_OWNER=tape). Design round boxres, section 5, row 'direct tools/box.sh call'.",
+    "threads": 24,
+    "threads_why": "BLOOMERY_THREADS=24 for the recording, so eight cores stay whole for the rounds (design round boxres, section 4.3). Whether 24 keeps the host leg within 5 % of 32 is the open term the boxres-t24 card measures (predicted 0 % to -15 % [derived]); until then boxres run --threads N (or --cpus) overrides: --threads 32 holds every cpu and drains the rounds.",
+    "cpus": "0-5,8-13,16-21,24-29,32-37,40-45,48-53,56-61",
+    "cpus_why": "What 24 pool workers occupy [derived]: worker t sits on CCD t mod 4 as that CCD's t div 4 -th core, primaries first (bloomery crates/threads/src/lib.rs ccd_slot and cpu_for), so t=0..23 take primaries 0-5, 8-13, 16-21, 24-29, and their SMT siblings (+32) are 32-37, 40-45, 48-53, 56-61. The siblings are held too so no round shares a tape worker's core. To verify on the box after a start: every task of the serve has a Cpus_allowed_list inside this list.",
+    "rounds_cpus": "6,7,14,15,22,23,30,31,38,39,46,47,54,55,62,63",
+    "rounds_cpus_why": "What the rounds keep beside the tape [derived]: the box's 64 cpus less the tape's 48, one core pair (6-7, 14-15, 22-23, 30-31) and its siblings (+32) a CCD, whole cores with no SMT sharing with a tape worker. 8 cores / 16 threads, so a box-static build runs on 8 cores instead of 16 (design round boxres, section 4.3).",
+    "nvme": {
+      "nvme0": "lat"
+    },
+    "nvme_why": "The tape reads its row table's 4 KiB rows from /models (nvme0) while it decodes: a latency holder, so nvme0 bulk IO (downloads, requant moves) is refused while it runs (design round boxres, sections 3 and 4.4).",
+    "oom_score_adj": -900,
+    "oom_score_adj_why": "The recording's locked pages make it the OOM killer's first pick under global pressure; -900 puts it last short of -1000 (design round boxres, section 4.2). Written by boxres into the process before it execs."
   }
 }

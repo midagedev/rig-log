@@ -1,0 +1,21 @@
+# Downloads, requants and idle fill (signalbox class `fill`): configs/hf-fetch/hf-fetch.sh and anything else run with
+# `boxres run --class fill`. box-resources.json (slices.fill) names this file's unit.
+#
+# CPUWeight=10 against the round slice's default 100 inside boxres.slice: a fill unit gets a tenth of a round unit's
+# share under contention, so a download or a requant never takes CPU from a gate's host leg. A policy, not a
+# measurement: the rank order (round 400 > fill -500) written as a ratio. Change it here and nowhere else.
+#
+# A fill unit's page cache is charged to the unit (a file page goes to the cgroup that first read or dirtied it), so the
+# MemoryHigh its grant gives it (1.1 x the declared need) keeps a download from filling the global page cache that holds
+# an unlocked host set. NVMe sharing is not here: IOWeight does nothing on this box (schedulers `none`, no io.cost), so
+# the ledger refuses nvme bulk IO while a latency holder or a sitting is up instead.
+#
+# Install: see configs/boxres.slice.
+[Unit]
+Description=Downloads, requants and idle fill queued through signalbox (class fill)
+
+[Slice]
+CPUWeight=10
+CPUAccounting=yes
+MemoryAccounting=yes
+IOAccounting=yes

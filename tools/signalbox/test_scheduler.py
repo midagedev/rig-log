@@ -53,6 +53,11 @@ class FakeProbes(D.Probes):
         self.card_calls = 0                           # how often the driver was asked
         self.snapshot_calls = 0
         self.probe_hook = None                        # called at every probe: the lock check below
+        self.util_state = {}                          # card -> utilization.gpu % (absent: not read)
+        self.card_lost = {}                           # card -> why: the card is off the bus
+        self.holder_state = ([], 0)                   # who holds the timing lease: (holders, total)
+        self.box_lease_state = None                   # the rig-log lease file as Probes.box_lease reads it
+        self.slice_state = {}                         # slice unit -> its cgroup reading
 
     def uuids(self):
         return {"a6000": "GPU-fake-a6000", "3090": "GPU-fake-3090"}
@@ -68,8 +73,20 @@ class FakeProbes(D.Probes):
 
     def card_readings(self):
         self.card_calls += 1
-        return {c: {"state": "ok", "why": "", "used_mib": self.vram_mib(c), "total_mib": 49140,
-                    "apps": self.card_apps.get(c, [])} for c in D.CARDS}
+        return {c: ({"state": "lost", "why": self.card_lost[c], "used_mib": 1 << 30, "total_mib": None,
+                     "apps": [], "util": None, "bus": None} if c in self.card_lost else
+                    {"state": "ok", "why": "", "used_mib": self.vram_mib(c), "total_mib": 49140,
+                     "apps": self.card_apps.get(c, []), "util": self.util_state.get(c), "bus": None})
+                for c in D.CARDS}
+
+    def lock_holders(self, path):
+        return self.holder_state
+
+    def box_lease(self):
+        return self.box_lease_state
+
+    def slice_reading(self, unit):
+        return self.slice_state.get(unit, {"running": False})
 
     def meminfo(self):
         if self.mem_state is None:
@@ -121,11 +138,18 @@ class FakeUnitRunner(D.UnitRunner):
     ExecStopPost command, for real, with $EXIT_CODE and $EXIT_STATUS set, then unloads it."""
     GONE = {"LoadState": "not-found", "ActiveState": "inactive"}
 
-    def __init__(self):
+    def __init__(self, slices=None):
         super().__init__()
         self.calls, self.units, self.posts = [], {}, {}
         self.run_fails = self.stop_fails = None   # (rc, text) the command answers instead
         self.show_fails = False
+        # the box has the class slices installed (a unit file each); a test that wants one missing
+        # passes the slices that exist
+        names = D.ledger.load_config(os.environ["SIGNALBOX_RESOURCES"]).slices.values() \
+            if slices is None else slices
+        for name in {u for n in names for u in D.ledger.slice_chain(n)}:
+            self.units[name] = {"LoadState": "loaded", "ActiveState": "inactive",
+                                "FragmentPath": "/etc/systemd/system/" + name}
 
     def _run(self, argv, timeout=30):
         self.calls.append(list(argv))
@@ -143,6 +167,9 @@ class FakeUnitRunner(D.UnitRunner):
             if self.show_fails:
                 return 1, "Failed to connect to bus"
             p = self.units.get(argv[2], self.GONE)
+            if argv[2].endswith(".slice") and argv[2] not in self.units:
+                # systemd makes an implicit slice out of any name: loaded, no unit file
+                p = {"LoadState": "loaded", "ActiveState": "inactive", "FragmentPath": ""}
             return 0, "".join("%s=%s\n" % kv for kv in p.items())
         if argv[:2] == [self.systemctl, "stop"]:
             if self.stop_fails:
@@ -2442,6 +2469,553 @@ def case_readers():
 
 
 gate("readers", case_readers)
+
+
+# ---------------------------------------------------------------- boxres R1b: class slices, the tape's cpus, the leases, the status words
+# Round boxres R1b (design: rig-log round boxres, 2026-10-20). Design section 7's rows 1-3 (a holder that
+# under-declares, one that dies, two admissions racing) were green at R1a: gates "over 7", "grant 3"/"hold 4" and
+# "grant 2". Rows 4 (a forgotten serve) and 5 (the 3090 off the bus) are the cases below, with the slices, the tape's
+# cpu set, the lease holders and the nvme-bulk refusal this round adds.
+import fcntl
+
+
+def poll(s):
+    """One tick that reads the cards, as a tick does when a grant's card poll is due."""
+    s.cards_read_at = None
+    s.tick()
+
+
+def config_refused(mutate, want):
+    """Does the repo's box-resources.json, mutated, fail to load with `want` in the error?"""
+    import ledger as L
+    here = os.path.dirname(os.path.abspath(__file__))
+    with open(os.path.join(here, "..", "..", "configs", "box-resources.json")) as f:
+        d = json.load(f)
+    mutate(d)
+    t = os.path.join(tempfile.mkdtemp(prefix="signalbox-cfg-"), "c.json")
+    with open(t, "w") as f:
+        json.dump(d, f)
+    try:
+        L.load_config(t)
+    except L.ConfigError as e:
+        return want in str(e)
+    return False
+
+
+# -- slices: a queued job starts in its class's slice, and a slice that is not installed is refused by name
+def r1b_slices():
+    s, clock, fk = new_sched()
+    jobs = {c: unit_job(s, "j-" + c, job_class=c, card="none") for c in ("round", "fill", "static", "lead")}
+    s.tick()
+
+    def slice_of(job):
+        run = next(c for c in fk.systemd_runs() if "sb-%s" % job["id"] in c)
+        return run[run.index("--slice") + 1] if "--slice" in run else None
+    got = {c: slice_of(j) for c, j in jobs.items()}
+    check("slices 1: a round, fill and static job start in their class's slice (--slice), a lead job, whose class has "
+          "none, where it did; the job record names the slice",
+          got == {"round": "boxres-round.slice", "fill": "boxres-fill.slice", "static": "rounds.slice", "lead": None}
+          and jobs["round"]["slice"] == "boxres-round.slice" and jobs["lead"]["slice"] is None
+          and any("in slice boxres-fill.slice" in e for e in s.events), (got, jobs["round"].get("slice")))
+    fk2 = FakeUnitRunner(slices=["boxres-fill.slice", "rounds.slice"])
+    s2, _ = make_sched(runner=fk2)
+    j = unit_job(s2, "r", job_class="round", card="none")
+    plain = unit_job(s2, "p", card="none")
+    s2.tick()
+    check("slices 2: a round job whose slice is not installed (an implicit slice, no unit file) fails rc 69 naming the "
+          "slice, and no unit is started for it; a job of a class with no slice is not touched",
+          j["status"] == "failed" and j["rc"] == 69 and "slice boxres-round.slice is not installed" in j["sentinel"]
+          and not any("sb-%s" % j["id"] in c for c in fk2.systemd_runs()) and plain["status"] == "running",
+          (j["status"], j["rc"], j.get("sentinel")))
+    fk3 = FakeUnitRunner(slices=[])      # the leaf is installed and the parent boxres.slice is not
+    fk3.units["boxres-round.slice"] = {"LoadState": "loaded", "ActiveState": "inactive",
+                                       "FragmentPath": "/etc/systemd/system/boxres-round.slice"}
+    s3, _ = make_sched(runner=fk3)
+    j3 = unit_job(s3, "r3", job_class="round", card="none")
+    s3.tick()
+    check("slices 2b: ...and so is a slice whose parent (the slice before the dash in its name) is not: the line names the "
+          "parent and the slice inside it",
+          j3["status"] == "failed" and j3["rc"] == 69 and "slice boxres.slice is not installed" in j3["sentinel"]
+          and "boxres-round.slice is inside it" in j3["sentinel"], (j3["status"], j3.get("sentinel")))
+    line, missing = D.check_slices(s.res, runner=fk2)
+    line_ok, missing_ok = D.check_slices(s.res, runner=fk)
+    check("slices 3: daemon.py --check names the slice that is not installed, and is quiet about installed ones",
+          missing == ["boxres-round.slice"] and "round boxres-round.slice (NOT INSTALLED)" in line
+          and missing_ok == [] and "(installed)" in line_ok, (line, missing, line_ok, missing_ok))
+
+
+gate("r1b slices", r1b_slices)
+
+
+# -- the config: the class slices, and the tape's cpus held against the pool rule they are derived from
+def r1b_config():
+    import ledger as L
+    here = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(here, "..", "..", "configs", "box-resources.json")
+    with open(path) as f:
+        raw = json.load(f)
+    cfg = L.load_config(path)
+    check("config r1b 1: the class slices are round, static and fill, each a slice unit",
+          cfg.slices == {"round": "boxres-round.slice", "static": "rounds.slice", "fill": "boxres-fill.slice"}, cfg.slices)
+    check("config r1b 2: the tape's cpus are what 24 pool workers and their siblings occupy (worker t on CCD t mod 4, "
+          "slot t div 4, sibling +32), the rounds keep the other 16, and the hold, nvme and oom score are set",
+          L.fmt_cpus(cfg.tape["cpus"]) == "0-5,8-13,16-21,24-29,32-37,40-45,48-53,56-61"
+          and cfg.tape["cpus"] == L.pool_cpus(24, 4, 8, 32) and len(cfg.tape["cpus"]) == 48
+          and L.fmt_cpus(cfg.tape["rounds_cpus"]) == "6-7,14-15,22-23,30-31,38-39,46-47,54-55,62-63"
+          and not set(cfg.tape["cpus"]) & set(cfg.tape["rounds_cpus"])
+          and cfg.tape["hold"] == "tape" and cfg.tape["nvme"] == {"nvme0": "lat"} and cfg.tape["oom_score_adj"] == -900,
+          cfg.tape)
+    check("config r1b 3: every tape and slice entry carries its derivation (`_why`) beside it",
+          all(k + "_why" in raw["tape"] for k in ("hold", "threads", "cpus", "rounds_cpus", "nvme", "oom_score_adj"))
+          and all(k + "_why" in raw["slices"] for k in ("round", "static", "fill")), raw["tape"].keys())
+    check("config r1b 4: a tape cpu list that is not what its threads occupy is refused by name",
+          config_refused(lambda d: d["tape"].update(cpus="0-5,8-13,16-21,24-28,32-37,40-45,48-53,56-61"),
+                         "is not what 24 pool workers occupy")
+          and config_refused(lambda d: d["tape"].update(threads=23), "is not what 23 pool workers occupy"))
+    check("config r1b 5: rounds_cpus that are not the box less the tape's cpus, a pool wider than the primaries, a "
+          "slice that is not a slice unit, a slice for an unranked class and a hold that is not an owner are refused",
+          config_refused(lambda d: d["tape"].update(rounds_cpus="6,7"), "is not the box's cpus less tape.cpus")
+          and config_refused(lambda d: d["tape"].update(threads=33), "tape.threads")
+          and config_refused(lambda d: d["slices"].update(round="round.service"), "slice unit name")
+          and config_refused(lambda d: d["slices"].update(nope="x.slice"), "names a class the config does not rank")
+          and config_refused(lambda d: d["tape"].update(hold="bad name"), "tape.hold")
+          and config_refused(lambda d: d["cpus"].pop("smt_offset"), "cpus.smt_offset"))
+    check("config r1b 6: a path is on the drive whose mount is the longest prefix of it",
+          [cfg.drive_of(p) for p in ("/models/x/y.gguf", "/models", "/home/user/stage", "/modelsx")]
+          == ["nvme0", "nvme0", "nvme1", "nvme1"])
+
+
+gate("r1b config", r1b_config)
+
+
+# -- the tape's cpu set from the config is what a queued round job is confined to, and what a grant's reply says
+def r1b_tape_cpus():
+    import ledger as L
+    s, clock, fk = ledger_sched(fake=False)
+    go, stop = serve(s)
+    tape_cpus = L.fmt_cpus(s.res.tape["cpus"])
+    rounds = L.fmt_cpus(s.res.tape["rounds_cpus"])
+    code, none = go("POST", "/grants", fill_body("a.scope", 1, klass="round"))
+    go("DELETE", "/grants/g1")
+    code2, tape = go("POST", "/grants", tape_body(cpus=tape_cpus, hold="bloomery-tape-hold"))
+    s.probes.hold_state.append("bloomery-tape-hold")
+    s.probes.hold_age_state["bloomery-tape-hold"] = 5
+    s.probes.hold_owner_state["bloomery-tape-hold"] = {"unit": "tape.scope"}
+    code3, other = go("POST", "/grants", fill_body("b.scope", 1, klass="round", holder="other"))
+    job = unit_job(s, "need", card="a6000", job_class="round", need={"ram": {"anon": GIB}})
+    s.tick()
+    run = next((c for c in fk.systemd_runs() if "sb-%s" % job["id"] in c), [])
+    props = [run[i + 1] for i, a in enumerate(run) if a == "-p"]
+    check("tape cpus 1: a grant with no cpus and no tape up has no `confine`; the tape's reply confines it to its own set",
+          code == 201 and "confine" not in none and code2 == 201 and tape["confine"] == {"cpus": tape_cpus}, (none, tape))
+    check("tape cpus 2: a grant asked beside the live tape is confined to what the config's rounds_cpus keeps",
+          code3 == 201 and other["confine"] == {"cpus": rounds}, other)
+    check("tape cpus 3: a queued round job that declared its need is started with AllowedCPUs = the config's rounds_cpus, "
+          "in the round slice",
+          job["status"] == "running" and "AllowedCPUs=" + rounds in props and "boxres-round.slice" in run, (job["status"], props))
+    stop()
+
+
+gate("r1b tape cpus", r1b_tape_cpus)
+
+
+# -- the timing lease's holder is read with the shared lock probe; the rig-log lease file is read; /ledger shows both
+def r1b_leases():
+    root = tempfile.mkdtemp(prefix="signalbox-lease-")
+    lock = os.path.join(root, "bloomery-cpu.lock")
+    open(lock, "w").close()
+    with open(lock + ".card", "w") as f:
+        f.write("pid=4242 timing_gpu=none\n")
+    proc = os.path.join(root, "proc")
+    for pid, locked in ((4242, True), (4243, False)):     # 4243 has the file open and no lock: a waiter or a probe
+        os.makedirs(os.path.join(proc, str(pid), "fd"))
+        os.makedirs(os.path.join(proc, str(pid), "fdinfo"))
+        os.symlink(lock, os.path.join(proc, str(pid), "fd", "9"))
+        with open(os.path.join(proc, str(pid), "fdinfo", "9"), "w") as f:
+            f.write("pos:\t0\nflags:\t0100002\n" + ("lock:\t1: FLOCK  ADVISORY  WRITE %d 00:2f:1234 0 EOF\n" % pid if locked else ""))
+    os.makedirs(os.path.join(proc, "4244", "fd"))
+    os.symlink(os.path.join(root, "other"), os.path.join(proc, "4244", "fd", "3"))
+    with open(os.path.join(proc, "4242", "comm"), "w") as f:
+        f.write("lease-take\n")
+    with open(os.path.join(proc, "4242", "cmdline"), "wb") as f:
+        f.write(b"bash\0tools/ref/lease.sh\0take\0")
+    with open(os.path.join(proc, "4242", "environ"), "wb") as f:
+        f.write(b"PATH=/bin\0BLOOMERY_LEASE_CARD=docs/cards/boxres-t24.card\0")
+    with open(os.path.join(proc, "4242", "stat"), "w") as f:
+        f.write("4242 (lease take) S " + " ".join(["1"] * 18) + " 90000 1 2\n")   # field 22 = 90000 ticks
+    with open(os.path.join(proc, "uptime"), "w") as f:
+        f.write("1000.00 900.00\n")
+    p = D.Probes(lock_glob=root + "/bloomery-*.lock", hold_glob=root + "/none-*", proc=proc,
+                 cgroup=os.path.join(root, "cg"), box_lease=os.path.join(root, "box-lease"))
+    ex = os.open(lock, os.O_RDWR)
+    sh = None
+    try:
+        fcntl.flock(ex, fcntl.LOCK_EX)
+        held = p.bloomery_locks()
+        t = p.timing_lease(held)
+        h = t["holders"][0] if t["holders"] else {}
+        check("leases 1: the shared-lock probe sees an exclusive holder as held, and the timing lease names it: pid, comm, the "
+              "lease card of its environment, the head of its argv and when it started; a descriptor with no lock is not a holder",
+              held == {lock: "held"} and t["state"] == "held" and t["holders_total"] == 1 and len(t["holders"]) == 1
+              and h.get("pid") == 4242 and h.get("comm") == "lease-take" and h.get("card") == "docs/cards/boxres-t24.card"
+              and h.get("argv") == "bash tools/ref/lease.sh take" and h.get("started") is not None
+              and abs((time.time() - h["started"]) - (1000 - 900)) < 5 and t["record"] == "pid=4242 timing_gpu=none", (held, t))
+        calls = []
+        real = p._describe_holder
+        p._describe_holder = lambda pid: calls.append(pid) or real(pid)
+        p.timing_lease(held)
+        p.timing_lease(held)
+        check("leases 2: the holder scan is kept while its holder still holds the lock: a sitting costs one scan", calls == [],
+              calls)
+        with open(os.path.join(proc, "4242", "fdinfo", "9"), "w") as f:
+            f.write("pos:\t0\n")
+        again = p.timing_lease(held)
+        check("leases 3: ...and is redone when the holder lets go while the lock is still held (another holder, or none)",
+              again["holders"] == [] and again["state"] == "held", again)
+        fcntl.flock(ex, fcntl.LOCK_UN)
+        sh = os.open(lock, os.O_RDONLY)
+        fcntl.flock(sh, fcntl.LOCK_SH)                    # another probe, shared, as lease_free's and netdata's gate
+        free = p.bloomery_locks()
+        check("leases 4: a shared holder (another probe) does not read as the lease held: the probe is lease_free's, shared, "
+              "never an exclusive flock -n", free == {} and p.timing_lease(free)["state"] == "free", free)
+    finally:
+        os.close(ex)
+        if sh is not None:
+            os.close(sh)
+    # the rig-log lease file
+    lf = os.path.join(root, "box-lease")
+    check("leases 5: no rig-log lease file is None", p.box_lease() is None)
+    with open(lf, "w") as f:
+        f.write("%d disk-sustained bench 1760000000\n" % os.getpid())
+    live = p.box_lease()
+    with open(lf, "w") as f:
+        f.write("99999999 old bench 1\n")
+    dead = p.box_lease()
+    with open(lf, "w") as f:
+        f.write("not a lease\n")
+    junk = p.box_lease()
+    check("leases 6: the rig-log lease is `<pid> <reason> <start>`: a live pid is live with its reason, a dead pid is "
+          "recorded dead (the file is quiet/lease.sh's to clear), a file with no pid is held by nobody",
+          live["live"] is True and live["pid"] == os.getpid() and live["reason"].startswith("disk-sustained")
+          and dead["live"] is False and junk["live"] is False and junk["pid"] is None, (live, dead, junk))
+    # /ledger shows both, by name
+    s, clock, fk = ledger_sched(fake=False, locks={"bloomery-cpu.lock": "held"})
+    s.probes.holder_state = ([{"pid": 77, "comm": "lease-take", "started": time.time() - 600,
+                               "card": "docs/cards/x.card", "argv": "bash lease.sh"}], 2)
+    go, stop = serve(s)
+    code, led = go("GET", "/ledger")
+    lease = led.get("lease", {})
+    check("leases 7: /ledger shows the timing lease held, its holder's pid, comm and card file, how many more hold it, "
+          "and the quiet reason that refuses IO-heavy work",
+          lease.get("timing", {}).get("state") == "held" and "pid 77 lease-take (card file docs/cards/x.card)" in (lease["timing"].get("text") or "")
+          and "and 1 more" in lease["timing"]["text"] and "the timing lease is held by pid 77" in (lease.get("quiet") or ""), lease)
+    s.probes.lock_state = {}
+    s.probes.box_lease_state = {"pid": 123, "reason": "disk-sustained 1760000000", "live": True, "raw": "123 x", "path": lf}
+    code, led = go("GET", "/ledger")
+    check("leases 8: with the timing lease free, a live rig-log lease is shown and is the quiet reason; a dead one is shown "
+          "and is not",
+          led["lease"]["timing"]["state"] == "free" and led["lease"]["box_lease"]["pid"] == 123
+          and "the rig-log lease is held by pid 123 (disk-sustained 1760000000)" in led["lease"]["quiet"], led["lease"])
+    s.probes.box_lease_state = {"pid": 123, "reason": "old", "live": False, "raw": "123 old", "path": lf}
+    code, led = go("GET", "/ledger")
+    check("leases 8b: ...a dead rig-log lease is not a reason", led["lease"]["quiet"] is None, led["lease"])
+    stop()
+
+
+gate("r1b leases", r1b_leases)
+
+
+# -- an nvme bulk grant (a download, a requant's move) is refused while a sitting runs or a latency holder is up
+def r1b_bulk():
+    s, clock, fk = ledger_sched(fake=False)
+    go, stop = serve(s)
+    code, ok = go("POST", "/grants", fill_body("dl.scope", 2, nvme={"nvme0": "bulk"}))
+    go("DELETE", "/grants/g1")
+    check("bulk 1: with nothing up, a fill grant for nvme0 bulk IO is admitted", code == 201, (code, ok))
+    s.probes.lock_state = {"bloomery-cpu.lock": "held"}
+    s.probes.holder_state = ([{"pid": 77, "comm": "lease-take", "started": time.time() - 90, "card": None, "argv": ""}], 1)
+    code, out = go("POST", "/grants", fill_body("dl2.scope", 2, nvme={"nvme0": "bulk"}))
+    code1, out1 = go("POST", "/grants", fill_body("dl3.scope", 2, nvme={"nvme1": "bulk"}))
+    code2, anon = go("POST", "/grants", fill_body("build.scope", 2, klass="round"))
+    check("bulk 2: while the timing lease is held, nvme bulk IO on either drive is refused rc 75 naming the lease's holder and "
+          "the drive; a grant with no bulk IO is not (the box.sh guard owns the rest)",
+          code == 409 and out["rc"] == 75 and "nvme0 bulk IO is refused while the timing lease is held by pid 77 lease-take" in out["error"]
+          and code1 == 409 and "nvme1 bulk IO is refused" in out1["error"] and code2 == 201, (code, out, code1, out1, code2))
+    s.probes.lock_state = {}
+    s.probes.box_lease_state = {"pid": 123, "reason": "bench", "live": True, "raw": "123 bench", "path": "x"}
+    code, out = go("POST", "/grants", fill_body("dl4.scope", 2, nvme={"nvme0": "bulk"}))
+    check("bulk 3: a live rig-log lease refuses it too, by name",
+          code == 409 and "the rig-log lease is held by pid 123 (bench)" in out["error"], (code, out))
+    s.probes.box_lease_state = None
+    code, sit = go("POST", "/grants", fill_body("sit.scope", 1, holder="sitting-x", klass="sitting"))
+    code5, out5 = go("POST", "/grants", fill_body("dl7.scope", 2, nvme={"nvme1": "bulk"}))
+    go("DELETE", "/grants/" + sit["id"])
+    check("bulk 3b: a sitting's grant (class sitting) refuses nvme bulk IO on any drive while it is up, by name, before the "
+          "timing lease is read", code == 201 and code5 == 409
+          and "nvme1 bulk IO is refused while sitting grant %s (sitting-x) is up" % sit["id"] in out5["error"], (code, code5, out5))
+    tape = tape_body(cpus=None, hold="bloomery-tape-hold")
+    tape["need"].pop("cpus")
+    tape["need"]["nvme"] = dict(s.res.tape["nvme"])
+    go("POST", "/grants", tape)
+    code, out = go("POST", "/grants", fill_body("dl5.scope", 2, nvme={"nvme0": "bulk"}))
+    code1, out1 = go("POST", "/grants", fill_body("dl6.scope", 2, nvme={"nvme1": "bulk"}))
+    check("bulk 4: with the tape up (nvme0 latency, the config's default) nvme0 bulk is refused naming the tape grant, and "
+          "nvme1, the workshop drive, is not",
+          code == 409 and "nvme0 bulk is refused while a latency holder is up" in out["error"] and "held by g" in out["error"]
+          and "tape" in out["error"] and code1 == 201, (code, out, code1))
+    stop()
+
+
+gate("r1b bulk", r1b_bulk)
+
+
+# -- design section 7, row 4: a unit alive past 2 x expected_s is `overdue`, a card holder at 0 % for 10 min is `held`
+def r1b_status():
+    s, clock, fk = ledger_sched(fake=False)
+    go, stop = serve(s)
+    body = tape_body(expected_s=100, bound_s=300)
+    code, tape = go("POST", "/grants", body)
+    s.probes.util_state = {"3090": 0}
+    poll(s)                                       # the unit is seen: live; the card reads 0 %
+    later(clock, 150)
+    s.tick()
+    code, led = go("GET", "/ledger")
+    row = led["holders"][0]
+    check("status 1: a grant alive for 150 s of an expected 100 s is not overdue; the bound is recorded",
+          code == 200 and row["status"] == "ok" and row["expected_s"] == 100 and row["bound_s"] == 300 and row["age_s"] == 150, row)
+    later(clock, 100)
+    s.tick()
+    code, led = go("GET", "/ledger")
+    row = led["holders"][0]
+    check("status 2: ...past 2 x expected_s it is `overdue`, and the reason names the age, the expectation and the bound",
+          row["status"] == "overdue" and "running 250 s, expected 100 s (x2 = 200 s)" in row["status_why"]
+          and "its bound is 300 s" in row["status_why"], row)
+    said = [e for e in s.events if "grant g1 (tape tape) is overdue" in e]
+    s.tick()
+    check("status 3: ...and the event says so once", len(said) == 1 and sum("is overdue" in e for e in s.events) == 1, s.events[-3:])
+    later(clock, 500)
+    poll(s)
+    code, led = go("GET", "/ledger")
+    row = led["holders"][0]
+    check("status 4: a card that has read 0 % utilization for 10 minutes while a grant holds it is named in the reason (this "
+          "grant is also overdue, and the word is overdue; the reason carries both)",
+          row["status"] == "overdue" and "card 3090 has read 0 % utilization for 750 s while this grant holds it" in row["status_why"],
+          row)
+    s2, clock2, fk2 = ledger_sched(fake=False)
+    go2, stop2 = serve(s2)
+    go2("POST", "/grants", tape_body())
+    s2.probes.util_state = {"3090": 0}
+    poll(s2)
+    later(clock2, 300)
+    poll(s2)
+    early = go2("GET", "/ledger")[1]["holders"][0]["status"]
+    later(clock2, 360)
+    poll(s2)
+    late = go2("GET", "/ledger")[1]["holders"][0]
+    s2.probes.util_state = {"3090": 35}
+    poll(s2)
+    busy = go2("GET", "/ledger")[1]["holders"][0]["status"]
+    check("status 5: 0 % for 300 s is ok, for 660 s it is `held` (with no expectation it is never overdue), and a card that "
+          "works again clears the word",
+          early == "ok" and late["status"] == "held" and "for 660 s" in late["status_why"] and busy == "ok", (early, late, busy))
+    code, bad = go2("POST", "/grants", dict(fill_body("x.scope", 1), bound_s=0))
+    check("status 6: a bound_s of 0 is refused 400 rc 64 naming the field", code == 400 and bad["rc"] == 64 and "bound_s" in bad["error"], (code, bad))
+    # a grant that holds a card makes the next tick read the driver once, then every CARD_POLL_S: not every tick
+    s3, clock3, fk3 = ledger_sched(fake=False)
+    go3, stop3 = serve(s3)
+    go3("POST", "/grants", tape_body())
+    calls = s3.probes.card_calls
+    s3.tick()
+    s3.tick()
+    s3.tick()
+    quiet = s3.probes.card_calls - calls
+    s3.cards_read_at -= D.CARD_POLL_S + 1
+    s3.tick()
+    s3.tick()
+    check("status 7: a live grant that holds a card makes a tick read the driver once every CARD_POLL_S (30 s) and not on the "
+          "ticks between, so a tape recording is not polled every tick",
+          quiet == 0 and s3.probes.card_calls - calls == 1, (quiet, s3.probes.card_calls - calls))
+    stop(); stop2(); stop3()
+
+
+gate("r1b status", r1b_status)
+
+
+# -- design section 7, row 5: the 3090 off the bus is named, its grants are refused rc 69, the A6000 goes on
+def r1b_lost():
+    class SmiProbes(D.Probes):
+        """The real card_readings with nvidia-smi and journalctl answered from a table."""
+
+        def __init__(self, smi, journal):
+            super().__init__(gpu_order="/nonexistent", lease="/nonexistent", lock_glob="/nonexistent/*", hold_glob="/nonexistent/*")
+            self.smi, self.journal = smi, journal
+            self._order = {"a6000": "GPU-aaa", "3090": "GPU-bbb"}
+            self.asked = []
+
+        def _run(self, argv, timeout=D.SMI_TIMEOUT_S):
+            self.asked.append(argv[0])
+            rc, text, err = (self.smi if argv[0] == "nvidia-smi" else self.journal)(argv)
+            return subprocess.CompletedProcess(argv, rc, text, err), None
+
+    both = "GPU-aaa, 312, 49140, 0, 00000000:61:00.0\nGPU-bbb, 1, 24576, 0, 00000000:41:00.0\n"
+    only_a = "GPU-aaa, 312, 49140, 0, 00000000:61:00.0\n"
+    xid = ("2026-10-17T15:26:12+09:00 ws kernel: NVRM: Xid (PCI:0000:41:00): 13, Graphics SM Warp Exception\n"
+           "2026-10-20T14:02:09+09:00 ws kernel: NVRM: Xid (PCI:0000:41:00): 79, pid=1, GPU has fallen off the bus.\n")
+    state = {"smi": (0, both, ""), "journal": (0, xid, "")}
+    p = SmiProbes(lambda argv: state["smi"] if "--query-gpu" in " ".join(argv) else (0, "", ""), lambda argv: state["journal"])
+    up = p.card_readings()
+    state["smi"] = (0, only_a, "")
+    gone = p.card_readings()
+    check("lost 1: a card nvidia-smi lists is ok with its utilization and bus address; once the 3090 is not listed it is `lost` and "
+          "the kernel log's Xid 79 on its PCI address (read while it was on the bus) is named with the time",
+          up["3090"]["state"] == "ok" and up["3090"]["bus"] == "00000000:41:00.0" and up["3090"]["util"] == 0
+          and gone["3090"]["state"] == "lost" and "Xid 79 at 2026-10-20T14:02:09+09:00 on PCI 0000:41:00" in gone["3090"]["why"]
+          and gone["a6000"]["state"] == "ok" and "Xid" not in gone["a6000"]["why"], (up["3090"], gone["3090"]))
+    fresh = SmiProbes(lambda argv: (0, only_a, "") if "--query-gpu" in " ".join(argv) else (0, "", ""), lambda argv: (0, xid, ""))
+    cold = fresh.card_readings()
+    check("lost 2: a daemon that never saw the 3090 on the bus names the Xid 79 it finds and says the bus address was not read",
+          "Xid 79 at 2026-10-20T14:02:09+09:00 on PCI 0000:41:00" in cold["3090"]["why"] and "bus address was not read" in cold["3090"]["why"], cold["3090"])
+    broken = SmiProbes(lambda argv: (9, "", "NVRM: GPU access failed"), lambda argv: (0, xid, ""))
+    bad = broken.card_readings()
+    check("lost 3: a failed nvidia-smi leaves both cards `unreadable` with its rc and text, and the journal's Xid beside it",
+          all(c["state"] == "unreadable" and "nvidia-smi rc 9" in c["why"] and "Xid 79" in c["why"] for c in bad.values()), bad)
+    quiet = SmiProbes(lambda argv: (0, both, ""), lambda argv: (0, xid, ""))
+    quiet.card_readings()
+    check("lost 4: the journal is read only when a card is not answering", "journalctl" not in quiet.asked, quiet.asked)
+    # the daemon's answer
+    s, clock, fk = ledger_sched(fake=False)
+    go, stop = serve(s)
+    ok = go("POST", "/grants", tape_body(unit="tape.scope", cards=("3090",)))
+    s.probes.card_lost = {"3090": "uuid GPU-bbb is not listed by nvidia-smi; Xid 79 at 2026-10-20T14:02:09+09:00 on PCI 0000:41:00"}
+    s.tick()
+    s.tick()
+    charged_after = go("GET", "/ledger")[1]["ram"]["charged"]
+    code, out = go("POST", "/grants", fill_body("t2.scope", 1, holder="tape2", klass="tape", cards=["3090"]))
+    code_a, ok_a = go("POST", "/grants", fill_body("a.scope", 1, holder="on-a6000", klass="round", cards=["a6000"]))
+    check("lost 5: a grant for the lost 3090 is refused rc 69 (not 75) naming the card, its state and the Xid; a grant for the "
+          "A6000 is admitted",
+          code == 503 and out["rc"] == 69 and out["error"].startswith("boxres: tape2 (class tape) refused rc 69: card.3090 is lost")
+          and "Xid 79 at 2026-10-20T14:02:09+09:00" in out["error"] and code_a == 201, (code, out, code_a))
+    check("lost 6: the grant the 3090 already held keeps its RAM charged and stays live while its unit exists (a process in "
+          "D state keeps its locked pages), and is reclaimed only when the unit is gone",
+          ok[0] == 201 and charged_after > 100 * GB and s.grants[0]["state"] == "live", (charged_after, s.grants[0]["state"]))
+    s.probes.owner_state[("unit", "tape.scope")] = reading("dead", "unit tape.scope is not-found")
+    s.tick()
+    check("lost 7: ...and the grant is reclaimed, by name, once its unit is gone",
+          s.grants[0]["state"] == "reclaimed" and "tape.scope is not-found" in s.grants[0]["ended_why"], s.grants[0]["state"])
+    go("DELETE", "/grants/" + ok_a["id"])
+    a = unit_job(s, "any", card="any", job_class="round")
+    only3 = unit_job(s, "only3", card="3090", job_class="round")
+    s.tick()
+    check("lost 8: a queued job for `any` card starts on the A6000; one for the 3090 waits with the card named lost, not "
+          "'above 2000 MiB'", a["status"] == "running" and a["resolved_card"] == "a6000" and only3["status"] == "queued"
+          and "card 3090 lost" in why(only3) and "above" not in why(only3), (a["status"], a.get("resolved_card"), why(only3)))
+    stop()
+
+
+gate("r1b lost", r1b_lost)
+
+
+# -- the class slices as /ledger shows them, and the decisions list
+def r1b_views():
+    root = tempfile.mkdtemp(prefix="signalbox-cg-")
+    base = os.path.join(root, "boxres.slice", "boxres-round.slice")
+    os.makedirs(base)
+    for name, text in (("memory.current", "5000000000\n"), ("memory.high", "max\n"), ("memory.max", "56000000000\n"),
+                       ("memory.stat", "anon 3000000000\nfile 1000000000\nkernel 5\n"),
+                       ("cpuset.cpus.effective", "6-7,14-15\n"), ("cgroup.procs", "11\n12\n13\n")):
+        with open(os.path.join(base, name), "w") as f:
+            f.write(text)
+    p = D.Probes(cgroup=root, proc=os.path.join(root, "proc"))
+    got, none = p.slice_reading("boxres-round.slice"), p.slice_reading("boxres-fill.slice")
+    check("views 1: a slice's cgroup is read from cgroupfs alone (nested dirs for a dashed name): memory, caps, anon, file, "
+          "cpus and process count; `max` is no cap; a slice with no unit running is just not running",
+          got == {"running": True, "memory_current": 5_000_000_000, "memory_high": None, "memory_max": 56_000_000_000,
+                  "anon": 3_000_000_000, "file": 1_000_000_000, "cpus": "6-7,14-15", "procs": 3}
+          and none == {"running": False}, (got, none))
+    s, clock, fk = ledger_sched(fake=False)
+    s.probes.slice_state = {"boxres-round.slice": got}
+    go, stop = serve(s)
+    code, led = go("GET", "/ledger")
+    check("views 2: /ledger lists each configured class slice with its unit and reading",
+          led["slices"]["round"]["unit"] == "boxres-round.slice" and led["slices"]["round"]["running"] is True
+          and led["slices"]["fill"] == {"unit": "boxres-fill.slice", "running": False}
+          and led["slices"]["static"]["unit"] == "rounds.slice", led.get("slices"))
+    for i in range(30):
+        s.decide("refused", "boxres: x%d refused" % i)
+    n_default = len(go("GET", "/ledger")[1]["recent"])
+    n_one = len(go("GET", "/ledger?recent=1")[1]["recent"])
+    n_big = len(go("GET", "/ledger?recent=100000")[1]["recent"])
+    code_bad, bad = go("GET", "/ledger?recent=x")
+    check("views 3: /ledger?recent=N lists the last N decisions (20 by default, at most the config's history); a bad N is 400",
+          n_default == 20 and n_one == 1 and n_big == min(30, s.res.history) and code_bad == 400 and bad["rc"] == 64,
+          (n_default, n_one, n_big, code_bad))
+    stop()
+
+
+gate("r1b views", r1b_views)
+
+
+# -- the hold file boxres writes is the hold the daemon reads
+def r1b_hold_format():
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "boxres"))
+    import boxres as B
+    root = tempfile.mkdtemp(prefix="signalbox-hold-")
+    box = B.Box(env={"BOXRES_HOLD_DIR": root})
+    box.proc_start = lambda pid: 31337
+    path, text = B.put_hold(box, "tape", "tape", os.getpid(), 31337)
+    p = D.Probes(proc=os.path.join(root, "proc"))
+    check("hold format: the hold boxres writes (`pid=N start=T holder=H`, in bloomery-<owner>-hold) is read by the daemon as "
+          "that pid and start time", os.path.basename(path) == "bloomery-tape-hold"
+          and p.hold_owner(path) == {"pid": os.getpid(), "start": 31337}, (text, p.hold_owner(path)))
+
+
+gate("r1b hold format", r1b_hold_format)
+
+
+# -- boxres status and why read what the daemon actually sends
+def r1b_status_text():
+    import ledger as L
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "boxres"))
+    import boxres as B
+    s, clock, fk = ledger_sched(fake=False, locks={"bloomery-cpu.lock": "held"})
+    s.probes.holder_state = ([{"pid": 77, "comm": "lease-take", "started": time.time() - 600, "card": "docs/cards/x.card",
+                               "argv": ""}], 1)
+    s.probes.slice_state = {"rounds.slice": {"running": True, "memory_current": 12 * GB, "memory_high": 40 * GB,
+                                             "memory_max": 56 * GB, "anon": GB, "file": GB, "cpus": "16-31,48-63", "procs": 3}}
+    go, stop = serve(s)
+    s.probes.lock_state = {}
+    body = tape_body(cpus=L.fmt_cpus(s.res.tape["cpus"]), hold="bloomery-tape-hold")
+    body["need"]["nvme"] = dict(s.res.tape["nvme"])
+    code, tape = go("POST", "/grants", body)
+    s.probes.lock_state = {"bloomery-cpu.lock": "held"}
+    s.probes.hold_state.append("bloomery-tape-hold")
+    s.probes.hold_age_state["bloomery-tape-hold"] = 5
+    s.probes.hold_owner_state["bloomery-tape-hold"] = {"unit": "tape.scope"}
+    waiting = unit_job(s, "gate-gpu-lib", card="3090", job_class="round", need={"ram": {"anon": GB}})
+    s.tick()
+    code, led = go("GET", "/ledger?recent=50")
+    text = B.fmt_status(led)
+    check("status text: the daemon's own /ledger prints G, the tape on card.3090, its cpus held, nvme0 latency, the lease holder, "
+          "the running slice, the holder's need and use, the hold, and the waiting job with the holder it waits on",
+          "G 259.08 GB" in text and "card.3090" in text and "tape tape" in text
+          and "g1:48c" in text and "free cpus 6-7,14-15,22-23" in text
+          and "lat: g1" in text and "timing lease  HELD by pid 77 lease-take" in text
+          and "slice static  rounds.slice  3 procs" in text and "slice fill" in text and "no unit running" in text
+          and "declared 133.00 GB, measured -, charged 133.00 GB" in text and "ram locked 99.0G" in text
+          and "hold bloomery-tape-hold" in text
+          and "gate-gpu-lib" in text and "card 3090 is held by grant g1" in text, text)
+    why_lines = "\n".join(B.explain(led, None, "g1"))
+    why_job = "\n".join(B.explain(led, None, waiting["name"]))
+    check("status text: why prints the grant's need, declared, measured and charged and the ledger's free of cap; and the waiting job's "
+          "reason names the holder",
+          "g1 (grant, class tape, holder tape" in why_lines and "declared 133.00 GB, measured -, charged 133.00 GB" in why_lines
+          and "the ledger: free" in why_lines and "waits on card 3090" in why_job
+          and "card 3090 is held by grant g1 (tape tape, unit tape.scope)" in why_job, (why_lines, why_job))
+    stop()
+
+
+gate("r1b status text", r1b_status_text)
 
 
 print("\n%d passed, %d failed" % (PASS, FAIL))

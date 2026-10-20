@@ -3,11 +3,16 @@
 #   systemctl daemon-reload && systemctl restart signalbox
 # The daemon is three modules and a config in /home/user/signalbox/ (daemon.py imports ledger.py;
 # client.py is the box-side tools' one way to ask it; box-resources.json is the ledger's numbers).
-# Copy them before the restart, and restart only when the check prints ok (it ends 78 and names the
+# The class slices come first: a queued job of a class whose slice is not installed is refused rc 69 by
+# name, and --check ends 78 naming the slice. rounds.slice (the static class) is configs/rounds.slice.
+# Copy the files before the restart, and restart only when the check prints ok (it ends 78 and names the
 # fault otherwise):
-#   cp tools/signalbox/{daemon,ledger,client}.py /home/user/signalbox/
+#   cp configs/boxres.slice configs/boxres-round.slice configs/boxres-fill.slice configs/rounds.slice /etc/systemd/system/
+#   systemctl daemon-reload
+#   cp tools/signalbox/{daemon,ledger,client}.py tools/boxres/boxres.py /home/user/signalbox/
 #   cp configs/box-resources.json /home/user/signalbox/box-resources.json
-#   python3 /home/user/signalbox/daemon.py --check
+#   python3 /home/user/signalbox/daemon.py --check && python3 /home/user/signalbox/boxres.py --self-test
+#   ln -sf /home/user/signalbox/boxres.py /usr/local/bin/boxres
 [Unit]
 Description=signalbox — the box's job dispatcher (lease-aware, one lane per card)
 After=network.target

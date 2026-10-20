@@ -41,6 +41,13 @@ The laws it obeys (each from an incident recorded in rig-log):
     while it exists, as before. A hold that stands behind a live grant does not block a queued
     job that declared a need which fits beside it; that job starts confined to what the
     grant leaves.
+  - A queued job of a class with a slice in the config (round, static, fill) starts in that
+    slice (systemd-run --slice) and is refused rc 69 by name when the slice, or the slice its
+    name sits inside, has no unit file: systemd makes an implicit slice with no caps out of any
+    name, so only FragmentPath says it is installed. --check says the same before a restart.
+  - The timing lease's holder (the shared lock probe, then the processes whose descriptor on the
+    lock carries it) and the rig-log lease file are read each tick and shown in /ledger. While
+    either is up, or a sitting's grant is, a grant for nvme bulk IO is refused rc 75 naming it.
 
 stdlib only, like logproxy and mrs-shim before it. State under /home/user/signalbox/.
 """
@@ -314,6 +321,14 @@ UNIT_ACTIVE = ("active", "activating", "deactivating", "reloading", "refreshing"
 SMI_TIMEOUT_S = 10
 UNIT_TIMEOUT_S = 5
 UNIT_BUDGET_S = 15
+# How often a grant that holds a card makes a tick read the driver when nothing else asks: the
+# `held` word needs minutes of resolution, and a query every tick is a resident load beside a run.
+CARD_POLL_S = 30
+# The bloomery lock that is the timing lease, and the rig-log lease file's default path.
+TIMING_LOCK = "bloomery-cpu.lock"
+BOX_LEASE = os.environ.get("SIGNALBOX_BOX_LEASE", "/home/user/box-lease")
+HOLDERS_MAX = 8      # the lease holders /ledger names; the rest are counted
+XID_RE = re.compile(r"^(\S+) \S+ kernel: NVRM: Xid \(PCI:([0-9A-Fa-f:]+)\): 79\b")
 Hold = namedtuple("Hold", "path name age_s owner reading")
 
 
@@ -364,14 +379,15 @@ def parse_stat_start(text):
 
 
 def parse_cards(uuids, gpus, apps, unit_of_pid=lambda pid: None):
-    """The cards from nvidia-smi's two CSV answers (`uuid,memory.used,memory.total` and
-    `gpu_uuid,pid,used_gpu_memory`, noheader, nounits). A card whose uuid the first lists not
-    is `lost`: it is off the bus."""
+    """The cards from nvidia-smi's two CSV answers (`uuid,memory.used,memory.total` with
+    `,utilization.gpu,pci.bus_id` after them when asked, and `gpu_uuid,pid,used_gpu_memory`,
+    noheader, nounits). A card whose uuid the first lists not is `lost`: it is off the bus."""
     listed = {}
     for line in gpus.splitlines():
         f = [x.strip() for x in line.split(",")]
-        if len(f) == 3 and f[1].isdigit() and f[2].isdigit():
-            listed[f[0]] = (int(f[1]), int(f[2]))
+        if len(f) in (3, 5) and f[1].isdigit() and f[2].isdigit():
+            util = int(f[3]) if len(f) == 5 and f[3].isdigit() else None
+            listed[f[0]] = (int(f[1]), int(f[2]), util, f[4] if len(f) == 5 else None)
     on = {}
     for line in apps.splitlines():
         f = [x.strip() for x in line.split(",")]
@@ -383,11 +399,31 @@ def parse_cards(uuids, gpus, apps, unit_of_pid=lambda pid: None):
     for card, uuid in uuids.items():
         if uuid in listed:
             out[card] = {"state": "ok", "why": "", "used_mib": listed[uuid][0],
-                         "total_mib": listed[uuid][1], "apps": on.get(uuid, [])}
+                         "total_mib": listed[uuid][1], "apps": on.get(uuid, []),
+                         "util": listed[uuid][2], "bus": listed[uuid][3]}
         else:
             out[card] = {"state": "lost", "why": "uuid %s is not listed by nvidia-smi" % uuid,
-                         "used_mib": 1 << 30, "total_mib": None, "apps": []}
+                         "used_mib": 1 << 30, "total_mib": None, "apps": [], "util": None, "bus": None}
     return out
+
+
+def bus_key(pci):
+    """The bus:device of a PCI address in either spelling (nvidia-smi's `00000000:41:00.0`, the
+    kernel log's `0000:41:00`): `41:00`."""
+    parts = pci.split(":")
+    return ":".join(parts[-2:]).split(".")[0] if len(parts) >= 2 else pci
+
+
+def xid_text(events, bus):
+    """What the kernel log says about a card that left the bus: the latest Xid 79 on its PCI
+    address, or, when its address is not known, the latest on any address. "" when the log has none."""
+    if bus:
+        mine = [e for e in events if bus_key(e["pci"]) == bus_key(bus)]
+        return "; Xid 79 at %s on PCI %s" % (mine[-1]["at"], mine[-1]["pci"]) if mine else ""
+    if events:
+        return ("; the kernel log has Xid 79 at %s on PCI %s (this card's bus address was not "
+                "read before it left)" % (events[-1]["at"], events[-1]["pci"]))
+    return ""
 
 
 class Snapshot:
@@ -404,6 +440,9 @@ class Snapshot:
         self.cards_read = False
         self.owners = {}       # owner_key -> {state, why, measured, cpus_allowed}
         self.nvme = {}         # drive -> (read bytes, write bytes), the kernel's counters
+        self.timing = {"state": "free", "holders": [], "record": None}   # the bloomery timing lease
+        self.box_lease = None  # the rig-log lease file: {pid, reason, live, raw} or None
+        self.slices = {}       # slice unit -> its cgroup's reading
 
 
 class Probes:
@@ -412,13 +451,17 @@ class Probes:
     def __init__(self, gpu_order=GPU_ORDER_ENV, lease=GPU_LEASE,
                  lock_glob=BLOOMERY_LOCK_GLOB, hold_glob=BLOOMERY_HOLD_GLOB,
                  proc="/proc", cgroup="/sys/fs/cgroup", sysblock="/sys/block",
-                 systemctl="systemctl", nvidia_smi="nvidia-smi", unit_budget_s=UNIT_BUDGET_S):
+                 systemctl="systemctl", nvidia_smi="nvidia-smi", unit_budget_s=UNIT_BUDGET_S,
+                 journalctl="journalctl", box_lease=BOX_LEASE):
         self.gpu_order_path, self.lease_path = gpu_order, lease
         self.lock_glob, self.hold_glob = lock_glob, hold_glob
         self.proc, self.cgroup, self.sysblock = proc, cgroup, sysblock
-        self.systemctl, self.nvidia_smi = systemctl, nvidia_smi
+        self.systemctl, self.nvidia_smi, self.journalctl = systemctl, nvidia_smi, journalctl
+        self.box_lease_path = box_lease
         self.unit_budget_s, self._unit_deadline = unit_budget_s, None
         self._order = None
+        self._buses = {}         # card -> its PCI address, read while it was on the bus
+        self._holders = {}       # lock path -> ((dev, ino), [{pid, fd}], described): the last scan, kept while it holds
 
     def uuids(self):
         if self._order is None:
@@ -466,19 +509,43 @@ class Probes:
         cards and one for the compute apps. A failed query reads as busy (a big number) and says
         why; a card the query does not list is `lost`."""
         uuids = self.uuids()
-        gpu = [self.nvidia_smi, "--query-gpu=uuid,memory.used,memory.total",
+        gpu = [self.nvidia_smi, "--query-gpu=uuid,memory.used,memory.total,utilization.gpu,pci.bus_id",
                "--format=csv,noheader,nounits"]
         p, err = self._run(gpu)
         if err is None and p.returncode != 0:
             err = "nvidia-smi rc %d: %s" % (p.returncode, (p.stderr or p.stdout).strip()[:160])
         if err is not None:
-            return {c: {"state": "unreadable", "why": err, "used_mib": 1 << 30,
-                        "total_mib": None, "apps": []} for c in uuids}
-        apps_cmd = [self.nvidia_smi, "--query-compute-apps=gpu_uuid,pid,used_gpu_memory",
-                    "--format=csv,noheader,nounits"]
-        a, aerr = self._run(apps_cmd)
-        apps = a.stdout if aerr is None and a.returncode == 0 else ""
-        return parse_cards(uuids, p.stdout, apps, self.unit_of_pid)
+            cards = {c: {"state": "unreadable", "why": err, "used_mib": 1 << 30,
+                         "total_mib": None, "apps": [], "util": None, "bus": None} for c in uuids}
+        else:
+            apps_cmd = [self.nvidia_smi, "--query-compute-apps=gpu_uuid,pid,used_gpu_memory",
+                        "--format=csv,noheader,nounits"]
+            a, aerr = self._run(apps_cmd)
+            apps = a.stdout if aerr is None and a.returncode == 0 else ""
+            cards = parse_cards(uuids, p.stdout, apps, self.unit_of_pid)
+        for card, c in cards.items():
+            if c.get("bus"):
+                self._buses[card] = c["bus"]
+        gone = [card for card, c in cards.items() if c["state"] != "ok"]
+        if gone:
+            events = self.xid79()
+            for card in gone:
+                cards[card]["why"] += xid_text(events, self._buses.get(card))
+        return cards
+
+    def xid79(self):
+        """The kernel log's Xid 79 lines of this boot, oldest first: [{at, pci}]. Read only when a
+        card is not answering, to say why. [] when the log cannot be read or holds none."""
+        p, err = self._run([self.journalctl, "-k", "-b", "-g", r"NVRM: Xid \(PCI:[0-9a-fA-F:]+\): 79",
+                            "-o", "short-iso", "--no-pager"])
+        if err is not None:
+            return []
+        out = []
+        for line in p.stdout.splitlines():
+            m = XID_RE.match(line)
+            if m:
+                out.append({"at": m.group(1), "pci": m.group(2)})
+        return out
 
     def gpu_lease(self):
         """The media lease file: {'tag','pid','live'} or None. A dead pid is live=False."""
@@ -657,6 +724,152 @@ class Probes:
                 continue
         return out
 
+    def lock_holders(self, path):
+        """The processes that hold the flock on `path`, found the way lease_holders names them:
+        every process with a descriptor on the file (matched by device and inode) whose
+        /proc/<pid>/fdinfo carries a lock line. A runner's flock(1) exits after it takes the lock
+        on the runner's descriptor 9, so the taker in /proc/locks is often gone and the holders are
+        these. The scan is kept while its holders still hold, so a sitting costs one scan, not one a
+        tick. [{pid, comm, started, card, argv}], oldest first, at most HOLDERS_MAX, and the total."""
+        try:
+            want = os.stat(path)
+        except OSError:
+            return [], 0
+        key = (want.st_dev, want.st_ino)
+        cached = self._holders.get(path)
+        if cached and cached[0] == key and cached[1] and all(
+                self._fd_locked(h["pid"], h["fd"], key) for h in cached[1]):
+            return cached[2], len(cached[1])
+        found = []
+        try:
+            names = os.listdir(self.proc)
+        except OSError:
+            return [], 0
+        me = os.getpid()
+        for name in names:
+            if not name.isdigit() or int(name) == me:
+                continue
+            pid = int(name)
+            try:
+                fds = os.listdir(os.path.join(self.proc, name, "fd"))
+            except OSError:
+                continue
+            for fd in fds:
+                if fd.isdigit() and self._fd_locked(pid, int(fd), key):
+                    found.append({"pid": pid, "fd": int(fd)})
+                    break
+        described = sorted((self._describe_holder(h["pid"]) for h in found),
+                           key=lambda d: d["started"] or 0)
+        self._holders[path] = (key, found, described[:HOLDERS_MAX])
+        return described[:HOLDERS_MAX], len(found)
+
+    def _fd_locked(self, pid, fd, key):
+        """Does descriptor `fd` of `pid` point at the file `key` and carry a lock on it?"""
+        try:
+            st = os.stat(os.path.join(self.proc, str(pid), "fd", str(fd)))
+            info = self._read(self.proc, str(pid), "fdinfo", str(fd))
+        except OSError:
+            return False
+        return (st.st_dev, st.st_ino) == key and any(
+            ln.startswith("lock:") and "->" not in ln for ln in info.splitlines())
+
+    def _describe_holder(self, pid):
+        """pid, comm, when it started (epoch seconds), the BLOOMERY_LEASE_CARD of its environment
+        and the head of its argv: what a waiter needs to find the sitting."""
+        def read(*parts, mode="r"):
+            try:
+                with open(os.path.join(self.proc, str(pid), *parts), mode) as f:
+                    return f.read()
+            except OSError:
+                return None
+        started = None
+        try:
+            _, ticks = parse_stat_start(read("stat"))
+            up = float(self._read(self.proc, "uptime").split()[0])
+            started = time.time() - (up - ticks / os.sysconf("SC_CLK_TCK"))
+        except (TypeError, ValueError, IndexError, OSError):
+            pass
+        env = (read("environ", mode="rb") or b"").split(b"\0")
+        card = next((v[len(b"BLOOMERY_LEASE_CARD="):].decode(errors="replace")
+                     for v in env if v.startswith(b"BLOOMERY_LEASE_CARD=")), None)
+        argv = (read("cmdline", mode="rb") or b"").replace(b"\0", b" ").decode(errors="replace").strip()
+        return {"pid": pid, "comm": (read("comm") or "?").strip(), "started": started,
+                "card": card, "argv": argv[:160]}
+
+    def timing_lease(self, locks):
+        """The bloomery timing lease (TIMING_LOCK among the locks the shared-lock probe found
+        held): {state: held|unreadable|free, holders, holders_total, record}. `record` is the
+        text of <lock>.card, the card the run was taken for. The probe is lease_free's: shared,
+        never an exclusive flock -n."""
+        for path, state in locks.items():
+            if os.path.basename(path) != TIMING_LOCK:
+                continue
+            out = {"state": state, "path": path, "holders": [], "holders_total": 0, "record": None}
+            try:
+                with open(path + ".card") as f:
+                    out["record"] = f.read(200).strip() or None
+            except OSError:
+                pass
+            if state == "held":
+                out["holders"], out["holders_total"] = self.lock_holders(path)
+            return out
+        return {"state": "free", "holders": [], "holders_total": 0, "record": None}
+
+    def box_lease(self):
+        """The rig-log lease file (tools/quiet/lease.sh): "<pid> <reason> <start>". {pid, reason,
+        live, raw} or None when there is no file. A dead pid is live=False; the file is
+        quiet/lease.sh's to clear, never ours."""
+        try:
+            with open(self.box_lease_path) as f:
+                raw = f.read(400).strip()
+        except OSError:
+            return None
+        if not raw:
+            return None
+        head, _, rest = raw.partition(" ")
+        pid = int(head) if head.isdigit() and int(head) >= 2 else None
+        live = False
+        if pid:
+            try:
+                os.kill(pid, 0)
+                live = True
+            except PermissionError:
+                live = True
+            except OSError:
+                live = False
+        return {"pid": pid, "reason": rest, "live": live, "raw": raw, "path": self.box_lease_path}
+
+    def slice_reading(self, unit):
+        """One slice's cgroup, from cgroupfs alone (no systemd call): {running, memory_current,
+        memory_high, memory_max, anon, file, cpus, procs}. A slice with no unit running has no
+        cgroup: running False. Nested names are directories: boxres-round.slice is
+        boxres.slice/boxres-round.slice."""
+        base = os.path.join(self.cgroup, *ledger.slice_chain(unit))
+
+        def num(fname):
+            try:
+                text = self._read(base, fname).strip()
+            except OSError:
+                return None
+            return int(text) if text.isdigit() else None
+        if not os.path.isdir(base):
+            return {"running": False}
+        try:
+            stat = dict(l.split(None, 1) for l in self._read(base, "memory.stat").splitlines() if " " in l)
+        except OSError:
+            stat = {}
+        try:
+            cpus = self._read(base, "cpuset.cpus.effective").strip() or None
+        except OSError:
+            cpus = None
+        try:
+            procs = len(self._read(base, "cgroup.procs").split())
+        except OSError:
+            procs = None
+        return {"running": True, "memory_current": num("memory.current"), "memory_high": num("memory.high"),
+                "memory_max": num("memory.max"), "anon": int(stat.get("anon", 0)) or None,
+                "file": int(stat.get("file", 0)) or None, "cpus": cpus, "procs": procs}
+
     def snapshot(self, watch):
         """One reading of everything admission and the ledger need, called once a tick with no
         lock held. `watch` is {"owners": [liveness...], "nvme": {drive: dev}, "cards": bool}: the
@@ -665,6 +878,9 @@ class Probes:
         s = Snapshot()
         self._unit_deadline = time.monotonic() + self.unit_budget_s
         s.lease, s.locks = self.gpu_lease(), self.bloomery_locks()
+        s.timing, s.box_lease = self.timing_lease(s.locks), self.box_lease()
+        for unit in watch.get("slices", ()):
+            s.slices[unit] = self.slice_reading(unit)
         readings = {}
         for path in self.bloomery_holds():
             owner = self.hold_owner(path)
@@ -822,7 +1038,7 @@ class PopenRunner:
     is SIGTERM to that group. It writes <jobdir>/rc when it sees the job end. A restart
     cannot re-adopt such a job, and neither bound_s nor a confinement is enforced."""
 
-    def launch(self, jid, argv, env, jobdir, media, bound_s=None, confine=None):
+    def launch(self, jid, argv, env, jobdir, media, bound_s=None, confine=None, unit_slice=None):
         full = {k: v for k, v in os.environ.items()
                 if k not in ("NOTIFY_SOCKET", "WATCHDOG_PID", "WATCHDOG_USEC")}
         full.update(env)
@@ -899,9 +1115,9 @@ class UnitRunner:
             raise RunnerError("systemctl show %s: rc=%d %s" % (unit, rc, text.strip()[:200]))
         return props
 
-    def run_argv(self, jid, env, jobdir, media, bound_s=None, confine=None):
+    def run_argv(self, jid, env, jobdir, media, bound_s=None, confine=None, unit_slice=None):
         """The systemd-run command line of one job. `confine` is {"cpus": [..], "memory_high":
-        bytes, "memory_max": bytes}, each key optional."""
+        bytes, "memory_max": bytes}, each key optional; `unit_slice` the class slice it starts in."""
         for name in env:
             if not self.ENV_NAME.fullmatch(name):
                 raise RunnerError("env name %r is not a variable name" % name, rc=64)
@@ -915,6 +1131,8 @@ class UnitRunner:
             else ["-p", "TimeoutStopSec=%d" % STOP_S]
         if bound_s:
             argv += ["-p", "RuntimeMaxSec=%d" % bound_s]
+        if unit_slice:
+            argv += ["--slice", unit_slice]
         for key, prop in (("memory_high", "MemoryHigh"), ("memory_max", "MemoryMax")):
             if (confine or {}).get(key):
                 argv += ["-p", "%s=%d" % (prop, confine[key])]
@@ -927,14 +1145,33 @@ class UnitRunner:
             argv += ["--setenv", "%s=%s" % (name, value)]
         return argv + ["/bin/bash", os.path.join(jobdir, "cmd.sh")]
 
-    def launch(self, jid, argv, env, jobdir, media, bound_s=None, confine=None):
+    def slice_installed(self, name):
+        """Is slice `name`, and every slice a dash in its name puts it inside, a unit file on this
+        box? systemd makes an implicit slice with no caps out of any name (LoadState=loaded, no
+        FragmentPath), so only the file says it is installed. A RunnerError rc 69 names the slice
+        that is not; rc 70 when systemd cannot be asked."""
+        for unit in ledger.slice_chain(name):
+            rc, text = self._run([self.systemctl, "show", unit, "-p", "LoadState", "-p", "FragmentPath"])
+            props = dict(line.split("=", 1) for line in text.splitlines() if "=" in line)
+            if rc != 0 or "FragmentPath" not in props:
+                raise RunnerError("systemctl show %s: rc=%d %s" % (unit, rc, text.strip()[:200]))
+            if not props["FragmentPath"]:
+                raise RunnerError("slice %s is not installed (systemctl show: LoadState=%s, no FragmentPath)%s: "
+                                  "without its unit file it is an implicit slice with no caps; install it from "
+                                  "configs/ and daemon-reload"
+                                  % (unit, props.get("LoadState"), "" if unit == name else ", and %s is inside it" % name),
+                                  rc=69)
+
+    def launch(self, jid, argv, env, jobdir, media, bound_s=None, confine=None, unit_slice=None):
         unit = unit_of(jid)
         rc_file = os.path.join(jobdir, "rc")
         if self._props(unit)["LoadState"] != "not-found":
             raise RunnerError("unit %s exists" % unit, rc=64)
         if os.path.exists(rc_file):
             raise RunnerError("%s exists: job id %s was used before" % (rc_file, jid), rc=64)
-        cmd = self.run_argv(jid, env, jobdir, media, bound_s, confine)
+        if unit_slice:
+            self.slice_installed(unit_slice)
+        cmd = self.run_argv(jid, env, jobdir, media, bound_s, confine, unit_slice)
         write_scripts(jobdir, argv)
         rc, text = self._run(cmd)
         if rc != 0:
@@ -1019,6 +1256,9 @@ class Scheduler:
         self.ram_wait = {}       # queued job id -> (priority, bytes) held only by RAM this tick
         self.stale_seen = set()  # the dead holds already named
         self.over_seen = {}      # holder id -> the over_by last named
+        self.idle_since = {}     # card -> when its utilization was first read as 0 % (and not since)
+        self.status_seen = {}    # grant id -> the status word last named (overdue, held)
+        self.cards_read_at = None  # monotonic time of the last snapshot that asked the driver
         self.reservations = reservations or Reservations(os.path.join(home, "reservations.json"))
         self.fake = fake
         self.now = now_fn
@@ -1051,7 +1291,7 @@ class Scheduler:
         self.decisions = data.get("decisions", [])
         for job in self.jobs:
             # a job written before these fields existed still answers with every wire key
-            for key in ("out", "err", "rc_file", "resolved_card", "need", "confine"):
+            for key in ("out", "err", "rc_file", "resolved_card", "need", "confine", "slice"):
                 job.setdefault(key, None)
             job.setdefault("expected_s", self.expected_s_of(job))
             rank = self.res.class_priority.get(job["job_class"])
@@ -1259,8 +1499,17 @@ class Scheduler:
         owners += [{"unit": unit_of(j["id"])} for j in self.running_jobs()
                    if j.get("need") and isinstance(self.procs.get(j["id"]), UnitHandle)]
         if cards is None:
-            cards = any(j["status"] == "queued" for j in self.jobs)
-        return {"owners": owners, "nvme": dict(self.res.nvme), "cards": cards}
+            cards = any(j["status"] == "queued" for j in self.jobs) or self.grant_cards_due()
+        return {"owners": owners, "nvme": dict(self.res.nvme), "cards": cards,
+                "slices": sorted(set(self.res.slices.values()))}
+
+    def grant_cards_due(self):
+        """Does an open grant hold a card whose utilization is due a reading? The `held` word needs
+        minutes of resolution, so a grant alone makes a tick ask the driver every CARD_POLL_S."""
+        if not self.res.idle_card_s or not any(
+                g["state"] in GRANT_OPEN and g["need"].get("cards") for g in self.grants):
+            return False
+        return self.cards_read_at is None or time.monotonic() - self.cards_read_at >= CARD_POLL_S
 
     def observe(self, cards=None):
         """Take one snapshot with no lock held (the watch list is copied under it) and keep it
@@ -1271,6 +1520,8 @@ class Scheduler:
         snap = self.probes.snapshot(watch)
         if self.snap is None or snap.mono >= self.snap.mono:
             self.snap = snap
+        if snap.cards_read:
+            self.cards_read_at = snap.mono
         return snap
 
     def lease_reasons(self):
@@ -1283,6 +1534,35 @@ class Scheduler:
                 self.event("cleared stale gpu-lease: %s (pid %s dead)"
                            % (lease["tag"], lease["pid"]))
         return reasons
+
+    @staticmethod
+    def lease_text(t):
+        """One line for the timing lease's holder: pid, comm, the card file, how long it has run,
+        and the lease's own card record."""
+        rec = "; record %s" % t["record"] if t.get("record") else ""
+        if not t["holders"]:
+            return "%s is held; no process with it locked was found%s" % (TIMING_LOCK, rec)
+        h = t["holders"][0]
+        up = ", up %d s" % max(0, time.time() - h["started"]) if h.get("started") else ""
+        more = " and %d more" % (t["holders_total"] - 1) if t["holders_total"] > 1 else ""
+        return "pid %d %s%s%s%s%s" % (h["pid"], h["comm"],
+                                      " (card file %s)" % h["card"] if h.get("card") else "", up, more, rec)
+
+    def quiet_reason(self, snap):
+        """Why the box must be quiet now, or None: a sitting's grant is up, the bloomery timing
+        lease (the shared lock probe found it held, or could not test it) or a live rig-log lease.
+        An IO-heavy grant (nvme bulk) is refused while it stands."""
+        sitting = next((g for g in self.grants if g["state"] in GRANT_OPEN and g["class"] == "sitting"), None)
+        if sitting:
+            return "sitting grant %s (%s) is up" % (sitting["id"], sitting["holder"])
+        t = snap.timing
+        if t["state"] == "held":
+            return "the timing lease is held by " + Scheduler.lease_text(t)
+        if t["state"] == "unreadable":
+            return "the timing lease %s cannot be tested" % TIMING_LOCK
+        if snap.box_lease and snap.box_lease["live"]:
+            return "the rig-log lease is held by pid %d (%s)" % (snap.box_lease["pid"], snap.box_lease["reason"])
+        return None
 
     @staticmethod
     def hold_state(hold):
@@ -1371,11 +1651,14 @@ class Scheduler:
             if g["state"] not in GRANT_OPEN:
                 continue
             reading = snap.owners.get(owner_key(g["liveness"])) or {}
+            word, why = self.grant_status(g)
             rows.append({"id": g["id"], "kind": "grant", "holder": g["holder"], "klass": g["class"],
                          "owner": g.get("owner"), "since": g["since"],
                          "unit": g["liveness"].get("unit") or "pid %d" % g["liveness"]["pid"],
                          "need": g["need"], "state": g["state"],
-                         "measured": reading.get("measured"), "text": reading.get("why")})
+                         "measured": reading.get("measured"), "text": reading.get("why"),
+                         "status": word, "status_why": why, "age_s": self.grant_age_s(g),
+                         "expected_s": g.get("expected_s"), "bound_s": g.get("bound_s")})
         for j in self.running_jobs():
             if not j.get("need"):
                 continue
@@ -1386,6 +1669,37 @@ class Scheduler:
                          "measured": reading.get("measured"), "text": reading.get("why")})
         return rows
 
+    def grant_age_s(self, grant):
+        """Seconds a live grant has run (from the tick its owner was first seen); None while it
+        is pending."""
+        if grant["state"] != "live" or not grant.get("seen"):
+            return None
+        return max(0, int((self.now() - datetime.fromisoformat(grant["seen"])).total_seconds()))
+
+    def grant_status(self, grant):
+        """(word, why) of an open grant: `overdue` past overdue_factor x its expected_s, `held` when
+        a card it holds has read 0 % utilization for idle_card_s; else ("ok", None). It names, never
+        stops: the unit's RuntimeMaxSec (boxres run --bound) is what stops a run."""
+        age, said, words = self.grant_age_s(grant), [], []
+        exp, factor = grant.get("expected_s"), self.res.overdue_factor
+        if age is not None and exp and factor and age > factor * exp:
+            words.append("overdue")
+            said.append("running %d s, expected %d s (x%d = %d s)%s" % (
+                age, exp, factor, factor * exp,
+                "; its bound is %d s" % grant["bound_s"] if grant.get("bound_s") else ""))
+        if age is not None and self.res.idle_card_s:
+            for card in grant["need"].get("cards", []):
+                since = self.idle_since.get(card)
+                idle = (self.now() - since).total_seconds() if since else 0
+                if since and idle >= self.res.idle_card_s:
+                    words.append("held")
+                    said.append("card %s has read 0 %% utilization for %d s while this grant holds it"
+                                % (card, idle))
+                    break
+        if not words:
+            return "ok", None
+        return ("overdue" if "overdue" in words else "held"), "; ".join(said)
+
     def held_back(self, priority):
         """Bytes the queued jobs of a higher priority wait for, held only by RAM: no lower job or
         grant takes them (the sitting barrier, for RAM)."""
@@ -1394,7 +1708,8 @@ class Scheduler:
     def ledger_now(self, priority=None):
         snap = self.view_snap()
         return ledger.Ledger(self.res, snap.mem, snap.mem_why, self.ledger_rows(snap),
-                             held_back=self.held_back(priority) if priority is not None else 0)
+                             held_back=self.held_back(priority) if priority is not None else 0,
+                             quiet=self.quiet_reason(snap))
 
     def need_reasons(self, job, alt):
         """What the ledger says against this job on these cards: a card a grant holds (every job),
@@ -1603,10 +1918,11 @@ class Scheduler:
         # the command line goes beside the job's output, never into it: out is the job's stdout only
         with open(os.path.join(jobdir, "argv"), "ab") as f:
             f.write(("[%s] argv: %s\n" % (iso(self.now()), " ".join(cmd))).encode())
+        unit_slice = self.res.slices.get(job["job_class"])
         try:
             handle = self.runner.launch(job["id"], cmd, extra_env, jobdir,
                                         job["kind"] in MEDIA_KINDS, bound_s=job.get("bound_s"),
-                                        confine=confine)
+                                        confine=confine, unit_slice=unit_slice)
         except RunnerError as e:
             job["status"], job["finished"] = "failed", iso(self.now())
             job["rc"], job["sentinel"] = e.rc, str(e)
@@ -1614,10 +1930,11 @@ class Scheduler:
             return
         where = self.runner.describe(handle)
         job.update(status="running", started=iso(self.now()), resolved_card=card,
-                   wait_reason=None, confine=confine, **where)
+                   wait_reason=None, confine=confine, slice=unit_slice, **where)
         self.procs[job["id"]] = handle
-        self.event("job %s started on %s (%s)%s"
+        self.event("job %s started on %s (%s)%s%s"
                    % (job["id"], card, ", ".join("%s %s" % kv for kv in where.items()),
+                      " in slice %s" % unit_slice if unit_slice else "",
                       " confined to cpus %s, memory max %s" % (
                           ledger.fmt_cpus(confine["cpus"]) if confine.get("cpus") else "all",
                           ledger.gb(confine["memory_max"]) if confine.get("memory_max") else "unset")
@@ -1702,6 +2019,22 @@ class Scheduler:
                 elif (now - datetime.fromisoformat(grant["since"])).total_seconds() > self.res.appear_s:
                     self.end_grant(grant, "expired", "its owner did not appear within %d s: %s"
                                    % (self.res.appear_s, reading["why"]))
+        if snap.cards_read:
+            for card, c in snap.cards.items():
+                if c.get("state") == "ok" and c.get("util") == 0:
+                    self.idle_since.setdefault(card, now)
+                else:
+                    self.idle_since.pop(card, None)
+        for grant in self.grants:
+            if grant["state"] not in GRANT_OPEN:
+                continue
+            word, why = self.grant_status(grant)
+            if word == "ok":
+                self.status_seen.pop(grant["id"], None)
+            elif self.status_seen.get(grant["id"]) != word:
+                self.status_seen[grant["id"]] = word
+                self.decide(word, "grant %s (%s %s) is %s: %s" % (grant["id"], grant["class"],
+                                                                  grant["holder"], word, why))
         dead = {}
         for hold in snap.holds:
             if self.hold_state(hold)[0] == "dead":
@@ -1727,12 +2060,21 @@ class Scheduler:
     def end_grant(self, grant, state, why):
         grant.update(state=state, ended=iso(self.now()), ended_why=why)
         self.over_seen.pop(grant["id"], None)
+        self.status_seen.pop(grant["id"], None)
         self.decide(state, "grant %s (%s %s) %s: %s" % (grant["id"], grant["class"], grant["holder"],
                                                         state, why))
 
     def grant_view(self, grant):
+        """The grant with the caps its unit takes (`limits`: MemoryHigh, MemoryMax) and, while it is
+        open, the cpus it runs on (`confine`): its own explicit set, else what the exclusive sets of
+        the other grants leave, else none (the unit keeps its slice's cpus)."""
         view = dict(grant)
         view["limits"] = ledger.limits_of(self.res, ledger.declared_total(grant["need"]))
+        if grant["state"] in GRANT_OPEN:
+            led = self.ledger_now()
+            cpus = grant["need"].get("cpus") or (led.cpu_free() if led.exclusive_cpus else [])
+            if cpus:
+                view["confine"] = {"cpus": ledger.fmt_cpus(cpus)}
         return view
 
     def parse_grant(self, body):
@@ -1740,7 +2082,7 @@ class Scheduler:
         if not isinstance(body, dict):
             raise ValueError("body must be a JSON object")
         extra = sorted(set(body) - {"holder", "class", "need", "liveness", "hold", "owner",
-                                    "expected_s"})
+                                    "expected_s", "bound_s"})
         if extra:
             raise ValueError("the body has fields a grant does not take: %s" % ", ".join(extra))
         holder = body.get("holder")
@@ -1778,10 +2120,14 @@ class Scheduler:
         if expected is not None and not (isinstance(expected, int) and not isinstance(expected, bool)
                                          and 1 <= expected <= EXPECTED_S_MAX):
             raise ValueError("expected_s must be an integer 1..%d" % EXPECTED_S_MAX)
+        bound = body.get("bound_s")
+        if bound is not None and not (isinstance(bound, int) and not isinstance(bound, bool)
+                                      and 1 <= bound <= BOUND_S_MAX):
+            raise ValueError("bound_s must be an integer 1..%d (the unit's RuntimeMaxSec)" % BOUND_S_MAX)
         owner = body.get("owner", holder)
         if not isinstance(owner, str) or not ledger.NAME_RE.fullmatch(owner):
             raise ValueError("owner must be a name [A-Za-z0-9._-]+")
-        return holder, klass, need, liveness, hold, expected, owner
+        return holder, klass, need, liveness, hold, expected, owner, bound
 
     def grant_create(self, body):
         """POST /grants: (http status, body). 201 with the grant and its limits; 409 rc 75 with the
@@ -1789,7 +2135,7 @@ class Scheduler:
         memory cannot be read; a ValueError (400, rc 64) for a body
         that is not a grant. One lock holds the check and the record: two requests on one tick
         cannot both fit."""
-        holder, klass, need, liveness, hold, expected, owner = self.parse_grant(body)
+        holder, klass, need, liveness, hold, expected, owner, bound = self.parse_grant(body)
         self.observe(cards=True)        # every probe before the lock: the answer is the box now
         with self.lock:
             twin = next((g for g in self.grants if g["state"] in GRANT_OPEN
@@ -1799,8 +2145,14 @@ class Scheduler:
             priority = self.res.class_priority[klass]
             led = self.ledger_now(priority)
             refusals = led.check(need, "grant")
+            lost = []
             if not self.fake:
                 for card in need["cards"]:
+                    c = self.view_snap().cards.get(card)
+                    if c and c["state"] != "ok":
+                        lost.append(ledger.Refusal("card-lost.%s" % card, "card.%s is %s (%s)"
+                                                   % (card, c["state"], c["why"]), None))
+                        continue
                     if self.lane_busy(card):
                         job = next(j for j in self.running_jobs() if card in self.lanes_held(j))
                         refusals.append(ledger.Refusal("card.%s" % card, "card.%s: lane busy with job "
@@ -1808,19 +2160,21 @@ class Scheduler:
                                                                        job["job_class"], job["owner"]), None))
                     for reason in dict.fromkeys(self.card_reasons(card, owner)):
                         refusals.append(ledger.Refusal("card.%s" % card, "card.%s: %s" % (card, reason), None))
+            refusals = lost + refusals
             if refusals:
-                blind = [r for r in refusals if r.resource == "ram-blind"]
+                blind = [r for r in refusals if r.resource == "ram-blind" or r.resource.startswith("card-lost.")]
                 lines = [led.line(holder, klass, r) for r in refusals]
+                if blind:
+                    lines[0] = "boxres: %s (class %s) refused rc 69: %s" % (holder, klass, blind[0].text)
                 self.decide("refused", lines[0] + (" (+%d more)" % (len(lines) - 1) if len(lines) > 1 else ""))
                 self.persist()
                 if blind:
-                    return 503, {"error": "boxres: %s (class %s) refused rc 69: %s"
-                                 % (holder, klass, blind[0].text), "rc": 69}
+                    return 503, {"error": lines[0], "rc": 69, "refusals": lines}
                 return 409, {"error": lines[0], "rc": 75, "refusals": lines}
             self.gseq += 1
             grant = {"id": "g%d" % self.gseq, "holder": holder, "class": klass, "owner": owner,
                      "need": need, "liveness": liveness, "hold": hold, "expected_s": expected,
-                     "state": "pending", "since": iso(self.now()), "seen": None, "ended": None,
+                     "bound_s": bound, "state": "pending", "since": iso(self.now()), "seen": None, "ended": None,
                      "ended_why": None}
             self.grants.append(grant)
             self.decide("admitted", "grant %s (%s %s) admitted: ram %s, cards %s, cpus %s, nvme %s"
@@ -1842,9 +2196,10 @@ class Scheduler:
                 self.persist()
             return self.grant_view(grant)
 
-    def ledger_view(self):
+    def ledger_view(self, recent=20):
         """GET /ledger: the holders with their needs, measured use and charge, the headroom, the
-        cards, the holds and why each job waits."""
+        cards, the holds, the leases, the class slices and why each job waits. `recent` is how many
+        of the last decisions to list (at most the config's history)."""
         self.observe(cards=True)
         with self.lock:
             snap = self.view_snap()
@@ -1875,7 +2230,15 @@ class Scheduler:
             view["ended"] = [{k: g.get(k) for k in ("id", "holder", "class", "state", "since",
                                                     "ended", "ended_why")}
                              for g in self.grants[-self.res.history:] if g["state"] in GRANT_ENDED]
-            view["recent"] = self.decisions[-20:]
+            view["recent"] = self.decisions[-max(1, min(recent, self.res.history)):]
+            t = snap.timing
+            view["lease"] = {
+                "timing": dict(t, text=self.lease_text(t) if t["state"] == "held" else None),
+                "box_lease": snap.box_lease,
+                "quiet": self.quiet_reason(snap),
+            }
+            view["slices"] = {klass: dict(snap.slices.get(unit, {"running": False}), unit=unit)
+                              for klass, unit in self.res.slices.items()}
             return view
 
     def tick(self):
@@ -2204,7 +2567,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/state":
             return self.send_json(s.state_view())
         if path == "/ledger":
-            return self.send_json(s.ledger_view())
+            try:
+                recent = int(q.get("recent", ["20"])[0])
+            except ValueError:
+                return self.send_json({"error": "recent must be a whole number", "rc": 64}, 400)
+            return self.send_json(s.ledger_view(recent))
         if path == "/calendar.md":
             return self.send_text(s.calendar_md(), ctype="text/markdown; charset=utf-8")
         if path == "/jobs":
@@ -2525,6 +2892,28 @@ def start_threads(sched, notify=sd_notify, beat=None, tick_s=TICK_S,
     return stop
 
 
+def check_slices(cfg, runner=None):
+    """(line, missing): where the config's class slices stand on this box. A slice is installed when
+    systemd knows its unit file (FragmentPath); the daemon refuses a queued job of a class whose slice
+    is not, so a restart onto a missing one would fail every job of that class. `missing` is the list
+    of slice units without a file; the line says "not checked" where there is no systemctl (a copy
+    of the config on another machine)."""
+    if not cfg.slices:
+        return "slices: none configured", []
+    if runner is None and not shutil.which("systemctl"):
+        return "slices: not checked (no systemctl here)", []
+    runner = runner or UnitRunner()
+    state = []
+    for klass, unit in sorted(cfg.slices.items()):
+        try:
+            runner.slice_installed(unit)
+            state.append("%s %s (installed)" % (klass, unit))
+        except RunnerError as e:
+            state.append("%s %s (%s)" % (klass, unit, "NOT INSTALLED" if e.rc == 69 else "unreadable: %s" % e))
+    missing = [u for (k, u), st in zip(sorted(cfg.slices.items()), state) if "(installed)" not in st]
+    return "slices: " + ", ".join(state), missing
+
+
 def main():
     ap = argparse.ArgumentParser(description="signalbox dispatcher")
     ap.add_argument("--port", type=int, default=PORT)
@@ -2547,10 +2936,17 @@ def main():
         log("resource config: %s" % e)
         sys.exit(78)
     if args.check:
-        print("ok %s: classes %s; headroom %s; cpus %s" % (
+        line, missing = check_slices(cfg)
+        if missing:
+            log("%s: install them (cp configs/<slice> /etc/systemd/system/ && systemctl daemon-reload) "
+                "before a restart, or take the class out of slices in %s" % (line, path))
+            sys.exit(78)
+        print("ok %s: classes %s; headroom %s; cpus %s; tape %s; %s" % (
             path, ", ".join("%s %d" % kv for kv in sorted(cfg.class_priority.items(),
                                                           key=lambda kv: -kv[1])),
-            ledger.gb(cfg.headroom), ledger.fmt_cpus(cfg.cpus)))
+            ledger.gb(cfg.headroom), ledger.fmt_cpus(cfg.cpus),
+            "cpus %s, rounds keep %s" % (ledger.fmt_cpus(cfg.tape["cpus"]), ledger.fmt_cpus(cfg.tape["rounds_cpus"]))
+            if cfg.tape else "none", line))
         return
     sched = Scheduler(home=args.home, fake=fake, runner=PopenRunner() if fake else UnitRunner(),
                       resources=cfg)
