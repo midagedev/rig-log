@@ -107,6 +107,17 @@ Ranked by value. Source = section in this file. Owner = suggested session.
   sets, then delete it (the user approved the delete, 2026-10-20).
 - **Gate keys over-select by crate edge** (lead, round hfcut): three `crates/hf`-only commits moved 107 of 107 keys of
   a train (2026-10-20), because `crates/model` and `crates/gpu-gates` depend on hf whole.
+- **lease.sh FIFO reader hang on EINTR** (lead, 2026-10-20; from round leaseflk2): under load on the Mac,
+  `tools/gate-bound.sh:212`'s FIFO writer open fails with `Interrupted system call`. `lease.sh:560`
+  `wait "$reader"` then never returns, about 1 in 52 parallel self-test loops. Wanted: retry the open on EINTR,
+  bound the wait with a named error, and a self-test case that injects EINTR.
+- **Machine-specific code out of bloomery** (user, 2026-10-20: machine code lives in rig-log): the audit lists 12
+  MOVE, 7 SPLIT and about 75 KEEP-with-arguments items: boxq.py, mac-remote.sh, the board's launchd parts, box.sh's
+  queue and lanes, lease.sh's netdata gate, workstation.rs's card constants. Order: after boxdev and boardfix land,
+  first the MOVE files behind generic hooks, then the SPLITs, then the Rust constants as their own round.
+- **Box resource ledger** (user, 2026-10-20): the boxres design, signalbox as the one owner. R1a (the ledger, grants
+  and hold liveness) and R2 (bloomery's generic need record, `BLOOMERY_NEED_HOOK`, the pool's CPU mask) are running.
+  R1b, R3-R7 follow.
 - **String-arch ModelSpec deferred** (models, 2026-10-20): MK1b moves the three per-family tables (`models::Arch`
   name, placement `program_of`, gpu-gates `family_of`) into files listed in `tools/model-registries.txt`, so a family
   pays 1 PIN line instead of 6. `ModelSpec` carrying the registry name instead of the enum is deferred: it removes no
