@@ -2483,6 +2483,24 @@ chain at m = 2 (the same term as the recentlit "verify m-rows" line above).
 - **범위 충돌:** 위 「llama-server parity」 표가 embeddings와 `/models/load`·`/unload`(router mode)를 out of scope로 둔다. 착수할 때 사용자가 다시 결정한다.
 - **vLLM Kimi K3 디코드(블로그 2026-10-16, GB300 TP8/16): 대부분 해당 없음.** 이득의 큰 몫은 NVLink TP all-reduce 융합이라 bloomery(PCIe, TP 없음)에 없다. 남은 세 가지는 `kimiread`(Haiku, 기록만, 박스 없음)로 값을 매겼다. (1) shared expert 측면 스트림: Bolt 3090 [유도] 0.20 ms/토큰(1.8 %, 대역 0.9–3.5 %), `Branch::fork/join`으로 그래프에서 합법, 열기 후보. Qwen3.8은 이미 호스트 다리 그늘이라 보류. (2) 다음 가중치 L2 프리페치: 6 MB L2에 5.7 MB, 창 2–4 µs에 프리페치 8.9 µs, 0.9 %로 자 아래라 드롭. (3) 층당 커널 수: 노드 하나가 0.0075 %라 노드 수를 세기 전까지 보류. 먼저 할 측정 하나는 Bolt 3090 d=512 한 스텝의 nsys `cuda_gpu_kern_sum`과 노드 수다. 커널 합 예측은 9.5–11.0 ms이고 스텝은 11.3 ms다(`bolt-rel-tg-3090.card`). 바이트 3.0 GB [유도]가 설명하는 것은 3.9–4.3 ms뿐이라, 설명되지 않은 3–7 ms가 셋 중 어느 것보다 크다. 교훈인 "동기화 대기 앞으로 옮겨진 읽기"는 last-block 티켓 9쌍 모두 fence → `fetch_add(AcqRel)` → `sync_threads` 순서였다. `gpu-deepseek41/src/hc.rs` `column_sum`만 일반 load라 SASS 확인 한 번이 남는다.
 
+**DeepSeek DeepInfer `774ce244b` + deepseek-recipe `935817c66`** (조사 라운드 `deepinfer`, 2026-10-21; 보고 원문 리드 세션
+`orca/briefs/w2300/night/deepinfer` 사본, 서브모듈 6개(tile_kernels·DeepSelect·FlashMLA·DeepGEMM 등)는 빈 채라 그 수학은 미확인):
+- **디코드 레버: 없음.** SM100·와이드 EP 전제. 배치 1에서 우리 벽은 카드 13.5 ms + 호스트 레그 13–15 ms의 합이고, 커널 융합은
+  P3–P5가 추적하는 런치 몫(≤ 0.3 ms)에만, 제로오버헤드 스케줄은 스텝 사이 유휴 천장(1.5–2.3 %)에만 닿는다[유도].
+- **제어 토큰 주입: 채택, 라운드 `ctlsafe`(2026-10-21).** 렌더한 프롬프트 전체를 `parse_special`로 토큰화하므로, 사용자·도구
+  내용 속 특수 토큰 문자열이 진짜 턴 경계와 DSML이 된다(`serve/api.rs:2698`). recipe는 렌더 때 특수 토큰 구간을 기록한다.
+- **V4.1 DSML 방언: 우리 파일에는 해당 없음.** recipe의 V4.1 렌더는 `" calls"`/`" invoke"`처럼 공백이 붙지만, 우리 1017 GGUF의
+  템플릿은 `tool_calls`/`invoke`/`parameter`를 쓴다(박스 헤더 grep, 2026-10-21). 템플릿이 바뀌면 `dsml.rs` 상수를 표로.
+- **decoder SWA bounded replay: 품질 한 항부터.** 소비자 층의 정확한 삼각형 대신 20·min(P, 140)을 다시 돈다. 예측 pp512 ×1.36
+  [1.30, 1.47], pp4096 ×1.24 [1.16, 1.26][유도]. 근사라 디코드 상태 비트가 움직인다. 교사 강제 KL·top-1 한 항을 박스에서
+  잰 뒤 레버로 착륙한다(성능 우선 규약에 따라 통과 시 기본값 후보).
+- **구조화 출력: 설계 참고.** 검증 행마다 matcher accept/rollback, 엔진 스레드 밖 컴파일, 트리거 토큰, 스키마를 시스템
+  프롬프트에도. 비용은 스텝의 0.1 % 미만[유도]. 0.2.3 1순위 항목(`api.rs:1546` 거절)과 묶는다.
+- **V4.1 DSpark 샘플 요청 경로: 한 항 측정 후.** 손익분기 수락 0.65, 예측 ×1.04–1.12[가정]. 창마다 (p_T(draft id), 1 − TV)
+  결합 분포를 박스에서 잰다.
+- **confidence head·요청 간 가변 검증·FP4 KV·후보-희소 채점·디바이스 융합 샘플러·배치 불변 모드: 기각 또는 보류.** 각 항이
+  잡음(±1.0 %) 안이거나 배치 1에서 쓸 수 없다(완전 오라클 head 상한 +4.5 %, FP4 인덱스 키 128K에서 −1.0 %).
+
 ### 재판정 잔여 (revisit)
 
 R2 Q3_K 밀집 m ≤ 8 대역(m=6이 m=1 GB/s의 90 % 밑이면 m > 1 명령 레버 카드 — DSpark 패스 +4.7 ms 위험; uniongroup 앞); R5 0·1층 Q5_K `_sel`을 카드로(순 −0.15…−0.4 ms); R6 목록 주장 확인·R7 DSpark 재유도(합집합 0.753로)·R8 rows % 4(plainfile이 덮었는지); N1·N2·N3·N4·N5는 시팅 큐와 사용자 결정.
