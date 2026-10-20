@@ -1,0 +1,33 @@
+# The slice for the rounds' builds and static checks on the box. It holds them on CCDs 2 and 3 (`lscpu -e=CPU,CACHE`:
+# L3 groups 2 and 3, CPUs 16-31 and their SMT siblings 48-63) at half the CPU weight, so the landing batches and the
+# timing lease keep CCDs 0 and 1. tools/box-static.sh runs bloomery's `tools/mac-static.sh --native --slice
+# rounds.slice` here. There is no IOWeight: the box's block schedulers are `none`, so a weight does nothing.
+#
+# It is never frozen. A frozen build's own timeout keeps counting, and the build reads a false 124 when it is thawed.
+# A sitting drains the slice through signalbox instead (boxres R5).
+#
+# Memory. The host keeps a served model's host tier in page cache, and the box has 251 GB. Past MemoryHigh only this
+# slice is reclaimed (it slows, it does not die); past MemoryMax the OOM killer acts inside this slice only. A static
+# run measured 5.2 GiB at its peak cold and 3.9 GiB warm. After its scopes exit, the slice still holds their page cache
+# (8.5 GiB measured), so lowering MemoryHigh needs a reclaim, not a wait.
+#
+# This file is the one owner of the caps (AllowedCPUs, MemoryHigh, MemoryMax). Other scripts read them with
+# `systemctl show`. To lower one while it runs, use only `systemctl set-property --runtime rounds.slice MemoryHigh=…`;
+# a reboot restores this file's values.
+#
+# Install (on the box, as root):
+#   install -m 0644 configs/rounds.slice /etc/systemd/system/rounds.slice
+#   systemctl daemon-reload
+# Check:
+#   systemctl show rounds.slice -p LoadState -p FragmentPath -p AllowedCPUs -p CPUWeight -p MemoryHigh -p MemoryMax
+#   systemd-run --scope --slice=rounds.slice -- cat /sys/fs/cgroup/rounds.slice/cpuset.cpus.effective   # 16-31,48-63
+# Use: from a bloomery tree on the Mac, `bash ~/repo/rig-log/tools/box-static.sh origin/main`; by hand,
+# `systemd-run --scope --slice=rounds.slice -- <command>`. The slice comes up with its first unit and goes when empty.
+[Unit]
+Description=Slice for the rounds' builds and static checks (CCDs 2-3, half CPU weight)
+
+[Slice]
+AllowedCPUs=16-31,48-63
+CPUWeight=50
+MemoryHigh=40G
+MemoryMax=56G
