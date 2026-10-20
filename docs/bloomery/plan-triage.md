@@ -107,6 +107,10 @@ Ranked by value. Source = section in this file. Owner = suggested session.
   sets, then delete it (the user approved the delete, 2026-10-20).
 - **Gate keys over-select by crate edge** (lead, round hfcut): three `crates/hf`-only commits moved 107 of 107 keys of
   a train (2026-10-20), because `crates/model` and `crates/gpu-gates` depend on hf whole.
+- **String-arch ModelSpec deferred** (models, 2026-10-20): MK1b moves the three per-family tables (`models::Arch`
+  name, placement `program_of`, gpu-gates `family_of`) into files listed in `tools/model-registries.txt`, so a family
+  pays 1 PIN line instead of 6. `ModelSpec` carrying the registry name instead of the enum is deferred: it removes no
+  per-family row, loses exhaustiveness, and touches `fault.rs`, which waits on faultcov.
 
 ## [history — shipped as v0.3.0..v0.3.2; open rows above supersede] Release 0.3.0 (or 0.2.10) — orchestration (the user, 2026-10-10 ~08:40: "worker들과 협력해서 릴리즈를 위한 오케스트레이션 가속")
 
