@@ -48,7 +48,8 @@ BODY_DIRS = {"clef": ("Clef-Flash", "seat"), "A": ("Clef-Flash", "seat"),
              "qwen-sys1": ("Qwen3.6-35B-A3B", "systemone"), "qwen-jump": ("Qwen3.6-35B-A3B", "jump"),
              "jump-systemone": ("Qwen3.6-35B-A3B", "systemone"), "jump": ("Qwen3.6-35B-A3B", "jump"),
              "step-systemone": ("Qwen3.6-35B-A3B", "systemone-step"), "step": ("Qwen3.6-35B-A3B", "step"),
-             "ds41-jump": ("DeepSeek-V4.1-Flash", "jump"), "ds41-step": ("DeepSeek-V4.1-Flash", "step")}
+             "ds41-jump-systemone": ("DeepSeek-V4.1-Flash", "systemone"), "ds41-jump": ("DeepSeek-V4.1-Flash", "jump"),
+             "ds41-step-systemone": ("DeepSeek-V4.1-Flash", "systemone-step"), "ds41-step": ("DeepSeek-V4.1-Flash", "step")}
 REQ_BODY = ("Qwen3.6-35B-A3B", "systemone")
 REQ_ARM = ("Qwen3.6-35B-A3B", "jump")          # the rows whose picks the request bodies must agree with
 # The requests, in the order shown (suite, id): an agent's tool, a Korean customer, an invoice as JSON, a mixed review
@@ -245,6 +246,9 @@ def part_b(rows_dir, bodies_dir, suite_src, hd, copy, inputs, P):
     if not rq_dirs: die(f"no bodies dir holds {REQ_BODY} (BODY_DIRS)")
     jt = firsts(of(rows, *REQ_ARM))
     b["req"] = []
+    C["rq_body"] = "answer + probabilities"        # the footer beside POST /v1/systemone: what its body holds
+    cites["rq_body"] = [f"bodies {rq_dirs[0]}/ (answers: the pick, each option's probability)",
+                        "answer.rs:3 (the softmax runs over the options)"]
     nreq = int((inputs.get("b") or {}).get("requests", 2))     # inputs.json b.requests: the first n shown
     b["long_mode"] = (inputs.get("b") or {}).get("long", "off")
     if b["long_mode"] not in LONG_MODES: die(f"b.long {b['long_mode']!r} is not one of {LONG_MODES}")
@@ -272,8 +276,7 @@ def part_b(rows_dir, bodies_dir, suite_src, hd, copy, inputs, P):
         k = f"b_r{i}"
         C.update({f"{k}_id": f"{suite}/{rid}", f"{k}_txt": lines, f"{k}_q": [x["q"] for x in qs],
                   f"{k}_pk": [x["pick"] for x in qs], f"{k}_pc": [x["pct"] for x in qs]})
-        if len(qs) == 1 and qs[0]["conf"] is not None:      # one question: its confidence, a line and its number
-            C[f"{k}_cf"] = f"confidence {qs[0]['conf']}%"; cites[f"{k}_cf"] = [f"body {Path(bp).name} (confidence)"]
+        # no confidence line: the body's percentages are shares among the options, not a confidence (Addition 8)
         cites[f"{k}_id"] = cites[f"{k}_txt"] = cites[f"{k}_q"] = [f"{SUITE_FILE[suite]}:{line} ({rid})"]
         cites[f"{k}_pk"] = cites[f"{k}_pc"] = [f"body {Path(bp).parent.name}/{Path(bp).name}", f"{rsrc} ({REQ_ARM[1]} tops agree)"]
         b["req"].append({"key": k, "suite": suite, "id": rid, "size": size, "face": face_of(state),
@@ -336,14 +339,15 @@ def part_b(rows_dir, bodies_dir, suite_src, hd, copy, inputs, P):
     C["b_sh_long"] = "long prompts: the gap is " + ("almost all prompt reading" if share >= 0.9 else "mostly prompt reading")
     cites["b_sh_long"] = cites["b_lg_why"]
     b["long"] = {"unit_ms": u, "reqs": lg, "race_s": max(l["wall"] for x in lg for l in x["lanes"]) / 1000, "share": share}
-    # the hard suite: correct/N per head model, two examples drawn as grids, V4.1-Flash's two arms
+    # the hard suite: correct/N per head model, the examples as each model's pick and its mark, V4.1-Flash's two arms
     b["hard"] = None
     if hd:
         A = {(a["model"], a["arm"]): a for a in hd["arms"]}
         head = [dict(A[(m, arm)], name_key=k, short_key=sk) for m, k, sk, arm in HARD_HEAD if (m, arm) in A]
         if len(head) >= 2:
             best = max(a["correct"] for a in head)
-            C["b_hd_c"] = [f"{a['correct']}/{a['n']}" for a in head]
+            shown = sorted(head, key=lambda a: -a["correct"])       # the rulers most correct first
+            C["b_hd_c"] = [f"{a['correct']}/{a['n']}" for a in shown]
             C["b_hd_n"] = f"{hd['n']} questions we wrote, our labels"
             src_h = f"hard rows {hd['rows']} scored against {hd['gold']}" + (" (FIXTURE)" if hd["fixture"] else "")
             for k in ("b_hd_c", "b_hd_n"): cites[k] = [src_h]
@@ -352,7 +356,8 @@ def part_b(rows_dir, bodies_dir, suite_src, hd, copy, inputs, P):
             qs = [(i, q) for i in gold for q in gold[i]]
             ok = lambda a, i, q: a["tops"].get(i, {}).get(q) == gold[i][q]
             differ = lambda i, q: len({a["tops"].get(i, {}).get(q) for a in head}) > 1
-            tiers = [("first right", lambda i, q: ok(head[0], i, q) and not all(ok(a, i, q) for a in head[1:])),
+            tiers = [("last only right", lambda i, q: ok(head[-1], i, q) and not any(ok(a, i, q) for a in head[:-1])),
+                     ("first right", lambda i, q: ok(head[0], i, q) and not all(ok(a, i, q) for a in head[1:])),
                      ("first misses", lambda i, q: not ok(head[0], i, q) and any(ok(a, i, q) for a in head[1:])),
                      ("differ", differ), ("all right", lambda i, q: all(ok(a, i, q) for a in head))]
             nex = int((inputs.get("b") or {}).get("examples", 3))   # inputs.json b.examples: 0..EX_MAX
@@ -361,14 +366,16 @@ def part_b(rows_dir, bodies_dir, suite_src, hd, copy, inputs, P):
                 ws = " ".join(question_text(hs[x[0]][1], x[1], CAP_SIZE)).split()
                 nn = sum(bool(re.fullmatch(r"[\d.,:%×]*\d[\d.,:%×]*", w.strip("?.,()"))) for w in ws)
                 return (len(ws) - nn) / 4 + nn
-            def bodies_of(rid):     # each head model's first body of the request (the systemone ones carry the shares)
-                out = []
-                for a in head:
-                    ds = dirs_of(bodies_dir, a["model"])
-                    got = next((g for g in (body(bodies_dir, d, "hard", rid) for d in ds) if g), None)
-                    if not got: die(f"no body of {a['model']} for hard/{rid} (bodies/{ds})")
-                    out.append(got)
-                return out
+            roots = [bodies_dir] + [Path(v) if Path(v).is_absolute() else HERE / v
+                                    for v in ((inputs.get("hard") or {}).get("bodies") or [])]   # hard.bodies: more sittings'
+            def body_of(model, rid):    # a model's first body of the request over the roots (systemone ones first)
+                for r in roots:
+                    for d in dirs_of(r, model):
+                        g = body(r, d, "hard", rid)
+                        if g: return g
+                die(f"no body of {model} for hard/{rid} under {[str(r) for r in roots]}")
+            def bodies_of(rid):     # each head model's body of the request
+                return [body_of(a["model"], rid) for a in head]
             def agrees(x):          # an example's bodies pick what the scored rows picked, for every model
                 rid, qid = x
                 q = hs[rid][1]["questions"][qid]
@@ -376,7 +383,7 @@ def part_b(rows_dir, bodies_dir, suite_src, hd, copy, inputs, P):
                            for a, (bd, bp) in zip(head, bodies_of(rid)))
             order = [x for x in sorted(dict.fromkeys(x for x in HX_PREFER + qs if x in qs), key=cost) if agrees(x)]
             ex = []      # (rid, qid, kind)
-            for kind, w in tiers[:2]:        # one each way first: the smallest model right and another wrong, then
+            for kind, w in tiers[:3]:        # one each way first: the smallest model right and another wrong, then
                 x = next((x for x in order if w(*x) and len(ex) < nex), None)       # the other way round
                 if x: ex.append((*x, kind))
             for kind, w in tiers:
@@ -386,20 +393,17 @@ def part_b(rows_dir, bodies_dir, suite_src, hd, copy, inputs, P):
                         if w(*x) and x not in [e[:2] for e in ex] and not (once and x[0] in [e[0] for e in ex]):
                             ex.append((*x, kind))
             b["hard"] = {"head": [{"model": a["model"], "key": a["name_key"], "short": a["short_key"], "correct": a["correct"],
-                                   "n": a["n"], "top": a["correct"] == best} for a in head], "ex": []}
+                                   "n": a["n"], "top": a["correct"] == best} for a in shown], "ex": []}
             for e, (rid, qid, kind) in enumerate(ex):
                 line, req = hs[rid]
                 q = req["questions"][qid]
                 cols = []
                 for a in head:
-                    ds = dirs_of(bodies_dir, a["model"])
-                    got = next((g for g in (body(bodies_dir, d, "hard", rid) for d in ds) if g), None)
-                    if not got: die(f"no body of {a['model']} for hard/{rid} (bodies/{ds})")
-                    bd, bp = got
+                    bd, bp = body_of(a["model"], rid)
                     x = answer(q, bd["answers"][qid], f"{bp} {qid}")
                     if x["row"] != a["tops"][rid][qid]: die(f"{bp} {qid}: the body picks {x['row']!r}, the scored rows {a['tops'][rid][qid]!r}")
-                    cols.append({**{k: v for k, v in x.items() if k != "row"}, "ok": x["row"] == gold[rid][qid],
-                                 "body": f"{Path(bp).parent.name}/{Path(bp).name}"})
+                    cols.append({"pick": x["pick"], "ok": x["row"] == gold[rid][qid],      # the pick and its mark only:
+                                 "body": f"{Path(bp).parent.name}/{Path(bp).name}"})   # no shares across models
                 k = f"b_hx{e}"
                 C.update({f"{k}_id": f"hard/{rid}", f"{k}_q": question_text(req, qid, CAP_SIZE),
                           f"{k}_nm": [copy[a["short_key"]] for a in head], f"{k}_pk": [c["pick"] for c in cols],
@@ -414,16 +418,11 @@ def part_b(rows_dir, bodies_dir, suite_src, hd, copy, inputs, P):
         if jv and sv:
             cards = (inputs.get("hard") or {}).get("v41_cards") or ""
             if not cards: die("hard.v41_cards is empty: the V4.1-Flash shot's foot names its cards")
-            r = sv["p50_ms"] / jv["p50_ms"]
-            speed = f"{r:.1f}× faster" if r >= 1.05 else f"{1 / r:.1f}× slower" if r <= 1 / 1.05 else "as fast"
             same41 = sum(jv["tops"][i] == sv["tops"][i] for i in jv["tops"])
-            ans = "same answers" if same41 == len(jv["tops"]) else f"{same41}/{len(jv['tops'])} answers the same"
-            C["b_hd_v41"] = [x for part in (f"{copy['v41_s']}: schemajump {speed}", "than plain structured output,", ans)
-                             for x in wrap(part, CAP_SIZE)]          # a clause a line
-            C["b_hd_v41c"] = ["p50 · one at a time", cards]
-            cites["b_hd_v41"] = [f"hard rows {hd['rows']} (p50 {jv['p50_ms']:.1f} vs {sv['p50_ms']:.1f} ms, tops)"]
-            cites["b_hd_v41c"] = ["inputs.json hard.v41_cards"]
-            b["v41"] = {"jump_p50_ms": jv["p50_ms"], "step_p50_ms": sv["p50_ms"], "ratio": r}
+            # V4.1-Flash's value here is what it knows, not its speed: no time on screen, its conditions in the footer
+            C["b_hd_v41c"] = [f"{copy['v41_s']}: {cards}"] if len(f"{copy['v41_s']}: {cards}") <= 36 else [f"{copy['v41_s']}: {cards.split(' · ')[-1]}", f"on {cards.split(' · ')[0]}"]
+            cites["b_hd_v41c"] = ["inputs.json hard.v41_cards", f"hard rows {hd['rows']} (V4.1-Flash tops {same41}/{len(jv['tops'])} the same on both arms)"]
+            b["v41"] = {"same": same41}
     b["fixture"] = fixture or bool(FIXTURE)
     b["beats"] = {"grid": GRID_AT, "ans": ANS_AT, "go": GO_BEAT, "v41": HD_V41_AT, "finish": GO_BEAT + math.ceil(b["long"]["race_s"] / P + 1e-9)}
     b["short"]["requests"] = len(shorts)
@@ -435,17 +434,17 @@ def shots(b, copy):
     S = []
     for i, r in enumerate(b["req"]):
         k = r["key"]
-        carry = ["q_jump", "rq_post"] if i else []
-        S.append((f"req{i}", [("text", 0, "cut", ["q_jump", "rq_post", f"{k}_txt"]),
-                              ("grids", ANS_AT, "cut", [f"{k}_q", f"{k}_pk", f"{k}_pc"] + ([f"{k}_cf"] if len(r["qs"]) == 1 and r["qs"][0]["conf"] is not None else []))],
+        carry = ["q_jump", "rq_post", "rq_body"] if i else []
+        S.append((f"req{i}", [("text", 0, "cut", ["q_jump", "rq_post", "rq_body", f"{k}_txt"]),
+                              ("grids", ANS_AT, "cut", [f"{k}_q", f"{k}_pk", f"{k}_pc"])],
                   carry))
     S.append(("bsame", [("same", 0, "cut", ["b_sa_head", "b_sa_n", "b_sa_t"])], []))
     if b["hard"]:
-        v41 = [("v41", HD_V41_AT, "cut", ["b_hd_v41", "b_hd_v41c"])] if b.get("v41") else []
-        S.append(("bhard", [("count", 0, "cut", ["b_hd_head"] + [h["key"] for h in b["hard"]["head"]] + ["b_hd_c", "b_hd_n"])] + v41, []))
+        v41 = ["b_hd_v41c"] if b.get("v41") else []
+        S.append(("bhard", [("count", 0, "cut", ["b_hd_head"] + [h["key"] for h in b["hard"]["head"]] + ["b_hd_c"] + v41 + ["b_hd_n"])], []))
         for e, x in enumerate(b["hard"]["ex"]):
             k = x["key"]     # the label and the models' names stand where the example before left them
-            S.append((f"bhx{e}", [("q", 0, "cut", ["b_hd_ex", f"{k}_q", f"{k}_gold", f"{k}_nm"]), ("grids", ANS_AT, "cut", [f"{k}_pk"])],
+            S.append((f"bhx{e}", [("q", 0, "cut", ["b_hd_ex", f"{k}_q", f"{k}_gold", f"{k}_nm"]), ("picks", ANS_AT, "cut", [f"{k}_pk"])],
                       ["b_hd_ex", f"{k}_nm"] if e else []))
     line = ["b_sh_long"] if b["long_mode"] == "line" else []
     S.append(("bshort", [("bars", 0, "cut", ["b_sh_head", "b_sh_sub", "clef", "q_jump", "q_step_m", "b_sh_v"] + line + ["b_foot", "foot_rt"])], []))

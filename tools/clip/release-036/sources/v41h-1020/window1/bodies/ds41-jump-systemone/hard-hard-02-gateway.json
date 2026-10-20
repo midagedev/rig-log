@@ -1,0 +1,1 @@
+{"model":"Src","answers":{"ticket_a":{"type":"choice","choice":"host","confidence":0.9997,"probabilities":{"host":0.9998,"legal":0.0,"limit":0.0,"gone":0.0002}},"ticket_b":{"type":"noul","noul":0.0559}},"usage":{"input_tokens":326,"output_tokens":17},"timings":{"prompt_n":2,"prompt_ms":399.211967,"head_ms":371.095575,"cache_n":324}}

@@ -40,8 +40,8 @@ CITED_A = {
     "a_tr_cap2": ("each layer: 8 of 256 experts", [("moe", 2, "softmax over 256 experts"), ("moe", 2, "the top 8")],
                   "the router's top 8 of its 256 experts, in each layer"),
     "a_tr_sh":   ("+1 shared", [("moe", 3, "as a ninth slot")], "the shared expert, the ninth slot every token reads"),
-    "a_dn_cap":  ("the option the model rates highest", [("genloop", 43, "largest logit among the ids the program allows there")],
-                  "a decision is the largest logit among its options' ids"),
+    "a_dn_pl":   ("probability among the options", [("answer", 3, "the softmax runs in f32 over the options")],
+                  "a label: the body's percentage is a softmax over the question's options alone, not a confidence"),
     "a_pl_cap":  ("one engine call per token", [("genloop", 41, "[`Engine::next`] a token"), ("runner", 16, "BLOOMERY_SCHEMAJUMP=off")],
                   "the step arm (the jump off) takes one Engine::next a token"),
 }
@@ -115,12 +115,12 @@ def engine_calls(pieces, jc):
     return calls, {"first": 0, "n": lead["n"], "pick": ds[0]}, tail, {k: runs[k] for k in ds}
 
 
-def build(md, src, req, pieces, plan, counts, count_src, pct, pct_src, copy, P):
+def build(md, src, req, pieces, plan, counts, count_src, pct, pct_src, copy, P, dq=0):
     """Part A's block, strings, cites and shots. md: make_data; src: md.sources()[0]; req: md.request(); pieces:
     md.pieces_of(); plan: the request's jump_plan; counts: {"step", "jump"} engine calls; count_src: their cite; pct:
     the pick's percentage string ("94%", or "··%" with no saved body) and its cite; copy: make_data.py's strings so
     far (the shared keys are read from it, never written); P: the beat period (the same-text line lands after the
-    program's reading time)."""
+    program's reading time); dq: the index of the question A DECISION shows (its options by the request's labels)."""
     miss = [k for k in SHARED if k not in copy]
     if miss: die(f"make_data.py's copy has no {miss}: Part A draws them")
     C, cites = cite_a(md, src)
@@ -133,22 +133,23 @@ def build(md, src, req, pieces, plan, counts, count_src, pct, pct_src, copy, P):
     else:                                # the program's plan (sources/tokens-qwen36.json), PLACEHOLDER
         if n_jump != len(plan): die(f"{req['id']}: {n_jump} schemajump calls, the program's plan has {len(plan)}")
         calls, runs = plan_calls(pieces, plan)
-    q1 = req["picks"][0]
+    q1 = req["picks"][dq]
+    pick_l = q1["labels"][q1["options"].index(q1["pick"])] if q1["kind"] != "choice" else q1["pick"]
     C.update({
         "state": req["state"], "answer": req["answer"],
-        "options1": q1["options"], "rq_q1": q1["qid"],
+        "options1": q1["labels"] if q1["kind"] != "choice" else q1["options"], "rq_q1": q1["qid"],
         "rq_qs": [p["qid"] for p in req["picks"]], "rq_opts": [p["labels"] for p in req["picks"]],
         "options": [p["options"] for p in req["picks"]], "pieces": pieces,
         "count_step": str(n_step), "count_jump": str(n_jump), "ticks": [str(i) for i in range(max(n_step, n_jump) + 1)],
         "bo_step": f"{n_step} calls", "bo_jump": f"{n_jump} calls",
-        "dn_pick": q1["pick"], "dn_pct": pct,
+        "dn_pick": pick_l, "dn_pct": pct,
     })
     doc = {"en": "suite.jsonl", "ko": "suite-ko.jsonl"}[md.REQ_SUITE]
     req_src = [f"{doc}:{req['line']} ({req['id']})", "rows (the jump arm's tops)"]
     for k in ("state", "answer", "options", "options1", "rq_q1", "rq_qs", "rq_opts"): cites[k] = req_src
     for k in ("count_step", "count_jump", "ticks", "bo_step", "bo_jump"): cites[k] = [count_src]
     cites["pieces"] = ["make_data.py pieces_of: the answer as the tokenizer cuts it (inputs.json tokens)"]
-    cites["dn_pick"] = [f"rows (the jump arm's tops: {req['id']} {q1['qid']})"]
+    cites["dn_pick"] = [f"rows (the jump arm's tops: {req['id']} {q1['qid']})"] + ([f"{pct_src} (its legend)"] if q1["kind"] == "score" else [])
     cites["dn_pct"] = [pct_src]
     plain_last = PL_AT + (n_step - 1) / 4
     # the events on beats from the hit: the prompt call's pick, each call, the tail (no call)
@@ -166,7 +167,7 @@ def build(md, src, req, pieces, plan, counts, count_src, pct, pct_src, copy, P):
          "pl": {"at": PL_AT, "last": plain_last, "spot": plain_last + PL_SPOT},
          "jp": {"rew": REW, "step": JP_STEP, "last": jump_last, "calls": calls, "runs": runs, "same": same_at,
                 "prompt": prompt, "tail": tail},
-         "dn": {"json": DN_JSON}, "rq": {"qs": QS_AT}}
+         "dn": {"json": DN_JSON, "d": f"D{dq + 1}"}, "rq": {"qs": QS_AT}}
     shots = [
         ("title", [("lockup", 1, "rise", ["name", "version", "claim1", "claim2"])], []),
         ("areq", [("ask", 0, "cut", ["rq_post", "state"]),
@@ -177,7 +178,7 @@ def build(md, src, req, pieces, plan, counts, count_src, pct, pct_src, copy, P):
         ("ajump", [("stage", 0, "cut", ["jp_head", "calls_label"]),
                    ("program", jump_last, "cut", ["pieces", "count_jump", "leg_fixed", "leg_dec"] + (["leg_lead", "leg_none"] if prompt else [])),
                    ("same", same_at, "cut", ["a_jp_same"])], []),
-        ("adec", [("row", 0, "cut", ["dn_head", "rq_q1", "options1", "dn_pick", "dn_pct", "a_dn_cap"]), ("json", DN_JSON, "cut", ["answer"])], []),
+        ("adec", [("row", 0, "cut", ["dn_head", "rq_q1", "options1", "dn_pick", "dn_pct", "a_dn_pl"]), ("json", DN_JSON, "cut", ["answer"])], []),
     ]
     return {"a": a, "copy": C, "cites": cites, "shots": shots, "anchor": ("P", "ajump", REW)}
 
@@ -202,11 +203,13 @@ def preview(out):
     placeholder = C["source"] != "rows"
     body = md.INPUTS.get("answer_body", "")
     pct, pct_src = "··%", "PLACEHOLDER: no saved body (inputs.json answer_body)"
+    qids = [x["qid"] for x in req["picks"]]
+    dq = qids.index(md.INPUTS.get("dn_question") or qids[0])
     if body:
-        pb = json.loads((HERE / body).read_text())["answers"][req["picks"][0]["qid"]]["probabilities"]
-        pct, pct_src = f"{100 * pb[req['picks'][0]['pick']]:.0f}%", f"inputs.json answer_body {body}"
+        pb = json.loads((HERE / body).read_text())["answers"][qids[dq]]["probabilities"]
+        pct, pct_src = f"{100 * pb[req['picks'][dq]['pick']]:.0f}%", f"inputs.json answer_body {body}"
     csrc = "rows" if not placeholder else f"PLACEHOLDER: {md.INPUTS['tokens']} (sjcmp.py's predicted calls)"
-    pa = build(md, src, req, pieces, [tuple(x) for x in tok["jump_plan"]], cr, csrc, pct, pct_src, copy, P)
+    pa = build(md, src, req, pieces, [tuple(x) for x in tok["jump_plan"]], cr, csrc, pct, pct_src, copy, P, dq)
     copy.update(pa["copy"]); cites.update(pa["cites"])
     L = md.lengths(pa["shots"], copy, P, 0.0, 0)
     on = lambda x: max(0.0, x * P - md.LEAD)

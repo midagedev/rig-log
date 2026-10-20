@@ -6,7 +6,7 @@
 // Every frame is a pure function of t; every string and number is data.json's (make_data_b.py: copy keys b_*, the
 // block D.b). A grid's white squares are the pick's probability in the saved body, rounded, and its percentage says the
 // same count; grey the runner-up's; the thin line under it the body's confidence, labelled so it never reads as one.
-const PB = { top: 200, gap: 24, conf: 14, sig: 8 };
+const PB = { top: 200, gap: 24, conf: 14, sig: 8, chip: 120 };
 function bBlack() { mxFrame({ none: true }); }
 const hasKR = s => /[가-힣]/.test(s);
 // A face for s: Noto Sans KR heavy when it holds Hangul, Martian Mono otherwise.
@@ -48,10 +48,6 @@ function bRequest(i) {
       if (ka) {
         pick(c[`${k}_pk`][0], x2, yq + 110);
         ktxt(c[`${k}_pc`][0], x2, yq + 216, TY.fig, { size: 104 });
-        if (a.conf !== null) {   // the body's confidence: a line and its number
-          iso100(x2, yq + 262, 1008 - x2, PB.conf, a.conf, K.lab);
-          ktxt(c[`${k}_cf`], x2, yq + 330, TY.label);
-        }
       }
     } else {               // two or three: a column each, the words under the grid (the pick and its figure on one
                            // line in a column of two, one under the other in a column of three)
@@ -69,7 +65,8 @@ function bRequest(i) {
         // no confidence line on a card of two or three: its length matched none of the figures beside it
       });
     }
-    ktxt(c.rq_post, 72, Y.foot, TY.label);
+    ktxt(c.rq_post, 72, Y.foot - 56, TY.label);       // the route, and under it what its body holds
+    ktxt(c.rq_body, 72, Y.foot, TY.label);
   };
 }
 for (let i = 0; i < 8; i++) SCN[`req${i}`] = bRequest(i);
@@ -90,10 +87,7 @@ SCN.bhard = (t, S) => {
   bBlack();
   const c = D.copy, H = D.b.hard.head, n = H[0].n, s = Math.floor(936 / n);
   ktxt(c.b_hd_head, 72, Y.head, TY.head, { fit: 936 });
-  if (c.b_hd_v41 && t >= bt(S, D.b.beats.v41)) {
-    c.b_hd_v41.forEach((s_, j) => ktxt(s_, 72, 715 + j * 56, TY.cap));
-    c.b_hd_v41c.forEach((s_, j) => ktxt(s_, 72, 880 + j * 55, TY.label));
-  }
+  if (c.b_hd_v41c) c.b_hd_v41c.forEach((s_, j, A_) => ktxt(s_, 72, Y.foot - 56 * (A_.length - j), TY.label));   // V4.1's conditions
   H.forEach((h, i) => {
     const y = 330 + i * 130;
     ktxt(c[h.key], 72, y, TY.cap);
@@ -102,27 +96,32 @@ SCN.bhard = (t, S) => {
   });
   ktxt(c.b_hd_n, 72, Y.foot, TY.label);
 };
-// A hard question drawn as each model's answer: our label under the question, then per model the grid and the pick
-// with a check where it is our label and a cross where it is not.
+// A hard question drawn as each model's pick: our label under the question, then per model an equal chip, empty on
+// the cut, its pick and a check where it is our label, a cross where it is not, on the answer beat. No shares: the
+// models' percentages are different kinds of number.
 function bHardEx(e) {
   return (t, S) => {
     bBlack();
-    const c = D.copy, X = D.b.hard.ex[e], k = X.key, n = X.cols.length, cw = (936 - (n - 1) * PB.gap) / n, s = ISO_MIN;
+    const c = D.copy, X = D.b.hard.ex[e], k = X.key, n = X.cols.length, cw = (936 - (n - 1) * PB.gap) / n;
     ktxt(c.b_hd_ex, 72, Y.label, TY.label);
     ktxt(c[`${k}_id`], 1008, Y.label, TY.axis, { anchor: "end" });
     const ql = c[`${k}_q`];
     ql.forEach((s_, j) => txt(s_, 72, PB.top + j * 58, bFace(s_, { size: 44, fill: K.w })));
     const yg = PB.top + (ql.length - 1) * 58 + 70, gl = c[`${k}_gold`];
     txt(gl, 72, yg, bFace(gl, { size: 44, wght: 800, fill: K.sig }));
-    const yn = yg + 84, ka = arrive(t, bt(S, D.b.beats.ans), "cut");
+    const yn = yg + 84, yc = yn + 28, ch = PB.chip, ym = yc + ch / 2, ka = arrive(t, bt(S, D.b.beats.ans), "cut");
     X.cols.forEach((a, j) => {
-      const x = 72 + j * (cw + PB.gap), gb = yn + 20 + 10 * s;
+      const x = 72 + j * (cw + PB.gap);
       ktxt(c[`${k}_nm`][j], x, yn, TY.label);
-      bGrid(t, S, x, yn + 20, s, a, { count: true, topFill: a.ok ? K.w : K.lab });
+      rect(x, yc, cw, ch, { stroke: K.mark, sw: 3 });
       if (!ka) return;
-      const pk = c[`${k}_pk`][j], fo = bFace(pk, { size: 52, wght: 800, fill: a.ok ? K.w : K.lab });
-      txt(pk, x, gb + 58, fo);
-      bMark(a.ok, x + adv(pk, 52, fo) + 16, gb + 54, 34, K.sig);
+      // the pick at 52 px, down to 44 where a chip of three is narrow, a clear gap before the mark
+      const pk = c[`${k}_pk`][j], room = cw - 20 - 36 - 20 - 28;
+      let sz = 52;
+      while (sz > 44 && adv(pk, sz, bFace(pk, { size: sz, wght: 800 })) > room) sz -= 2;
+      const fo = bFace(pk, { size: sz, wght: 800, fill: a.ok ? K.w : K.lab });
+      txt(pk, x + 20, ym + 18, fo);
+      bMark(a.ok, x + cw - 20 - 36, ym + 18, 36, K.sig);
     });
   };
 }

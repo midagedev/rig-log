@@ -9,6 +9,7 @@
   ],
   "tokens": "sources/tokens-qwen36.json",
   "answer_body": "sources/sit3-1020/bodies/jump-systemone/en-route-01.json",
+  "dn_question": "urgency",
   "body_hide": [],
   "sjcmp_rev": "3657328ca",
   "route_measured": "response_format",
@@ -29,15 +30,23 @@
     "cond": ""
   },
   "and_line": "",
-  "draft": true,
+  "draft": false,
   "hard": {
-    "rows": "sources/sit3-1020",
+    "rows": [
+      "sources/sit3-1020",
+      "sources/v41h-1020"
+    ],
     "suite": "../../../../bloomery-rel036/tools/ref/clef/suite-hard.jsonl",
     "gold": "../../../../bloomery-rel036/tools/ref/clef/suite-hard.gold.jsonl",
-    "v41_cards": "RTX A6000 + RTX 3090"
+    "v41_cards": "RTX A6000 + RTX 3090 · Q3_K_M",
+    "bodies": [
+      "sources/v41h-1020/window1/bodies",
+      "sources/v41h-1020/window2/bodies"
+    ]
   },
   "b": {
     "rows": "sources/sit3-1020",
-    "bodies": "sources/sit3-1020/bodies"
+    "bodies": "sources/sit3-1020/bodies",
+    "examples": 3
   }
 }

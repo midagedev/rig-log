@@ -24,6 +24,10 @@
     187
    ],
    [
+    183,
+    187
+   ],
+   [
     195,
     203
    ],
@@ -49,29 +53,35 @@
     "film_beat": 112,
     "t": 52.50112,
     "from_track_beat": 187,
-    "to_track_beat": 195
+    "to_track_beat": 183
    },
    {
-    "film_beat": 120,
-    "t": 56.2512,
-    "from_track_beat": 203,
-    "to_track_beat": 147
-   },
-   {
-    "film_beat": 160,
-    "t": 75.0016,
+    "film_beat": 116,
+    "t": 54.37616,
     "from_track_beat": 187,
     "to_track_beat": 195
    },
    {
-    "film_beat": 168,
-    "t": 78.75168,
+    "film_beat": 124,
+    "t": 58.12624,
+    "from_track_beat": 203,
+    "to_track_beat": 147
+   },
+   {
+    "film_beat": 164,
+    "t": 76.87664,
+    "from_track_beat": 187,
+    "to_track_beat": 195
+   },
+   {
+    "film_beat": 172,
+    "t": 80.62672,
     "from_track_beat": 203,
     "to_track_beat": 187
    },
    {
-    "film_beat": 184,
-    "t": 86.25184,
+    "film_beat": 188,
+    "t": 88.12688,
     "from_track_beat": 203,
     "to_track_beat": 195
    }
@@ -80,14 +90,14 @@
   "open_at_beat": 75
  },
  "timeline": {
-  "T": 93.752,
+  "T": 95.627,
   "at": 35.1755,
   "period": 0.46876,
   "first": 0.0,
   "lead": 0.008333333333333333,
   "open_at_beat": 75,
   "end_beat": 211,
-  "nbeats": 200,
+  "nbeats": 204,
   "beats": [
    0.0,
    0.4688,
@@ -289,7 +299,11 @@
    92.3457,
    92.8145,
    93.2832,
-   93.752
+   93.752,
+   94.2208,
+   94.6895,
+   95.1583,
+   95.627
   ],
   "segments": [
    {
@@ -526,14 +540,14 @@
        "options1",
        "dn_pick",
        "dn_pct",
-       "a_dn_cap"
+       "a_dn_pl"
       ],
       "at": 0,
       "land": 33.742387,
       "still": 33.742387,
       "how": "cut",
-      "read_s": 3.75,
-      "words": 11,
+      "read_s": 4.0,
+      "words": 12,
       "numbers": 1
      },
      {
@@ -568,14 +582,15 @@
       "keys": [
        "q_jump",
        "rq_post",
+       "rq_body",
        "b_r0_txt"
       ],
       "at": 0,
       "land": 40.305027,
       "still": 40.305027,
       "how": "cut",
-      "read_s": 4.0,
-      "words": 16,
+      "read_s": 4.5,
+      "words": 18,
       "numbers": 0
      },
      {
@@ -583,16 +598,15 @@
       "keys": [
        "b_r0_q",
        "b_r0_pk",
-       "b_r0_pc",
-       "b_r0_cf"
+       "b_r0_pc"
       ],
       "at": 3,
       "land": 41.711307,
       "still": 41.711307,
       "how": "cut",
-      "read_s": 2.75,
-      "words": 3,
-      "numbers": 2
+      "read_s": 2.5,
+      "words": 2,
+      "numbers": 1
      }
     ],
     "carry": [],
@@ -613,6 +627,7 @@
       "keys": [
        "q_jump",
        "rq_post",
+       "rq_body",
        "b_r1_txt"
       ],
       "at": 0,
@@ -641,7 +656,8 @@
     ],
     "carry": [
      "q_jump",
-     "rq_post"
+     "rq_post",
+     "rq_body"
     ],
     "land": {},
     "cue": {}
@@ -679,27 +695,29 @@
     "id": "bhard",
     "kind": "card",
     "b0": 119,
-    "len": 12,
-    "b1": 131,
+    "len": 17,
+    "b1": 136,
     "t0": 55.774107,
-    "t1": 61.399227,
+    "t1": 63.743027,
     "groups": [
      {
       "name": "count",
       "keys": [
        "b_hd_head",
+       "v41",
        "clef",
        "q_model",
        "b_hd_c",
+       "b_hd_v41c",
        "b_hd_n"
       ],
       "at": 0,
       "land": 55.774107,
       "still": 55.774107,
       "how": "cut",
-      "read_s": 5.25,
-      "words": 9,
-      "numbers": 3
+      "read_s": 7.75,
+      "words": 15,
+      "numbers": 4
      }
     ],
     "carry": [],
@@ -709,11 +727,11 @@
    {
     "id": "bhx0",
     "kind": "card",
-    "b0": 131,
-    "len": 15,
-    "b1": 146,
-    "t0": 61.399227,
-    "t1": 68.430627,
+    "b0": 136,
+    "len": 14,
+    "b1": 150,
+    "t0": 63.743027,
+    "t1": 70.305667,
     "groups": [
      {
       "name": "q",
@@ -724,21 +742,21 @@
        "b_hx0_nm"
       ],
       "at": 0,
-      "land": 61.399227,
-      "still": 61.399227,
+      "land": 63.743027,
+      "still": 63.743027,
       "how": "cut",
-      "read_s": 4.25,
-      "words": 17,
+      "read_s": 3.5,
+      "words": 14,
       "numbers": 0
      },
      {
-      "name": "grids",
+      "name": "picks",
       "keys": [
        "b_hx0_pk"
       ],
       "at": 3,
-      "land": 62.805507,
-      "still": 62.805507,
+      "land": 65.149307,
+      "still": 65.149307,
       "how": "cut",
       "read_s": 2.5,
       "words": 2,
@@ -752,11 +770,11 @@
    {
     "id": "bhx1",
     "kind": "card",
-    "b0": 146,
-    "len": 11,
-    "b1": 157,
-    "t0": 68.430627,
-    "t1": 73.586987,
+    "b0": 150,
+    "len": 14,
+    "b1": 164,
+    "t0": 70.305667,
+    "t1": 76.868307,
     "groups": [
      {
       "name": "q",
@@ -767,21 +785,21 @@
        "b_hx1_nm"
       ],
       "at": 0,
-      "land": 68.430627,
-      "still": 68.430627,
+      "land": 70.305667,
+      "still": 70.305667,
       "how": "cut",
-      "read_s": 2.5,
-      "words": 8,
+      "read_s": 3.25,
+      "words": 13,
       "numbers": 0
      },
      {
-      "name": "grids",
+      "name": "picks",
       "keys": [
        "b_hx1_pk"
       ],
       "at": 3,
-      "land": 69.836907,
-      "still": 69.836907,
+      "land": 71.711947,
+      "still": 71.711947,
       "how": "cut",
       "read_s": 2.5,
       "words": 2,
@@ -798,11 +816,11 @@
    {
     "id": "bhx2",
     "kind": "card",
-    "b0": 157,
-    "len": 15,
-    "b1": 172,
-    "t0": 73.586987,
-    "t1": 80.618387,
+    "b0": 164,
+    "len": 12,
+    "b1": 176,
+    "t0": 76.868307,
+    "t1": 82.493427,
     "groups": [
      {
       "name": "q",
@@ -813,21 +831,21 @@
        "b_hx2_nm"
       ],
       "at": 0,
-      "land": 73.586987,
-      "still": 73.586987,
+      "land": 76.868307,
+      "still": 76.868307,
       "how": "cut",
-      "read_s": 4.25,
-      "words": 9,
-      "numbers": 2
+      "read_s": 2.5,
+      "words": 8,
+      "numbers": 0
      },
      {
-      "name": "grids",
+      "name": "picks",
       "keys": [
        "b_hx2_pk"
       ],
       "at": 3,
-      "land": 74.993267,
-      "still": 74.993267,
+      "land": 78.274587,
+      "still": 78.274587,
       "how": "cut",
       "read_s": 2.5,
       "words": 2,
@@ -844,11 +862,11 @@
    {
     "id": "bshort",
     "kind": "card",
-    "b0": 172,
+    "b0": 176,
     "len": 20,
-    "b1": 192,
-    "t0": 80.618387,
-    "t1": 89.993587,
+    "b1": 196,
+    "t0": 82.493427,
+    "t1": 91.868627,
     "groups": [
      {
       "name": "bars",
@@ -863,8 +881,8 @@
        "foot_rt"
       ],
       "at": 0,
-      "land": 80.618387,
-      "still": 80.618387,
+      "land": 82.493427,
+      "still": 82.493427,
       "how": "cut",
       "read_s": 9.0,
       "words": 20,
@@ -878,11 +896,11 @@
    {
     "id": "bend",
     "kind": "card",
-    "b0": 192,
+    "b0": 196,
     "len": 8,
-    "b1": 200,
-    "t0": 89.993587,
-    "t1": 93.743667,
+    "b1": 204,
+    "t0": 91.868627,
+    "t1": 95.618707,
     "groups": [
      {
       "name": "lockup",
@@ -892,8 +910,8 @@
        "url"
       ],
       "at": 2,
-      "land": 90.931107,
-      "still": 90.931107,
+      "land": 92.806147,
+      "still": 92.806147,
       "how": "cut",
       "read_s": 2.5,
       "words": 3,
@@ -1778,107 +1796,47 @@
    ],
    [
     "cut bhx0",
-    61.399227,
+    63.743027,
     null
    ],
    [
-    "slam bhx0.count",
-    62.336747,
-    null
-   ],
-   [
-    "tick bhx0.count.1",
-    62.453937,
-    null
-   ],
-   [
-    "tick bhx0.count.2",
-    62.571127,
-    null
-   ],
-   [
-    "tick bhx0.count.3",
-    62.688317,
-    null
-   ],
-   [
-    "slam bhx0.grids",
-    62.805507,
+    "slam bhx0.picks",
+    65.149307,
     null
    ],
    [
     "cut bhx1",
-    68.430627,
+    70.305667,
     null
    ],
    [
-    "slam bhx1.count",
-    69.368147,
-    null
-   ],
-   [
-    "tick bhx1.count.1",
-    69.485337,
-    null
-   ],
-   [
-    "tick bhx1.count.2",
-    69.602527,
-    null
-   ],
-   [
-    "tick bhx1.count.3",
-    69.719717,
-    null
-   ],
-   [
-    "slam bhx1.grids",
-    69.836907,
+    "slam bhx1.picks",
+    71.711947,
     null
    ],
    [
     "cut bhx2",
-    73.586987,
+    76.868307,
     null
    ],
    [
-    "slam bhx2.count",
-    74.524507,
-    null
-   ],
-   [
-    "tick bhx2.count.1",
-    74.641697,
-    null
-   ],
-   [
-    "tick bhx2.count.2",
-    74.758887,
-    null
-   ],
-   [
-    "tick bhx2.count.3",
-    74.876077,
-    null
-   ],
-   [
-    "slam bhx2.grids",
-    74.993267,
+    "slam bhx2.picks",
+    78.274587,
     null
    ],
    [
     "cut bshort",
-    80.618387,
+    82.493427,
     null
    ],
    [
     "cut bend",
-    89.993587,
+    91.868627,
     null
    ],
    [
     "slam bend.lockup",
-    90.931107,
+    92.806147,
     null
    ]
   ],
@@ -2036,21 +1994,12 @@
    41.594117,
    48.391137,
    48.508327,
-   48.625517,
-   62.453937,
-   62.571127,
-   62.688317,
-   69.485337,
-   69.602527,
-   69.719717,
-   74.641697,
-   74.758887,
-   74.876077
+   48.625517
   ],
   "anchors": {
    "P": 52,
-   "L": 172,
-   "E": 192
+   "L": 176,
+   "E": 196
   }
  },
  "copy": {
@@ -2448,6 +2397,7 @@
   "b_fx": "PLACEHOLDER: fixture rows and bodies, not measured",
   "b_yes": "yes",
   "b_no_a": "no",
+  "rq_body": "answer + probabilities",
   "b_r0_id": "en/tool-03",
   "b_r0_txt": [
    "User: what's the weather in Seoul",
@@ -2463,7 +2413,6 @@
   "b_r0_pc": [
    "100%"
   ],
-  "b_r0_cf": "confidence 100%",
   "b_r1_id": "en/ko-06",
   "b_r1_txt": [
    "배송이 일주일째 안 와요. 주문번호",
@@ -2502,56 +2451,66 @@
   "b_lg_why": "almost all of it is prompt reading",
   "b_sh_long": "long prompts: the gap is almost all prompt reading",
   "b_hd_c": [
+   "27/29",
    "21/29",
    "18/29"
   ],
   "b_hd_n": "29 questions we wrote, our labels",
-  "b_hx0_id": "hard/ko-hard-12-history",
+  "b_hx0_id": "hard/ko-hard-08-areacode",
   "b_hx0_q": [
-   "문제 2: 남한에서 가장 긴 강의 이름을 정답으로",
-   "적어야 한다."
+   "접수 2는 어느 권역 팀이 맡는가?"
   ],
   "b_hx0_nm": [
    "Clef-Flash",
-   "Qwen3.6"
+   "Qwen3.6",
+   "V4.1-Flash"
   ],
   "b_hx0_pk": [
-   "낙동강",
-   "한강"
+   "부산",
+   "부산",
+   "울산"
   ],
-  "b_hx0_gold": "our label: 낙동강",
-  "b_hx1_id": "hard/hard-03-vulnreports",
+  "b_hx0_gold": "our label: 울산",
+  "b_hx1_id": "hard/ko-hard-12-history",
   "b_hx1_q": [
-   "Which weakness does CWE-639 name?"
+   "문제 2: 남한에서 가장 긴 강의 이름을 정답으로",
+   "적어야 한다."
   ],
   "b_hx1_nm": [
    "Clef-Flash",
-   "Qwen3.6"
+   "Qwen3.6",
+   "V4.1-Flash"
   ],
   "b_hx1_pk": [
-   "weakpw",
-   "idor"
+   "낙동강",
+   "한강",
+   "낙동강"
   ],
-  "b_hx1_gold": "our label: idor",
-  "b_hx2_id": "hard/hard-01-alerts",
+  "b_hx1_gold": "our label: 낙동강",
+  "b_hx2_id": "hard/hard-03-vulnreports",
   "b_hx2_q": [
-   "What does signal 24 in Alert 3",
-   "mean?"
+   "Which weakness does CWE-639 name?"
   ],
   "b_hx2_nm": [
    "Clef-Flash",
-   "Qwen3.6"
+   "Qwen3.6",
+   "V4.1-Flash"
   ],
   "b_hx2_pk": [
-   "cpu",
-   "prof"
+   "weakpw",
+   "idor",
+   "idor"
   ],
-  "b_hx2_gold": "our label: cpu",
+  "b_hx2_gold": "our label: idor",
+  "b_hd_v41c": [
+   "V4.1-Flash: Q3_K_M",
+   "on RTX A6000 + RTX 3090"
+  ],
   "a_tr_head": "ONE TOKEN, ONE TRIP",
   "a_tr_cap1": "one engine call: all 40 layers",
   "a_tr_cap2": "each layer: 8 of 256 experts",
   "a_tr_sh": "+1 shared",
-  "a_dn_cap": "the option the model rates highest",
+  "a_dn_pl": "probability among the options",
   "a_pl_cap": "one engine call per token",
   "a_tr_l": "L20",
   "a_ax_l0": "L0",
@@ -2645,10 +2604,11 @@
    ]
   ],
   "options1": [
-   "billing",
-   "technical"
+   "Can wait",
+   "This week",
+   "Today"
   ],
-  "rq_q1": "department",
+  "rq_q1": "urgency",
   "rq_qs": [
    "department",
    "urgency",
@@ -2833,8 +2793,8 @@
   ],
   "bo_step": "20 calls",
   "bo_jump": "2 calls",
-  "dn_pick": "technical",
-  "dn_pct": "52%",
+  "dn_pick": "Today",
+  "dn_pct": "99%",
   "a_jp_same": [
    "the same text as",
    "plain structured output"
@@ -3100,8 +3060,9 @@
   "b_no_a": [
    "label"
   ],
-  "b_r0_cf": [
-   "body en-tool-03.json (confidence)"
+  "rq_body": [
+   "bodies jump-systemone/ (answers: the pick, each option's probability)",
+   "answer.rs:3 (the softmax runs over the options)"
   ],
   "b_r0_id": [
    "suite.jsonl:3 (tool-03)"
@@ -3168,58 +3129,62 @@
    "rows sit3-1020 (the gap's share in prompt_ms: 92.6%)"
   ],
   "b_hd_c": [
-   "hard rows sources/sit3-1020 scored against tools/ref/clef/suite-hard.gold.jsonl"
+   "hard rows sources/sit3-1020 + sources/v41h-1020 scored against tools/ref/clef/suite-hard.gold.jsonl"
   ],
   "b_hd_n": [
-   "hard rows sources/sit3-1020 scored against tools/ref/clef/suite-hard.gold.jsonl"
+   "hard rows sources/sit3-1020 + sources/v41h-1020 scored against tools/ref/clef/suite-hard.gold.jsonl"
   ],
   "b_hx0_id": [
-   "tools/ref/clef/suite-hard.jsonl:12 (ko-hard-12-history 강)"
+   "tools/ref/clef/suite-hard.jsonl:8 (ko-hard-08-areacode 접수2)"
   ],
   "b_hx0_q": [
-   "tools/ref/clef/suite-hard.jsonl:12 (ko-hard-12-history 강)"
+   "tools/ref/clef/suite-hard.jsonl:8 (ko-hard-08-areacode 접수2)"
   ],
   "b_hx0_gold": [
-   "tools/ref/clef/suite-hard.gold.jsonl (ko-hard-12-history 강: our label)"
+   "tools/ref/clef/suite-hard.gold.jsonl (ko-hard-08-areacode 접수2: our label)"
   ],
   "b_hx0_pk": [
-   "bodies ['A/hard-ko-hard-12-history.json', 'jump-systemone/hard-ko-hard-12-history.json']",
-   "hard rows sources/sit3-1020 scored against tools/ref/clef/suite-hard.gold.jsonl"
+   "bodies ['A/hard-ko-hard-08-areacode.json', 'jump-systemone/hard-ko-hard-08-areacode.json', 'ds41-jump-systemone/hard-ko-hard-08-areacode.json']",
+   "hard rows sources/sit3-1020 + sources/v41h-1020 scored against tools/ref/clef/suite-hard.gold.jsonl"
   ],
   "b_hx0_nm": [
    "the models' short names (make_data.py CITED)"
   ],
   "b_hx1_id": [
-   "tools/ref/clef/suite-hard.jsonl:3 (hard-03-vulnreports report_1)"
+   "tools/ref/clef/suite-hard.jsonl:12 (ko-hard-12-history 강)"
   ],
   "b_hx1_q": [
-   "tools/ref/clef/suite-hard.jsonl:3 (hard-03-vulnreports report_1)"
+   "tools/ref/clef/suite-hard.jsonl:12 (ko-hard-12-history 강)"
   ],
   "b_hx1_gold": [
-   "tools/ref/clef/suite-hard.gold.jsonl (hard-03-vulnreports report_1: our label)"
+   "tools/ref/clef/suite-hard.gold.jsonl (ko-hard-12-history 강: our label)"
   ],
   "b_hx1_pk": [
-   "bodies ['A/hard-hard-03-vulnreports.json', 'jump-systemone/hard-hard-03-vulnreports.json']",
-   "hard rows sources/sit3-1020 scored against tools/ref/clef/suite-hard.gold.jsonl"
+   "bodies ['A/hard-ko-hard-12-history.json', 'jump-systemone/hard-ko-hard-12-history.json', 'ds41-jump-systemone/hard-ko-hard-12-history.json']",
+   "hard rows sources/sit3-1020 + sources/v41h-1020 scored against tools/ref/clef/suite-hard.gold.jsonl"
   ],
   "b_hx1_nm": [
    "the models' short names (make_data.py CITED)"
   ],
   "b_hx2_id": [
-   "tools/ref/clef/suite-hard.jsonl:1 (hard-01-alerts alert_3)"
+   "tools/ref/clef/suite-hard.jsonl:3 (hard-03-vulnreports report_1)"
   ],
   "b_hx2_q": [
-   "tools/ref/clef/suite-hard.jsonl:1 (hard-01-alerts alert_3)"
+   "tools/ref/clef/suite-hard.jsonl:3 (hard-03-vulnreports report_1)"
   ],
   "b_hx2_gold": [
-   "tools/ref/clef/suite-hard.gold.jsonl (hard-01-alerts alert_3: our label)"
+   "tools/ref/clef/suite-hard.gold.jsonl (hard-03-vulnreports report_1: our label)"
   ],
   "b_hx2_pk": [
-   "bodies ['A/hard-hard-01-alerts.json', 'jump-systemone/hard-hard-01-alerts.json']",
-   "hard rows sources/sit3-1020 scored against tools/ref/clef/suite-hard.gold.jsonl"
+   "bodies ['A/hard-hard-03-vulnreports.json', 'jump-systemone/hard-hard-03-vulnreports.json', 'ds41-jump-systemone/hard-hard-03-vulnreports.json']",
+   "hard rows sources/sit3-1020 + sources/v41h-1020 scored against tools/ref/clef/suite-hard.gold.jsonl"
   ],
   "b_hx2_nm": [
    "the models' short names (make_data.py CITED)"
+  ],
+  "b_hd_v41c": [
+   "inputs.json hard.v41_cards",
+   "hard rows sources/sit3-1020 + sources/v41h-1020 (V4.1-Flash tops 12/12 the same on both arms)"
   ],
   "a_tr_head": [
    "genloop:41",
@@ -3238,9 +3203,9 @@
    "moe:3",
    "why: the shared expert, the ninth slot every token reads"
   ],
-  "a_dn_cap": [
-   "genloop:43",
-   "why: a decision is the largest logit among its options' ids"
+  "a_dn_pl": [
+   "answer:3",
+   "why: a label: the body's percentage is a softmax over the question's options alone, not a confidence"
   ],
   "a_pl_cap": [
    "genloop:41",
@@ -3303,7 +3268,8 @@
    "make_data.py pieces_of: the answer as the tokenizer cuts it (inputs.json tokens)"
   ],
   "dn_pick": [
-   "rows (the jump arm's tops: route-01 department)"
+   "rows (the jump arm's tops: route-01 urgency)",
+   "inputs.json answer_body sources/sit3-1020/bodies/jump-systemone/en-route-01.json (its legend)"
   ],
   "dn_pct": [
    "inputs.json answer_body sources/sit3-1020/bodies/jump-systemone/en-route-01.json"
@@ -3989,12 +3955,20 @@
   "hard": {
    "head": [
     {
+     "model": "DeepSeek-V4.1-Flash",
+     "key": "v41",
+     "short": "v41_s",
+     "correct": 27,
+     "n": 29,
+     "top": true
+    },
+    {
      "model": "Clef-Flash",
      "key": "clef",
      "short": "clef",
      "correct": 21,
      "n": 29,
-     "top": true
+     "top": false
     },
     {
      "model": "Qwen3.6-35B-A3B",
@@ -4008,86 +3982,80 @@
    "ex": [
     {
      "key": "b_hx0",
-     "id": "ko-hard-12-history",
-     "q": "강",
-     "kind": "first right",
+     "id": "ko-hard-08-areacode",
+     "q": "접수2",
+     "kind": "last only right",
      "cols": [
       {
-       "pick": "낙동강",
-       "top": 57,
-       "run": 25,
-       "conf": 42,
-       "pct": "57%",
-       "ok": true,
-       "body": "A/hard-ko-hard-12-history.json"
+       "pick": "부산",
+       "ok": false,
+       "body": "A/hard-ko-hard-08-areacode.json"
       },
       {
-       "pick": "한강",
-       "top": 100,
-       "run": 0,
-       "conf": 100,
-       "pct": "100%",
+       "pick": "부산",
        "ok": false,
-       "body": "jump-systemone/hard-ko-hard-12-history.json"
+       "body": "jump-systemone/hard-ko-hard-08-areacode.json"
+      },
+      {
+       "pick": "울산",
+       "ok": true,
+       "body": "ds41-jump-systemone/hard-ko-hard-08-areacode.json"
       }
      ],
      "face": "kr"
     },
     {
      "key": "b_hx1",
+     "id": "ko-hard-12-history",
+     "q": "강",
+     "kind": "first right",
+     "cols": [
+      {
+       "pick": "낙동강",
+       "ok": true,
+       "body": "A/hard-ko-hard-12-history.json"
+      },
+      {
+       "pick": "한강",
+       "ok": false,
+       "body": "jump-systemone/hard-ko-hard-12-history.json"
+      },
+      {
+       "pick": "낙동강",
+       "ok": true,
+       "body": "ds41-jump-systemone/hard-ko-hard-12-history.json"
+      }
+     ],
+     "face": "kr"
+    },
+    {
+     "key": "b_hx2",
      "id": "hard-03-vulnreports",
      "q": "report_1",
      "kind": "first misses",
      "cols": [
       {
        "pick": "weakpw",
-       "top": 54,
-       "run": 21,
-       "conf": 39,
-       "pct": "54%",
        "ok": false,
        "body": "A/hard-hard-03-vulnreports.json"
       },
       {
        "pick": "idor",
-       "top": 100,
-       "run": 0,
-       "conf": 100,
-       "pct": "100%",
        "ok": true,
        "body": "jump-systemone/hard-hard-03-vulnreports.json"
-      }
-     ],
-     "face": "mono"
-    },
-    {
-     "key": "b_hx2",
-     "id": "hard-01-alerts",
-     "q": "alert_3",
-     "kind": "first right",
-     "cols": [
-      {
-       "pick": "cpu",
-       "top": 41,
-       "run": 29,
-       "conf": 21,
-       "pct": "41%",
-       "ok": true,
-       "body": "A/hard-hard-01-alerts.json"
       },
       {
-       "pick": "prof",
-       "top": 63,
-       "run": 22,
-       "conf": 51,
-       "pct": "63%",
-       "ok": false,
-       "body": "jump-systemone/hard-hard-01-alerts.json"
+       "pick": "idor",
+       "ok": true,
+       "body": "ds41-jump-systemone/hard-hard-03-vulnreports.json"
       }
      ],
      "face": "mono"
     }
    ]
+  },
+  "v41": {
+   "same": 12
   },
   "beats": {
    "grid": 2,
@@ -4158,7 +4126,8 @@
    }
   },
   "dn": {
-   "json": 2
+   "json": 2,
+   "d": "D2"
   },
   "rq": {
    "qs": 2
@@ -4167,11 +4136,11 @@
  "hard": {
   "suite": "tools/ref/clef/suite-hard.jsonl",
   "gold": "tools/ref/clef/suite-hard.gold.jsonl",
-  "rows": "sources/sit3-1020",
+  "rows": "sources/sit3-1020 + sources/v41h-1020",
   "n": 29,
   "requests": 12,
   "fixture": false,
-  "cards": "RTX A6000 + RTX 3090",
+  "cards": "RTX A6000 + RTX 3090 · Q3_K_M",
   "arms": [
    {
     "model": "Clef-Flash",
@@ -4181,7 +4150,9 @@
     "correct": 21,
     "n": 29,
     "p50_ms": 142.90403854101896,
-    "rows": 96
+    "rows": 96,
+    "prompt_p50_ms": 110.96538050000001,
+    "rest_p50_ms": 32.03446000685424
    },
    {
     "model": "Qwen3.6-35B-A3B",
@@ -4191,7 +4162,9 @@
     "correct": 18,
     "n": 29,
     "p50_ms": 109.76115637458861,
-    "rows": 48
+    "rows": 48,
+    "prompt_p50_ms": 83.42819700000001,
+    "rest_p50_ms": 27.876043059712465
    },
    {
     "model": "Qwen3.6-35B-A3B",
@@ -4201,12 +4174,38 @@
     "correct": 18,
     "n": 29,
     "p50_ms": 181.64651398546994,
-    "rows": 48
+    "rows": 48,
+    "prompt_p50_ms": 83.108581,
+    "rest_p50_ms": 100.12800598546994
+   },
+   {
+    "model": "DeepSeek-V4.1-Flash",
+    "key": "v41",
+    "short": "v41_s",
+    "arm": "jump",
+    "correct": 27,
+    "n": 29,
+    "p50_ms": 2280.747204902582,
+    "rows": 60,
+    "prompt_p50_ms": 2128.5547855,
+    "rest_p50_ms": 145.21944707397392
+   },
+   {
+    "model": "DeepSeek-V4.1-Flash",
+    "key": "v41",
+    "short": "v41_s",
+    "arm": "step",
+    "correct": 27,
+    "n": 29,
+    "p50_ms": 2465.8607725286856,
+    "rows": 60,
+    "prompt_p50_ms": 2052.3460720000003,
+    "rest_p50_ms": 414.61988047371483
    }
   ]
  },
  "notes": {
-  "draft": true,
+  "draft": false,
   "sitting": "sitting 3, 2026-10-20, RTX A6000",
   "readme_rev": "a88152bca",
   "runner": "bloomery-rel036/tools/ref/sj-vs-clef.sh",

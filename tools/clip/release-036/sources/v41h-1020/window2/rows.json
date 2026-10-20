@@ -1,0 +1,3523 @@
+{
+ "arms": [
+  "ds41-step"
+ ],
+ "suites": {
+  "hard": {
+   "path": "tools/ref/clef/suite-hard.jsonl",
+   "gold": {
+    "hard-01-alerts": {
+     "alert_1": "serial",
+     "alert_2": "lockwait",
+     "alert_3": "cpu"
+    },
+    "hard-02-gateway": {
+     "ticket_a": "host",
+     "ticket_b": "true"
+    },
+    "hard-03-vulnreports": {
+     "report_1": "idor",
+     "report_2": "tamper"
+    },
+    "hard-04-formulary": {
+     "rx_a": "ltra",
+     "rx_b": "absorb",
+     "rx_c": "false"
+    },
+    "hard-05-claims": {
+     "claim_a": "nerve",
+     "claim_b": "eye",
+     "claim_c": "true"
+    },
+    "hard-06-privacy": {
+     "complaint_1": "dppa",
+     "complaint_2": "vppa",
+     "complaint_3": "gina"
+    },
+    "ko-hard-07-hotline": {
+     "\uc778\uad8c\uc0c1\ub2f4": "1331",
+     "\uae30\uad00": "\uad6d\ubbfc\uc5f0\uae08"
+    },
+    "ko-hard-08-areacode": {
+     "\uc811\uc2181": "\ucda9\ub0a8",
+     "\uc811\uc2182": "\uc6b8\uc0b0"
+    },
+    "ko-hard-09-heritage": {
+     "\uad81\uad90": "\ucc3d\ub355\uad81",
+     "\uc9c1\uc9c0": "\uccad\uc8fc",
+     "\uc0b0\uc0ac": "\ubd80\uc11d\uc0ac"
+    },
+    "ko-hard-10-labor": {
+     "\uc8fc\ud734\uc218\ub2f9": "false",
+     "\uc0b0\uc7ac\ubcf4\ud5d8\ub8cc": "\uc0ac\uc5c5\uc8fc"
+    },
+    "ko-hard-11-realty": {
+     "\uac00\uc555\ub958": "\uac11\uad6c",
+     "\ub300\ud56d\ub825": "\ub2e4\uc74c\ub0a0"
+    },
+    "ko-hard-12-history": {
+     "\uc81c\ub3c4": "\uade0\uc5ed\ubc95",
+     "\uac15": "\ub099\ub3d9\uac15"
+    }
+   }
+  }
+ },
+ "rows": [
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-01-alerts",
+   "round": 0,
+   "dropped": true,
+   "wall_ms": 4073.009863961488,
+   "server_ms": 4069.827853,
+   "host_ms": 3.1820109614882313,
+   "prompt_n": 571,
+   "prompt_ms": 3375.778464,
+   "head_ms": null,
+   "predicted_ms": 694.049389,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 3,
+    "free_steps": 0,
+    "next_calls": 25,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "alert_1": "serial",
+    "alert_2": "lockwait",
+    "alert_3": "cpu"
+   },
+   "picks": {
+    "alert_1": "serial",
+    "alert_2": "lockwait",
+    "alert_3": "cpu"
+   },
+   "text": "{\"alert_1\": \"serial\", \"alert_2\": \"lockwait\", \"alert_3\": \"cpu\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 26,
+    "prompt_tokens": 571,
+    "total_tokens": 597,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-02-gateway",
+   "round": 0,
+   "dropped": true,
+   "wall_ms": 2322.427646955475,
+   "server_ms": 2314.676586,
+   "host_ms": 7.751060955475168,
+   "prompt_n": 326,
+   "prompt_ms": 1848.335017,
+   "head_ms": null,
+   "predicted_ms": 466.341569,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 16,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "ticket_a": "host",
+    "ticket_b": "no"
+   },
+   "picks": {
+    "ticket_a": "host",
+    "ticket_b": "false"
+   },
+   "text": "{\"ticket_a\": \"host\", \"ticket_b\": false}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 17,
+    "prompt_tokens": 326,
+    "total_tokens": 343,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-03-vulnreports",
+   "round": 0,
+   "dropped": true,
+   "wall_ms": 2590.679449029267,
+   "server_ms": 2581.4449050000003,
+   "host_ms": 9.234544029266544,
+   "prompt_n": 410,
+   "prompt_ms": 2142.631902,
+   "head_ms": null,
+   "predicted_ms": 438.813003,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 18,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "report_1": "idor",
+    "report_2": "tamper"
+   },
+   "picks": {
+    "report_1": "idor",
+    "report_2": "tamper"
+   },
+   "text": "{\"report_1\": \"idor\", \"report_2\": \"tamper\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 19,
+    "prompt_tokens": 410,
+    "total_tokens": 429,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-04-formulary",
+   "round": 0,
+   "dropped": true,
+   "wall_ms": 2699.101618025452,
+   "server_ms": 2691.342031,
+   "host_ms": 7.759587025451765,
+   "prompt_n": 438,
+   "prompt_ms": 2192.154907,
+   "head_ms": null,
+   "predicted_ms": 499.187124,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 3,
+    "free_steps": 0,
+    "next_calls": 22,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "rx_a": "ltra",
+    "rx_b": "absorb",
+    "rx_c": "no"
+   },
+   "picks": {
+    "rx_a": "ltra",
+    "rx_b": "absorb",
+    "rx_c": "false"
+   },
+   "text": "{\"rx_a\": \"ltra\", \"rx_b\": \"absorb\", \"rx_c\": false}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 23,
+    "prompt_tokens": 438,
+    "total_tokens": 461,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-05-claims",
+   "round": 0,
+   "dropped": true,
+   "wall_ms": 2701.703071128577,
+   "server_ms": 2694.321309,
+   "host_ms": 7.381762128577066,
+   "prompt_n": 454,
+   "prompt_ms": 2226.620482,
+   "head_ms": null,
+   "predicted_ms": 467.700827,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 3,
+    "free_steps": 0,
+    "next_calls": 22,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "claim_a": "nerve",
+    "claim_b": "eye",
+    "claim_c": "yes"
+   },
+   "picks": {
+    "claim_a": "nerve",
+    "claim_b": "eye",
+    "claim_c": "true"
+   },
+   "text": "{\"claim_a\": \"nerve\", \"claim_b\": \"eye\", \"claim_c\": true}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 23,
+    "prompt_tokens": 454,
+    "total_tokens": 477,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-06-privacy",
+   "round": 0,
+   "dropped": true,
+   "wall_ms": 3121.2378761265427,
+   "server_ms": 3113.556206,
+   "host_ms": 7.681670126542485,
+   "prompt_n": 516,
+   "prompt_ms": 2478.824263,
+   "head_ms": null,
+   "predicted_ms": 634.731943,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 3,
+    "free_steps": 0,
+    "next_calls": 30,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "complaint_1": "dppa",
+    "complaint_2": "vppa",
+    "complaint_3": "gina"
+   },
+   "picks": {
+    "complaint_1": "dppa",
+    "complaint_2": "vppa",
+    "complaint_3": "gina"
+   },
+   "text": "{\"complaint_1\": \"dppa\", \"complaint_2\": \"vppa\", \"complaint_3\": \"gina\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 31,
+    "prompt_tokens": 516,
+    "total_tokens": 547,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-07-hotline",
+   "round": 0,
+   "dropped": true,
+   "wall_ms": 2492.3503850586712,
+   "server_ms": 2484.689645,
+   "host_ms": 7.660740058671308,
+   "prompt_n": 422,
+   "prompt_ms": 2051.728498,
+   "head_ms": null,
+   "predicted_ms": 432.961147,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 3,
+    "free_steps": 0,
+    "next_calls": 20,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uc778\uad8c\uc0c1\ub2f4": "1331",
+    "\uae30\uad00": "\uace0\uc6a9\uc13c\ud130"
+   },
+   "picks": {
+    "\uc778\uad8c\uc0c1\ub2f4": "1331",
+    "\uae30\uad00": "\uace0\uc6a9\uc13c\ud130"
+   },
+   "text": "{\"\uc778\uad8c\uc0c1\ub2f4\": \"1331\", \"\uae30\uad00\": \"\uace0\uc6a9\uc13c\ud130\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 21,
+    "prompt_tokens": 422,
+    "total_tokens": 443,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-08-areacode",
+   "round": 0,
+   "dropped": true,
+   "wall_ms": 2179.877106100321,
+   "server_ms": 2172.034812,
+   "host_ms": 7.842294100320942,
+   "prompt_n": 376,
+   "prompt_ms": 1799.9935950000001,
+   "head_ms": null,
+   "predicted_ms": 372.04121699999996,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 18,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uc811\uc2181": "\ucda9\ub0a8",
+    "\uc811\uc2182": "\uc6b8\uc0b0"
+   },
+   "picks": {
+    "\uc811\uc2181": "\ucda9\ub0a8",
+    "\uc811\uc2182": "\uc6b8\uc0b0"
+   },
+   "text": "{\"\uc811\uc2181\": \"\ucda9\ub0a8\", \"\uc811\uc2182\": \"\uc6b8\uc0b0\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 19,
+    "prompt_tokens": 376,
+    "total_tokens": 395,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-09-heritage",
+   "round": 0,
+   "dropped": true,
+   "wall_ms": 3366.6829159483314,
+   "server_ms": 3356.55592,
+   "host_ms": 10.126995948331569,
+   "prompt_n": 609,
+   "prompt_ms": 2742.070159,
+   "head_ms": null,
+   "predicted_ms": 614.4857609999999,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 4,
+    "free_steps": 0,
+    "next_calls": 31,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uad81\uad90": "\ucc3d\ub355\uad81",
+    "\uc9c1\uc9c0": "\uccad\uc8fc",
+    "\uc0b0\uc0ac": "\ubd80\uc11d\uc0ac"
+   },
+   "picks": {
+    "\uad81\uad90": "\ucc3d\ub355\uad81",
+    "\uc9c1\uc9c0": "\uccad\uc8fc",
+    "\uc0b0\uc0ac": "\ubd80\uc11d\uc0ac"
+   },
+   "text": "{\"\uad81\uad90\": \"\ucc3d\ub355\uad81\", \"\uc9c1\uc9c0\": \"\uccad\uc8fc\", \"\uc0b0\uc0ac\": \"\ubd80\uc11d\uc0ac\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 32,
+    "prompt_tokens": 609,
+    "total_tokens": 641,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-10-labor",
+   "round": 0,
+   "dropped": true,
+   "wall_ms": 2575.4868681542575,
+   "server_ms": 2567.822681,
+   "host_ms": 7.664187154257434,
+   "prompt_n": 419,
+   "prompt_ms": 2127.927251,
+   "head_ms": null,
+   "predicted_ms": 439.89543,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 22,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uc8fc\ud734\uc218\ub2f9": "no",
+    "\uc0b0\uc7ac\ubcf4\ud5d8\ub8cc": "\uc0ac\uc5c5\uc8fc"
+   },
+   "picks": {
+    "\uc8fc\ud734\uc218\ub2f9": "false",
+    "\uc0b0\uc7ac\ubcf4\ud5d8\ub8cc": "\uc0ac\uc5c5\uc8fc"
+   },
+   "text": "{\"\uc8fc\ud734\uc218\ub2f9\": false, \"\uc0b0\uc7ac\ubcf4\ud5d8\ub8cc\": \"\uc0ac\uc5c5\uc8fc\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 23,
+    "prompt_tokens": 419,
+    "total_tokens": 442,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-11-realty",
+   "round": 0,
+   "dropped": true,
+   "wall_ms": 2547.849541064352,
+   "server_ms": 2537.1342399999994,
+   "host_ms": 10.715301064352388,
+   "prompt_n": 449,
+   "prompt_ms": 2127.0065219999997,
+   "head_ms": null,
+   "predicted_ms": 410.12771799999996,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 21,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uac00\uc555\ub958": "\uac11\uad6c",
+    "\ub300\ud56d\ub825": "\ub2e4\uc74c\ub0a0"
+   },
+   "picks": {
+    "\uac00\uc555\ub958": "\uac11\uad6c",
+    "\ub300\ud56d\ub825": "\ub2e4\uc74c\ub0a0"
+   },
+   "text": "{\"\uac00\uc555\ub958\": \"\uac11\uad6c\", \"\ub300\ud56d\ub825\": \"\ub2e4\uc74c\ub0a0\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 22,
+    "prompt_tokens": 449,
+    "total_tokens": 471,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-12-history",
+   "round": 0,
+   "dropped": true,
+   "wall_ms": 2101.8216281663626,
+   "server_ms": 2093.275158,
+   "host_ms": 8.546470166362724,
+   "prompt_n": 355,
+   "prompt_ms": 1744.364585,
+   "head_ms": null,
+   "predicted_ms": 348.910573,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 18,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uc81c\ub3c4": "\uade0\uc5ed\ubc95",
+    "\uac15": "\ub099\ub3d9\uac15"
+   },
+   "picks": {
+    "\uc81c\ub3c4": "\uade0\uc5ed\ubc95",
+    "\uac15": "\ub099\ub3d9\uac15"
+   },
+   "text": "{\"\uc81c\ub3c4\": \"\uade0\uc5ed\ubc95\", \"\uac15\": \"\ub099\ub3d9\uac15\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 19,
+    "prompt_tokens": 355,
+    "total_tokens": 374,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-01-alerts",
+   "round": 1,
+   "dropped": false,
+   "wall_ms": 3172.4345271941274,
+   "server_ms": 3165.37216,
+   "host_ms": 7.062367194127546,
+   "prompt_n": 571,
+   "prompt_ms": 2647.945408,
+   "head_ms": null,
+   "predicted_ms": 517.426752,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 3,
+    "free_steps": 0,
+    "next_calls": 25,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "alert_1": "serial",
+    "alert_2": "lockwait",
+    "alert_3": "cpu"
+   },
+   "picks": {
+    "alert_1": "serial",
+    "alert_2": "lockwait",
+    "alert_3": "cpu"
+   },
+   "text": "{\"alert_1\": \"serial\", \"alert_2\": \"lockwait\", \"alert_3\": \"cpu\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 26,
+    "prompt_tokens": 571,
+    "total_tokens": 597,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short",
+   "body": "bodies/ds41-step/hard-hard-01-alerts.json"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-02-gateway",
+   "round": 1,
+   "dropped": false,
+   "wall_ms": 2030.101423151791,
+   "server_ms": 2028.925794,
+   "host_ms": 1.1756291517910995,
+   "prompt_n": 326,
+   "prompt_ms": 1709.420684,
+   "head_ms": null,
+   "predicted_ms": 319.50511,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 16,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "ticket_a": "host",
+    "ticket_b": "no"
+   },
+   "picks": {
+    "ticket_a": "host",
+    "ticket_b": "false"
+   },
+   "text": "{\"ticket_a\": \"host\", \"ticket_b\": false}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 17,
+    "prompt_tokens": 326,
+    "total_tokens": 343,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short",
+   "body": "bodies/ds41-step/hard-hard-02-gateway.json"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-03-vulnreports",
+   "round": 1,
+   "dropped": false,
+   "wall_ms": 2392.2298399265856,
+   "server_ms": 2391.059753,
+   "host_ms": 1.1700869265855545,
+   "prompt_n": 410,
+   "prompt_ms": 2034.3043010000001,
+   "head_ms": null,
+   "predicted_ms": 356.755452,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 18,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "report_1": "idor",
+    "report_2": "tamper"
+   },
+   "picks": {
+    "report_1": "idor",
+    "report_2": "tamper"
+   },
+   "text": "{\"report_1\": \"idor\", \"report_2\": \"tamper\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 19,
+    "prompt_tokens": 410,
+    "total_tokens": 429,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short",
+   "body": "bodies/ds41-step/hard-hard-03-vulnreports.json"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-04-formulary",
+   "round": 1,
+   "dropped": false,
+   "wall_ms": 2537.5373419374228,
+   "server_ms": 2536.398853,
+   "host_ms": 1.1384889374226077,
+   "prompt_n": 438,
+   "prompt_ms": 2103.904805,
+   "head_ms": null,
+   "predicted_ms": 432.494048,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 3,
+    "free_steps": 0,
+    "next_calls": 22,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "rx_a": "ltra",
+    "rx_b": "absorb",
+    "rx_c": "no"
+   },
+   "picks": {
+    "rx_a": "ltra",
+    "rx_b": "absorb",
+    "rx_c": "false"
+   },
+   "text": "{\"rx_a\": \"ltra\", \"rx_b\": \"absorb\", \"rx_c\": false}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 23,
+    "prompt_tokens": 438,
+    "total_tokens": 461,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short",
+   "body": "bodies/ds41-step/hard-hard-04-formulary.json"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-05-claims",
+   "round": 1,
+   "dropped": false,
+   "wall_ms": 2581.4760979264975,
+   "server_ms": 2580.300921,
+   "host_ms": 1.1751769264974428,
+   "prompt_n": 454,
+   "prompt_ms": 2155.018889,
+   "head_ms": null,
+   "predicted_ms": 425.28203199999996,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 3,
+    "free_steps": 0,
+    "next_calls": 22,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "claim_a": "nerve",
+    "claim_b": "eye",
+    "claim_c": "yes"
+   },
+   "picks": {
+    "claim_a": "nerve",
+    "claim_b": "eye",
+    "claim_c": "true"
+   },
+   "text": "{\"claim_a\": \"nerve\", \"claim_b\": \"eye\", \"claim_c\": true}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 23,
+    "prompt_tokens": 454,
+    "total_tokens": 477,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short",
+   "body": "bodies/ds41-step/hard-hard-05-claims.json"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-06-privacy",
+   "round": 1,
+   "dropped": false,
+   "wall_ms": 3022.4303489085287,
+   "server_ms": 3021.131347,
+   "host_ms": 1.2990019085286804,
+   "prompt_n": 516,
+   "prompt_ms": 2433.281446,
+   "head_ms": null,
+   "predicted_ms": 587.849901,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 3,
+    "free_steps": 0,
+    "next_calls": 30,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "complaint_1": "dppa",
+    "complaint_2": "vppa",
+    "complaint_3": "gina"
+   },
+   "picks": {
+    "complaint_1": "dppa",
+    "complaint_2": "vppa",
+    "complaint_3": "gina"
+   },
+   "text": "{\"complaint_1\": \"dppa\", \"complaint_2\": \"vppa\", \"complaint_3\": \"gina\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 31,
+    "prompt_tokens": 516,
+    "total_tokens": 547,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short",
+   "body": "bodies/ds41-step/hard-hard-06-privacy.json"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-07-hotline",
+   "round": 1,
+   "dropped": false,
+   "wall_ms": 2391.279447823763,
+   "server_ms": 2390.239858,
+   "host_ms": 1.0395898237629808,
+   "prompt_n": 422,
+   "prompt_ms": 1997.135184,
+   "head_ms": null,
+   "predicted_ms": 393.104674,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 3,
+    "free_steps": 0,
+    "next_calls": 20,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uc778\uad8c\uc0c1\ub2f4": "1331",
+    "\uae30\uad00": "\uace0\uc6a9\uc13c\ud130"
+   },
+   "picks": {
+    "\uc778\uad8c\uc0c1\ub2f4": "1331",
+    "\uae30\uad00": "\uace0\uc6a9\uc13c\ud130"
+   },
+   "text": "{\"\uc778\uad8c\uc0c1\ub2f4\": \"1331\", \"\uae30\uad00\": \"\uace0\uc6a9\uc13c\ud130\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 21,
+    "prompt_tokens": 422,
+    "total_tokens": 443,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short",
+   "body": "bodies/ds41-step/hard-ko-hard-07-hotline.json"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-08-areacode",
+   "round": 1,
+   "dropped": false,
+   "wall_ms": 2149.571891874075,
+   "server_ms": 2148.5366780000004,
+   "host_ms": 1.0352138740745431,
+   "prompt_n": 376,
+   "prompt_ms": 1800.8729990000002,
+   "head_ms": null,
+   "predicted_ms": 347.663679,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 18,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uc811\uc2181": "\ucda9\ub0a8",
+    "\uc811\uc2182": "\uc6b8\uc0b0"
+   },
+   "picks": {
+    "\uc811\uc2181": "\ucda9\ub0a8",
+    "\uc811\uc2182": "\uc6b8\uc0b0"
+   },
+   "text": "{\"\uc811\uc2181\": \"\ucda9\ub0a8\", \"\uc811\uc2182\": \"\uc6b8\uc0b0\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 19,
+    "prompt_tokens": 376,
+    "total_tokens": 395,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short",
+   "body": "bodies/ds41-step/hard-ko-hard-08-areacode.json"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-09-heritage",
+   "round": 1,
+   "dropped": false,
+   "wall_ms": 3294.767437968403,
+   "server_ms": 3293.5932510000002,
+   "host_ms": 1.1741869684028643,
+   "prompt_n": 609,
+   "prompt_ms": 2701.166712,
+   "head_ms": null,
+   "predicted_ms": 592.4265389999999,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 4,
+    "free_steps": 0,
+    "next_calls": 31,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uad81\uad90": "\ucc3d\ub355\uad81",
+    "\uc9c1\uc9c0": "\uccad\uc8fc",
+    "\uc0b0\uc0ac": "\ubd80\uc11d\uc0ac"
+   },
+   "picks": {
+    "\uad81\uad90": "\ucc3d\ub355\uad81",
+    "\uc9c1\uc9c0": "\uccad\uc8fc",
+    "\uc0b0\uc0ac": "\ubd80\uc11d\uc0ac"
+   },
+   "text": "{\"\uad81\uad90\": \"\ucc3d\ub355\uad81\", \"\uc9c1\uc9c0\": \"\uccad\uc8fc\", \"\uc0b0\uc0ac\": \"\ubd80\uc11d\uc0ac\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 32,
+    "prompt_tokens": 609,
+    "total_tokens": 641,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short",
+   "body": "bodies/ds41-step/hard-ko-hard-09-heritage.json"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-10-labor",
+   "round": 1,
+   "dropped": false,
+   "wall_ms": 2426.2581050861627,
+   "server_ms": 2425.214888,
+   "host_ms": 1.0432170861627128,
+   "prompt_n": 419,
+   "prompt_ms": 1994.559966,
+   "head_ms": null,
+   "predicted_ms": 430.654922,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 22,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uc8fc\ud734\uc218\ub2f9": "no",
+    "\uc0b0\uc7ac\ubcf4\ud5d8\ub8cc": "\uc0ac\uc5c5\uc8fc"
+   },
+   "picks": {
+    "\uc8fc\ud734\uc218\ub2f9": "false",
+    "\uc0b0\uc7ac\ubcf4\ud5d8\ub8cc": "\uc0ac\uc5c5\uc8fc"
+   },
+   "text": "{\"\uc8fc\ud734\uc218\ub2f9\": false, \"\uc0b0\uc7ac\ubcf4\ud5d8\ub8cc\": \"\uc0ac\uc5c5\uc8fc\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 23,
+    "prompt_tokens": 419,
+    "total_tokens": 442,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short",
+   "body": "bodies/ds41-step/hard-ko-hard-10-labor.json"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-11-realty",
+   "round": 1,
+   "dropped": false,
+   "wall_ms": 2480.8567678555846,
+   "server_ms": 2479.754898,
+   "host_ms": 1.1018698555844821,
+   "prompt_n": 449,
+   "prompt_ms": 2075.233592,
+   "head_ms": null,
+   "predicted_ms": 404.52130600000004,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 21,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uac00\uc555\ub958": "\uac11\uad6c",
+    "\ub300\ud56d\ub825": "\ub2e4\uc74c\ub0a0"
+   },
+   "picks": {
+    "\uac00\uc555\ub958": "\uac11\uad6c",
+    "\ub300\ud56d\ub825": "\ub2e4\uc74c\ub0a0"
+   },
+   "text": "{\"\uac00\uc555\ub958\": \"\uac11\uad6c\", \"\ub300\ud56d\ub825\": \"\ub2e4\uc74c\ub0a0\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 22,
+    "prompt_tokens": 449,
+    "total_tokens": 471,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short",
+   "body": "bodies/ds41-step/hard-ko-hard-11-realty.json"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-12-history",
+   "round": 1,
+   "dropped": false,
+   "wall_ms": 2065.8578949514776,
+   "server_ms": 2064.83196,
+   "host_ms": 1.025934951477666,
+   "prompt_n": 355,
+   "prompt_ms": 1719.57352,
+   "head_ms": null,
+   "predicted_ms": 345.25844,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 18,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uc81c\ub3c4": "\uade0\uc5ed\ubc95",
+    "\uac15": "\ub099\ub3d9\uac15"
+   },
+   "picks": {
+    "\uc81c\ub3c4": "\uade0\uc5ed\ubc95",
+    "\uac15": "\ub099\ub3d9\uac15"
+   },
+   "text": "{\"\uc81c\ub3c4\": \"\uade0\uc5ed\ubc95\", \"\uac15\": \"\ub099\ub3d9\uac15\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 19,
+    "prompt_tokens": 355,
+    "total_tokens": 374,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short",
+   "body": "bodies/ds41-step/hard-ko-hard-12-history.json"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-01-alerts",
+   "round": 2,
+   "dropped": false,
+   "wall_ms": 3151.0954841505736,
+   "server_ms": 3149.765203,
+   "host_ms": 1.3302811505736827,
+   "prompt_n": 571,
+   "prompt_ms": 2648.74658,
+   "head_ms": null,
+   "predicted_ms": 501.018623,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 3,
+    "free_steps": 0,
+    "next_calls": 25,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "alert_1": "serial",
+    "alert_2": "lockwait",
+    "alert_3": "cpu"
+   },
+   "picks": {
+    "alert_1": "serial",
+    "alert_2": "lockwait",
+    "alert_3": "cpu"
+   },
+   "text": "{\"alert_1\": \"serial\", \"alert_2\": \"lockwait\", \"alert_3\": \"cpu\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 26,
+    "prompt_tokens": 571,
+    "total_tokens": 597,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-02-gateway",
+   "round": 2,
+   "dropped": false,
+   "wall_ms": 2046.5217588935047,
+   "server_ms": 2045.461539,
+   "host_ms": 1.0602198935048364,
+   "prompt_n": 326,
+   "prompt_ms": 1730.385689,
+   "head_ms": null,
+   "predicted_ms": 315.07585,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 16,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "ticket_a": "host",
+    "ticket_b": "no"
+   },
+   "picks": {
+    "ticket_a": "host",
+    "ticket_b": "false"
+   },
+   "text": "{\"ticket_a\": \"host\", \"ticket_b\": false}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 17,
+    "prompt_tokens": 326,
+    "total_tokens": 343,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-03-vulnreports",
+   "round": 2,
+   "dropped": false,
+   "wall_ms": 2362.2611700557172,
+   "server_ms": 2361.0803419999997,
+   "host_ms": 1.180828055717484,
+   "prompt_n": 410,
+   "prompt_ms": 2010.5613729999998,
+   "head_ms": null,
+   "predicted_ms": 350.518969,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 18,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "report_1": "idor",
+    "report_2": "tamper"
+   },
+   "picks": {
+    "report_1": "idor",
+    "report_2": "tamper"
+   },
+   "text": "{\"report_1\": \"idor\", \"report_2\": \"tamper\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 19,
+    "prompt_tokens": 410,
+    "total_tokens": 429,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-04-formulary",
+   "round": 2,
+   "dropped": false,
+   "wall_ms": 2556.9886851590127,
+   "server_ms": 2555.794212,
+   "host_ms": 1.1944731590128868,
+   "prompt_n": 438,
+   "prompt_ms": 2127.629173,
+   "head_ms": null,
+   "predicted_ms": 428.16503900000004,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 3,
+    "free_steps": 0,
+    "next_calls": 22,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "rx_a": "ltra",
+    "rx_b": "absorb",
+    "rx_c": "no"
+   },
+   "picks": {
+    "rx_a": "ltra",
+    "rx_b": "absorb",
+    "rx_c": "false"
+   },
+   "text": "{\"rx_a\": \"ltra\", \"rx_b\": \"absorb\", \"rx_c\": false}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 23,
+    "prompt_tokens": 438,
+    "total_tokens": 461,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-05-claims",
+   "round": 2,
+   "dropped": false,
+   "wall_ms": 2575.6228961981833,
+   "server_ms": 2574.488356,
+   "host_ms": 1.1345401981834584,
+   "prompt_n": 454,
+   "prompt_ms": 2149.3497709999997,
+   "head_ms": null,
+   "predicted_ms": 425.13858500000003,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 3,
+    "free_steps": 0,
+    "next_calls": 22,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "claim_a": "nerve",
+    "claim_b": "eye",
+    "claim_c": "yes"
+   },
+   "picks": {
+    "claim_a": "nerve",
+    "claim_b": "eye",
+    "claim_c": "true"
+   },
+   "text": "{\"claim_a\": \"nerve\", \"claim_b\": \"eye\", \"claim_c\": true}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 23,
+    "prompt_tokens": 454,
+    "total_tokens": 477,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-06-privacy",
+   "round": 2,
+   "dropped": false,
+   "wall_ms": 3007.800605148077,
+   "server_ms": 3006.565665,
+   "host_ms": 1.2349401480769302,
+   "prompt_n": 516,
+   "prompt_ms": 2419.3328850000003,
+   "head_ms": null,
+   "predicted_ms": 587.23278,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 3,
+    "free_steps": 0,
+    "next_calls": 30,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "complaint_1": "dppa",
+    "complaint_2": "vppa",
+    "complaint_3": "gina"
+   },
+   "picks": {
+    "complaint_1": "dppa",
+    "complaint_2": "vppa",
+    "complaint_3": "gina"
+   },
+   "text": "{\"complaint_1\": \"dppa\", \"complaint_2\": \"vppa\", \"complaint_3\": \"gina\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 31,
+    "prompt_tokens": 516,
+    "total_tokens": 547,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-07-hotline",
+   "round": 2,
+   "dropped": false,
+   "wall_ms": 2380.4012041073292,
+   "server_ms": 2379.371832,
+   "host_ms": 1.0293721073294364,
+   "prompt_n": 422,
+   "prompt_ms": 1984.957944,
+   "head_ms": null,
+   "predicted_ms": 394.413888,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 3,
+    "free_steps": 0,
+    "next_calls": 20,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uc778\uad8c\uc0c1\ub2f4": "1331",
+    "\uae30\uad00": "\uace0\uc6a9\uc13c\ud130"
+   },
+   "picks": {
+    "\uc778\uad8c\uc0c1\ub2f4": "1331",
+    "\uae30\uad00": "\uace0\uc6a9\uc13c\ud130"
+   },
+   "text": "{\"\uc778\uad8c\uc0c1\ub2f4\": \"1331\", \"\uae30\uad00\": \"\uace0\uc6a9\uc13c\ud130\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 21,
+    "prompt_tokens": 422,
+    "total_tokens": 443,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-08-areacode",
+   "round": 2,
+   "dropped": false,
+   "wall_ms": 2166.620315052569,
+   "server_ms": 2165.598809,
+   "host_ms": 1.0215060525688386,
+   "prompt_n": 376,
+   "prompt_ms": 1817.789675,
+   "head_ms": null,
+   "predicted_ms": 347.80913400000003,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 18,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uc811\uc2181": "\ucda9\ub0a8",
+    "\uc811\uc2182": "\uc6b8\uc0b0"
+   },
+   "picks": {
+    "\uc811\uc2181": "\ucda9\ub0a8",
+    "\uc811\uc2182": "\uc6b8\uc0b0"
+   },
+   "text": "{\"\uc811\uc2181\": \"\ucda9\ub0a8\", \"\uc811\uc2182\": \"\uc6b8\uc0b0\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 19,
+    "prompt_tokens": 376,
+    "total_tokens": 395,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-09-heritage",
+   "round": 2,
+   "dropped": false,
+   "wall_ms": 3296.4936869684607,
+   "server_ms": 3294.7343919999994,
+   "host_ms": 1.7592949684612904,
+   "prompt_n": 609,
+   "prompt_ms": 2709.1665169999997,
+   "head_ms": null,
+   "predicted_ms": 585.567875,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 4,
+    "free_steps": 0,
+    "next_calls": 31,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uad81\uad90": "\ucc3d\ub355\uad81",
+    "\uc9c1\uc9c0": "\uccad\uc8fc",
+    "\uc0b0\uc0ac": "\ubd80\uc11d\uc0ac"
+   },
+   "picks": {
+    "\uad81\uad90": "\ucc3d\ub355\uad81",
+    "\uc9c1\uc9c0": "\uccad\uc8fc",
+    "\uc0b0\uc0ac": "\ubd80\uc11d\uc0ac"
+   },
+   "text": "{\"\uad81\uad90\": \"\ucc3d\ub355\uad81\", \"\uc9c1\uc9c0\": \"\uccad\uc8fc\", \"\uc0b0\uc0ac\": \"\ubd80\uc11d\uc0ac\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 32,
+    "prompt_tokens": 609,
+    "total_tokens": 641,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-10-labor",
+   "round": 2,
+   "dropped": false,
+   "wall_ms": 2450.4177800845355,
+   "server_ms": 2449.236721,
+   "host_ms": 1.1810590845352635,
+   "prompt_n": 419,
+   "prompt_ms": 2018.089701,
+   "head_ms": null,
+   "predicted_ms": 431.14702,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 22,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uc8fc\ud734\uc218\ub2f9": "no",
+    "\uc0b0\uc7ac\ubcf4\ud5d8\ub8cc": "\uc0ac\uc5c5\uc8fc"
+   },
+   "picks": {
+    "\uc8fc\ud734\uc218\ub2f9": "false",
+    "\uc0b0\uc7ac\ubcf4\ud5d8\ub8cc": "\uc0ac\uc5c5\uc8fc"
+   },
+   "text": "{\"\uc8fc\ud734\uc218\ub2f9\": false, \"\uc0b0\uc7ac\ubcf4\ud5d8\ub8cc\": \"\uc0ac\uc5c5\uc8fc\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 23,
+    "prompt_tokens": 419,
+    "total_tokens": 442,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-11-realty",
+   "round": 2,
+   "dropped": false,
+   "wall_ms": 2472.4793559871614,
+   "server_ms": 2470.975554,
+   "host_ms": 1.503801987161296,
+   "prompt_n": 449,
+   "prompt_ms": 2063.716256,
+   "head_ms": null,
+   "predicted_ms": 407.259298,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 21,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uac00\uc555\ub958": "\uac11\uad6c",
+    "\ub300\ud56d\ub825": "\ub2e4\uc74c\ub0a0"
+   },
+   "picks": {
+    "\uac00\uc555\ub958": "\uac11\uad6c",
+    "\ub300\ud56d\ub825": "\ub2e4\uc74c\ub0a0"
+   },
+   "text": "{\"\uac00\uc555\ub958\": \"\uac11\uad6c\", \"\ub300\ud56d\ub825\": \"\ub2e4\uc74c\ub0a0\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 22,
+    "prompt_tokens": 449,
+    "total_tokens": 471,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-12-history",
+   "round": 2,
+   "dropped": false,
+   "wall_ms": 2074.727182975039,
+   "server_ms": 2073.7018390000003,
+   "host_ms": 1.025343975038595,
+   "prompt_n": 355,
+   "prompt_ms": 1731.9285280000001,
+   "head_ms": null,
+   "predicted_ms": 341.77331100000004,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 18,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uc81c\ub3c4": "\uade0\uc5ed\ubc95",
+    "\uac15": "\ub099\ub3d9\uac15"
+   },
+   "picks": {
+    "\uc81c\ub3c4": "\uade0\uc5ed\ubc95",
+    "\uac15": "\ub099\ub3d9\uac15"
+   },
+   "text": "{\"\uc81c\ub3c4\": \"\uade0\uc5ed\ubc95\", \"\uac15\": \"\ub099\ub3d9\uac15\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 19,
+    "prompt_tokens": 355,
+    "total_tokens": 374,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-01-alerts",
+   "round": 3,
+   "dropped": false,
+   "wall_ms": 3164.5337701775134,
+   "server_ms": 3163.249735,
+   "host_ms": 1.2840351775134877,
+   "prompt_n": 571,
+   "prompt_ms": 2663.420318,
+   "head_ms": null,
+   "predicted_ms": 499.829417,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 3,
+    "free_steps": 0,
+    "next_calls": 25,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "alert_1": "serial",
+    "alert_2": "lockwait",
+    "alert_3": "cpu"
+   },
+   "picks": {
+    "alert_1": "serial",
+    "alert_2": "lockwait",
+    "alert_3": "cpu"
+   },
+   "text": "{\"alert_1\": \"serial\", \"alert_2\": \"lockwait\", \"alert_3\": \"cpu\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 26,
+    "prompt_tokens": 571,
+    "total_tokens": 597,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-02-gateway",
+   "round": 3,
+   "dropped": false,
+   "wall_ms": 2048.8769761286676,
+   "server_ms": 2047.7414130000002,
+   "host_ms": 1.1355631286673997,
+   "prompt_n": 326,
+   "prompt_ms": 1732.222778,
+   "head_ms": null,
+   "predicted_ms": 315.518635,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 16,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "ticket_a": "host",
+    "ticket_b": "no"
+   },
+   "picks": {
+    "ticket_a": "host",
+    "ticket_b": "false"
+   },
+   "text": "{\"ticket_a\": \"host\", \"ticket_b\": false}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 17,
+    "prompt_tokens": 326,
+    "total_tokens": 343,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-03-vulnreports",
+   "round": 3,
+   "dropped": false,
+   "wall_ms": 2394.585012923926,
+   "server_ms": 2392.9930950000003,
+   "host_ms": 1.5919179239258483,
+   "prompt_n": 410,
+   "prompt_ms": 2040.9758880000002,
+   "head_ms": null,
+   "predicted_ms": 352.017207,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 18,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "report_1": "idor",
+    "report_2": "tamper"
+   },
+   "picks": {
+    "report_1": "idor",
+    "report_2": "tamper"
+   },
+   "text": "{\"report_1\": \"idor\", \"report_2\": \"tamper\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 19,
+    "prompt_tokens": 410,
+    "total_tokens": 429,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-04-formulary",
+   "round": 3,
+   "dropped": false,
+   "wall_ms": 2553.187920944765,
+   "server_ms": 2551.980121,
+   "host_ms": 1.2077999447651564,
+   "prompt_n": 438,
+   "prompt_ms": 2120.887018,
+   "head_ms": null,
+   "predicted_ms": 431.093103,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 3,
+    "free_steps": 0,
+    "next_calls": 22,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "rx_a": "ltra",
+    "rx_b": "absorb",
+    "rx_c": "no"
+   },
+   "picks": {
+    "rx_a": "ltra",
+    "rx_b": "absorb",
+    "rx_c": "false"
+   },
+   "text": "{\"rx_a\": \"ltra\", \"rx_b\": \"absorb\", \"rx_c\": false}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 23,
+    "prompt_tokens": 438,
+    "total_tokens": 461,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-05-claims",
+   "round": 3,
+   "dropped": false,
+   "wall_ms": 2574.722039978951,
+   "server_ms": 2573.523818,
+   "host_ms": 1.1982219789510964,
+   "prompt_n": 454,
+   "prompt_ms": 2150.3984570000002,
+   "head_ms": null,
+   "predicted_ms": 423.125361,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 3,
+    "free_steps": 0,
+    "next_calls": 22,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "claim_a": "nerve",
+    "claim_b": "eye",
+    "claim_c": "yes"
+   },
+   "picks": {
+    "claim_a": "nerve",
+    "claim_b": "eye",
+    "claim_c": "true"
+   },
+   "text": "{\"claim_a\": \"nerve\", \"claim_b\": \"eye\", \"claim_c\": true}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 23,
+    "prompt_tokens": 454,
+    "total_tokens": 477,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-06-privacy",
+   "round": 3,
+   "dropped": false,
+   "wall_ms": 3012.6809710636735,
+   "server_ms": 3011.074255,
+   "host_ms": 1.6067160636735025,
+   "prompt_n": 516,
+   "prompt_ms": 2426.810879,
+   "head_ms": null,
+   "predicted_ms": 584.263376,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 3,
+    "free_steps": 0,
+    "next_calls": 30,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "complaint_1": "dppa",
+    "complaint_2": "vppa",
+    "complaint_3": "gina"
+   },
+   "picks": {
+    "complaint_1": "dppa",
+    "complaint_2": "vppa",
+    "complaint_3": "gina"
+   },
+   "text": "{\"complaint_1\": \"dppa\", \"complaint_2\": \"vppa\", \"complaint_3\": \"gina\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 31,
+    "prompt_tokens": 516,
+    "total_tokens": 547,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-07-hotline",
+   "round": 3,
+   "dropped": false,
+   "wall_ms": 2388.932649977505,
+   "server_ms": 2387.832986,
+   "host_ms": 1.0996639775053154,
+   "prompt_n": 422,
+   "prompt_ms": 1994.533971,
+   "head_ms": null,
+   "predicted_ms": 393.299015,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 3,
+    "free_steps": 0,
+    "next_calls": 20,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uc778\uad8c\uc0c1\ub2f4": "1331",
+    "\uae30\uad00": "\uace0\uc6a9\uc13c\ud130"
+   },
+   "picks": {
+    "\uc778\uad8c\uc0c1\ub2f4": "1331",
+    "\uae30\uad00": "\uace0\uc6a9\uc13c\ud130"
+   },
+   "text": "{\"\uc778\uad8c\uc0c1\ub2f4\": \"1331\", \"\uae30\uad00\": \"\uace0\uc6a9\uc13c\ud130\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 21,
+    "prompt_tokens": 422,
+    "total_tokens": 443,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-08-areacode",
+   "round": 3,
+   "dropped": false,
+   "wall_ms": 2193.93768790178,
+   "server_ms": 2192.910471,
+   "host_ms": 1.027216901779866,
+   "prompt_n": 376,
+   "prompt_ms": 1848.824498,
+   "head_ms": null,
+   "predicted_ms": 344.08597299999997,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 18,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uc811\uc2181": "\ucda9\ub0a8",
+    "\uc811\uc2182": "\uc6b8\uc0b0"
+   },
+   "picks": {
+    "\uc811\uc2181": "\ucda9\ub0a8",
+    "\uc811\uc2182": "\uc6b8\uc0b0"
+   },
+   "text": "{\"\uc811\uc2181\": \"\ucda9\ub0a8\", \"\uc811\uc2182\": \"\uc6b8\uc0b0\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 19,
+    "prompt_tokens": 376,
+    "total_tokens": 395,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-09-heritage",
+   "round": 3,
+   "dropped": false,
+   "wall_ms": 3312.8693338949233,
+   "server_ms": 3311.662416,
+   "host_ms": 1.2069178949232082,
+   "prompt_n": 609,
+   "prompt_ms": 2722.290895,
+   "head_ms": null,
+   "predicted_ms": 589.371521,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 4,
+    "free_steps": 0,
+    "next_calls": 31,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uad81\uad90": "\ucc3d\ub355\uad81",
+    "\uc9c1\uc9c0": "\uccad\uc8fc",
+    "\uc0b0\uc0ac": "\ubd80\uc11d\uc0ac"
+   },
+   "picks": {
+    "\uad81\uad90": "\ucc3d\ub355\uad81",
+    "\uc9c1\uc9c0": "\uccad\uc8fc",
+    "\uc0b0\uc0ac": "\ubd80\uc11d\uc0ac"
+   },
+   "text": "{\"\uad81\uad90\": \"\ucc3d\ub355\uad81\", \"\uc9c1\uc9c0\": \"\uccad\uc8fc\", \"\uc0b0\uc0ac\": \"\ubd80\uc11d\uc0ac\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 32,
+    "prompt_tokens": 609,
+    "total_tokens": 641,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-10-labor",
+   "round": 3,
+   "dropped": false,
+   "wall_ms": 2412.8835808951408,
+   "server_ms": 2411.786963,
+   "host_ms": 1.0966178951407528,
+   "prompt_n": 419,
+   "prompt_ms": 1989.4373679999999,
+   "head_ms": null,
+   "predicted_ms": 422.349595,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 22,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uc8fc\ud734\uc218\ub2f9": "no",
+    "\uc0b0\uc7ac\ubcf4\ud5d8\ub8cc": "\uc0ac\uc5c5\uc8fc"
+   },
+   "picks": {
+    "\uc8fc\ud734\uc218\ub2f9": "false",
+    "\uc0b0\uc7ac\ubcf4\ud5d8\ub8cc": "\uc0ac\uc5c5\uc8fc"
+   },
+   "text": "{\"\uc8fc\ud734\uc218\ub2f9\": false, \"\uc0b0\uc7ac\ubcf4\ud5d8\ub8cc\": \"\uc0ac\uc5c5\uc8fc\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 23,
+    "prompt_tokens": 419,
+    "total_tokens": 442,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-11-realty",
+   "round": 3,
+   "dropped": false,
+   "wall_ms": 2467.960507143289,
+   "server_ms": 2466.8187329999996,
+   "host_ms": 1.1417741432892399,
+   "prompt_n": 449,
+   "prompt_ms": 2066.687987,
+   "head_ms": null,
+   "predicted_ms": 400.130746,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 21,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uac00\uc555\ub958": "\uac11\uad6c",
+    "\ub300\ud56d\ub825": "\ub2e4\uc74c\ub0a0"
+   },
+   "picks": {
+    "\uac00\uc555\ub958": "\uac11\uad6c",
+    "\ub300\ud56d\ub825": "\ub2e4\uc74c\ub0a0"
+   },
+   "text": "{\"\uac00\uc555\ub958\": \"\uac11\uad6c\", \"\ub300\ud56d\ub825\": \"\ub2e4\uc74c\ub0a0\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 22,
+    "prompt_tokens": 449,
+    "total_tokens": 471,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-12-history",
+   "round": 3,
+   "dropped": false,
+   "wall_ms": 2062.614396912977,
+   "server_ms": 2061.48755,
+   "host_ms": 1.1268469129772711,
+   "prompt_n": 355,
+   "prompt_ms": 1721.125719,
+   "head_ms": null,
+   "predicted_ms": 340.361831,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 18,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uc81c\ub3c4": "\uade0\uc5ed\ubc95",
+    "\uac15": "\ub099\ub3d9\uac15"
+   },
+   "picks": {
+    "\uc81c\ub3c4": "\uade0\uc5ed\ubc95",
+    "\uac15": "\ub099\ub3d9\uac15"
+   },
+   "text": "{\"\uc81c\ub3c4\": \"\uade0\uc5ed\ubc95\", \"\uac15\": \"\ub099\ub3d9\uac15\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 19,
+    "prompt_tokens": 355,
+    "total_tokens": 374,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-01-alerts",
+   "round": 4,
+   "dropped": false,
+   "wall_ms": 3155.255838064477,
+   "server_ms": 3153.7498839999994,
+   "host_ms": 1.5059540644774643,
+   "prompt_n": 571,
+   "prompt_ms": 2660.0931709999995,
+   "head_ms": null,
+   "predicted_ms": 493.656713,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 3,
+    "free_steps": 0,
+    "next_calls": 25,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "alert_1": "serial",
+    "alert_2": "lockwait",
+    "alert_3": "cpu"
+   },
+   "picks": {
+    "alert_1": "serial",
+    "alert_2": "lockwait",
+    "alert_3": "cpu"
+   },
+   "text": "{\"alert_1\": \"serial\", \"alert_2\": \"lockwait\", \"alert_3\": \"cpu\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 26,
+    "prompt_tokens": 571,
+    "total_tokens": 597,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-02-gateway",
+   "round": 4,
+   "dropped": false,
+   "wall_ms": 2063.4322019759566,
+   "server_ms": 2062.373624,
+   "host_ms": 1.058577975956723,
+   "prompt_n": 326,
+   "prompt_ms": 1747.37908,
+   "head_ms": null,
+   "predicted_ms": 314.99454399999996,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 16,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "ticket_a": "host",
+    "ticket_b": "no"
+   },
+   "picks": {
+    "ticket_a": "host",
+    "ticket_b": "false"
+   },
+   "text": "{\"ticket_a\": \"host\", \"ticket_b\": false}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 17,
+    "prompt_tokens": 326,
+    "total_tokens": 343,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-03-vulnreports",
+   "round": 4,
+   "dropped": false,
+   "wall_ms": 2391.823475016281,
+   "server_ms": 2390.645282,
+   "host_ms": 1.1781930162810568,
+   "prompt_n": 410,
+   "prompt_ms": 2028.490612,
+   "head_ms": null,
+   "predicted_ms": 362.15467,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 18,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "report_1": "idor",
+    "report_2": "tamper"
+   },
+   "picks": {
+    "report_1": "idor",
+    "report_2": "tamper"
+   },
+   "text": "{\"report_1\": \"idor\", \"report_2\": \"tamper\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 19,
+    "prompt_tokens": 410,
+    "total_tokens": 429,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-04-formulary",
+   "round": 4,
+   "dropped": false,
+   "wall_ms": 2547.1811729948968,
+   "server_ms": 2544.813845,
+   "host_ms": 2.367327994896641,
+   "prompt_n": 438,
+   "prompt_ms": 2105.1310160000003,
+   "head_ms": null,
+   "predicted_ms": 439.68282899999997,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 3,
+    "free_steps": 0,
+    "next_calls": 22,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "rx_a": "ltra",
+    "rx_b": "absorb",
+    "rx_c": "no"
+   },
+   "picks": {
+    "rx_a": "ltra",
+    "rx_b": "absorb",
+    "rx_c": "false"
+   },
+   "text": "{\"rx_a\": \"ltra\", \"rx_b\": \"absorb\", \"rx_c\": false}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 23,
+    "prompt_tokens": 438,
+    "total_tokens": 461,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-05-claims",
+   "round": 4,
+   "dropped": false,
+   "wall_ms": 2568.9671591389924,
+   "server_ms": 2567.717028,
+   "host_ms": 1.2501311389924012,
+   "prompt_n": 454,
+   "prompt_ms": 2145.400419,
+   "head_ms": null,
+   "predicted_ms": 422.316609,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 3,
+    "free_steps": 0,
+    "next_calls": 22,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "claim_a": "nerve",
+    "claim_b": "eye",
+    "claim_c": "yes"
+   },
+   "picks": {
+    "claim_a": "nerve",
+    "claim_b": "eye",
+    "claim_c": "true"
+   },
+   "text": "{\"claim_a\": \"nerve\", \"claim_b\": \"eye\", \"claim_c\": true}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 23,
+    "prompt_tokens": 454,
+    "total_tokens": 477,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-06-privacy",
+   "round": 4,
+   "dropped": false,
+   "wall_ms": 3062.1084850281477,
+   "server_ms": 3060.8471640000002,
+   "host_ms": 1.2613210281474494,
+   "prompt_n": 516,
+   "prompt_ms": 2468.970201,
+   "head_ms": null,
+   "predicted_ms": 591.876963,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 3,
+    "free_steps": 0,
+    "next_calls": 30,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "complaint_1": "dppa",
+    "complaint_2": "vppa",
+    "complaint_3": "gina"
+   },
+   "picks": {
+    "complaint_1": "dppa",
+    "complaint_2": "vppa",
+    "complaint_3": "gina"
+   },
+   "text": "{\"complaint_1\": \"dppa\", \"complaint_2\": \"vppa\", \"complaint_3\": \"gina\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 31,
+    "prompt_tokens": 516,
+    "total_tokens": 547,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-07-hotline",
+   "round": 4,
+   "dropped": false,
+   "wall_ms": 2371.200077002868,
+   "server_ms": 2370.130338,
+   "host_ms": 1.0697390028681184,
+   "prompt_n": 422,
+   "prompt_ms": 1976.371113,
+   "head_ms": null,
+   "predicted_ms": 393.759225,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 3,
+    "free_steps": 0,
+    "next_calls": 20,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uc778\uad8c\uc0c1\ub2f4": "1331",
+    "\uae30\uad00": "\uace0\uc6a9\uc13c\ud130"
+   },
+   "picks": {
+    "\uc778\uad8c\uc0c1\ub2f4": "1331",
+    "\uae30\uad00": "\uace0\uc6a9\uc13c\ud130"
+   },
+   "text": "{\"\uc778\uad8c\uc0c1\ub2f4\": \"1331\", \"\uae30\uad00\": \"\uace0\uc6a9\uc13c\ud130\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 21,
+    "prompt_tokens": 422,
+    "total_tokens": 443,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-08-areacode",
+   "round": 4,
+   "dropped": false,
+   "wall_ms": 2171.8989049550146,
+   "server_ms": 2170.899851,
+   "host_ms": 0.9990539550144604,
+   "prompt_n": 376,
+   "prompt_ms": 1777.5580450000002,
+   "head_ms": null,
+   "predicted_ms": 393.341806,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 18,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uc811\uc2181": "\ucda9\ub0a8",
+    "\uc811\uc2182": "\uc6b8\uc0b0"
+   },
+   "picks": {
+    "\uc811\uc2181": "\ucda9\ub0a8",
+    "\uc811\uc2182": "\uc6b8\uc0b0"
+   },
+   "text": "{\"\uc811\uc2181\": \"\ucda9\ub0a8\", \"\uc811\uc2182\": \"\uc6b8\uc0b0\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 19,
+    "prompt_tokens": 376,
+    "total_tokens": 395,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-09-heritage",
+   "round": 4,
+   "dropped": false,
+   "wall_ms": 3303.722431883216,
+   "server_ms": 3302.547024,
+   "host_ms": 1.1754078832159394,
+   "prompt_n": 609,
+   "prompt_ms": 2714.276868,
+   "head_ms": null,
+   "predicted_ms": 588.270156,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 4,
+    "free_steps": 0,
+    "next_calls": 31,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uad81\uad90": "\ucc3d\ub355\uad81",
+    "\uc9c1\uc9c0": "\uccad\uc8fc",
+    "\uc0b0\uc0ac": "\ubd80\uc11d\uc0ac"
+   },
+   "picks": {
+    "\uad81\uad90": "\ucc3d\ub355\uad81",
+    "\uc9c1\uc9c0": "\uccad\uc8fc",
+    "\uc0b0\uc0ac": "\ubd80\uc11d\uc0ac"
+   },
+   "text": "{\"\uad81\uad90\": \"\ucc3d\ub355\uad81\", \"\uc9c1\uc9c0\": \"\uccad\uc8fc\", \"\uc0b0\uc0ac\": \"\ubd80\uc11d\uc0ac\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 32,
+    "prompt_tokens": 609,
+    "total_tokens": 641,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-10-labor",
+   "round": 4,
+   "dropped": false,
+   "wall_ms": 2463.7610379140824,
+   "server_ms": 2462.6831549999997,
+   "host_ms": 1.0778829140826929,
+   "prompt_n": 419,
+   "prompt_ms": 2040.579556,
+   "head_ms": null,
+   "predicted_ms": 422.103599,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 22,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uc8fc\ud734\uc218\ub2f9": "no",
+    "\uc0b0\uc7ac\ubcf4\ud5d8\ub8cc": "\uc0ac\uc5c5\uc8fc"
+   },
+   "picks": {
+    "\uc8fc\ud734\uc218\ub2f9": "false",
+    "\uc0b0\uc7ac\ubcf4\ud5d8\ub8cc": "\uc0ac\uc5c5\uc8fc"
+   },
+   "text": "{\"\uc8fc\ud734\uc218\ub2f9\": false, \"\uc0b0\uc7ac\ubcf4\ud5d8\ub8cc\": \"\uc0ac\uc5c5\uc8fc\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 23,
+    "prompt_tokens": 419,
+    "total_tokens": 442,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-11-realty",
+   "round": 4,
+   "dropped": false,
+   "wall_ms": 2478.9772189687937,
+   "server_ms": 2477.8298130000003,
+   "host_ms": 1.1474059687934641,
+   "prompt_n": 449,
+   "prompt_ms": 2072.7307,
+   "head_ms": null,
+   "predicted_ms": 405.099113,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 21,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uac00\uc555\ub958": "\uac11\uad6c",
+    "\ub300\ud56d\ub825": "\ub2e4\uc74c\ub0a0"
+   },
+   "picks": {
+    "\uac00\uc555\ub958": "\uac11\uad6c",
+    "\ub300\ud56d\ub825": "\ub2e4\uc74c\ub0a0"
+   },
+   "text": "{\"\uac00\uc555\ub958\": \"\uac11\uad6c\", \"\ub300\ud56d\ub825\": \"\ub2e4\uc74c\ub0a0\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 22,
+    "prompt_tokens": 449,
+    "total_tokens": 471,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-12-history",
+   "round": 4,
+   "dropped": false,
+   "wall_ms": 2071.5985759161413,
+   "server_ms": 2070.56698,
+   "host_ms": 1.0315959161412138,
+   "prompt_n": 355,
+   "prompt_ms": 1721.895401,
+   "head_ms": null,
+   "predicted_ms": 348.671579,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 18,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uc81c\ub3c4": "\uade0\uc5ed\ubc95",
+    "\uac15": "\ub099\ub3d9\uac15"
+   },
+   "picks": {
+    "\uc81c\ub3c4": "\uade0\uc5ed\ubc95",
+    "\uac15": "\ub099\ub3d9\uac15"
+   },
+   "text": "{\"\uc81c\ub3c4\": \"\uade0\uc5ed\ubc95\", \"\uac15\": \"\ub099\ub3d9\uac15\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 19,
+    "prompt_tokens": 355,
+    "total_tokens": 374,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-01-alerts",
+   "round": 5,
+   "dropped": false,
+   "wall_ms": 3146.7968239448965,
+   "server_ms": 3145.4543999999996,
+   "host_ms": 1.3424239448968365,
+   "prompt_n": 571,
+   "prompt_ms": 2651.629623,
+   "head_ms": null,
+   "predicted_ms": 493.824777,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 3,
+    "free_steps": 0,
+    "next_calls": 25,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "alert_1": "serial",
+    "alert_2": "lockwait",
+    "alert_3": "cpu"
+   },
+   "picks": {
+    "alert_1": "serial",
+    "alert_2": "lockwait",
+    "alert_3": "cpu"
+   },
+   "text": "{\"alert_1\": \"serial\", \"alert_2\": \"lockwait\", \"alert_3\": \"cpu\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 26,
+    "prompt_tokens": 571,
+    "total_tokens": 597,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-02-gateway",
+   "round": 5,
+   "dropped": false,
+   "wall_ms": 2025.4470941144973,
+   "server_ms": 2024.425979,
+   "host_ms": 1.0211151144972064,
+   "prompt_n": 326,
+   "prompt_ms": 1709.1442670000001,
+   "head_ms": null,
+   "predicted_ms": 315.28171199999997,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 16,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "ticket_a": "host",
+    "ticket_b": "no"
+   },
+   "picks": {
+    "ticket_a": "host",
+    "ticket_b": "false"
+   },
+   "text": "{\"ticket_a\": \"host\", \"ticket_b\": false}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 17,
+    "prompt_tokens": 326,
+    "total_tokens": 343,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-03-vulnreports",
+   "round": 5,
+   "dropped": false,
+   "wall_ms": 2374.706562841311,
+   "server_ms": 2373.500847,
+   "host_ms": 1.205715841311303,
+   "prompt_n": 410,
+   "prompt_ms": 2020.925311,
+   "head_ms": null,
+   "predicted_ms": 352.575536,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 18,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "report_1": "idor",
+    "report_2": "tamper"
+   },
+   "picks": {
+    "report_1": "idor",
+    "report_2": "tamper"
+   },
+   "text": "{\"report_1\": \"idor\", \"report_2\": \"tamper\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 19,
+    "prompt_tokens": 410,
+    "total_tokens": 429,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-04-formulary",
+   "round": 5,
+   "dropped": false,
+   "wall_ms": 2551.071895984933,
+   "server_ms": 2549.88185,
+   "host_ms": 1.190045984932567,
+   "prompt_n": 438,
+   "prompt_ms": 2113.71702,
+   "head_ms": null,
+   "predicted_ms": 436.16483,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 3,
+    "free_steps": 0,
+    "next_calls": 22,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "rx_a": "ltra",
+    "rx_b": "absorb",
+    "rx_c": "no"
+   },
+   "picks": {
+    "rx_a": "ltra",
+    "rx_b": "absorb",
+    "rx_c": "false"
+   },
+   "text": "{\"rx_a\": \"ltra\", \"rx_b\": \"absorb\", \"rx_c\": false}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 23,
+    "prompt_tokens": 438,
+    "total_tokens": 461,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-05-claims",
+   "round": 5,
+   "dropped": false,
+   "wall_ms": 2608.4055269602686,
+   "server_ms": 2607.265835,
+   "host_ms": 1.1396919602684648,
+   "prompt_n": 454,
+   "prompt_ms": 2187.928866,
+   "head_ms": null,
+   "predicted_ms": 419.336969,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 3,
+    "free_steps": 0,
+    "next_calls": 22,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "claim_a": "nerve",
+    "claim_b": "eye",
+    "claim_c": "yes"
+   },
+   "picks": {
+    "claim_a": "nerve",
+    "claim_b": "eye",
+    "claim_c": "true"
+   },
+   "text": "{\"claim_a\": \"nerve\", \"claim_b\": \"eye\", \"claim_c\": true}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 23,
+    "prompt_tokens": 454,
+    "total_tokens": 477,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "hard-06-privacy",
+   "round": 5,
+   "dropped": false,
+   "wall_ms": 3010.1001558359712,
+   "server_ms": 3008.7152210000004,
+   "host_ms": 1.3849348359708529,
+   "prompt_n": 516,
+   "prompt_ms": 2424.638867,
+   "head_ms": null,
+   "predicted_ms": 584.076354,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 3,
+    "free_steps": 0,
+    "next_calls": 30,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "complaint_1": "dppa",
+    "complaint_2": "vppa",
+    "complaint_3": "gina"
+   },
+   "picks": {
+    "complaint_1": "dppa",
+    "complaint_2": "vppa",
+    "complaint_3": "gina"
+   },
+   "text": "{\"complaint_1\": \"dppa\", \"complaint_2\": \"vppa\", \"complaint_3\": \"gina\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 31,
+    "prompt_tokens": 516,
+    "total_tokens": 547,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-07-hotline",
+   "round": 5,
+   "dropped": false,
+   "wall_ms": 2383.4335529245436,
+   "server_ms": 2382.299974,
+   "host_ms": 1.133578924543599,
+   "prompt_n": 422,
+   "prompt_ms": 1988.001108,
+   "head_ms": null,
+   "predicted_ms": 394.29886600000003,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 3,
+    "free_steps": 0,
+    "next_calls": 20,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uc778\uad8c\uc0c1\ub2f4": "1331",
+    "\uae30\uad00": "\uace0\uc6a9\uc13c\ud130"
+   },
+   "picks": {
+    "\uc778\uad8c\uc0c1\ub2f4": "1331",
+    "\uae30\uad00": "\uace0\uc6a9\uc13c\ud130"
+   },
+   "text": "{\"\uc778\uad8c\uc0c1\ub2f4\": \"1331\", \"\uae30\uad00\": \"\uace0\uc6a9\uc13c\ud130\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 21,
+    "prompt_tokens": 422,
+    "total_tokens": 443,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-08-areacode",
+   "round": 5,
+   "dropped": false,
+   "wall_ms": 2132.343662902713,
+   "server_ms": 2131.2561809999997,
+   "host_ms": 1.0874819027130798,
+   "prompt_n": 376,
+   "prompt_ms": 1781.89539,
+   "head_ms": null,
+   "predicted_ms": 349.360791,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 18,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uc811\uc2181": "\ucda9\ub0a8",
+    "\uc811\uc2182": "\uc6b8\uc0b0"
+   },
+   "picks": {
+    "\uc811\uc2181": "\ucda9\ub0a8",
+    "\uc811\uc2182": "\uc6b8\uc0b0"
+   },
+   "text": "{\"\uc811\uc2181\": \"\ucda9\ub0a8\", \"\uc811\uc2182\": \"\uc6b8\uc0b0\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 19,
+    "prompt_tokens": 376,
+    "total_tokens": 395,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-09-heritage",
+   "round": 5,
+   "dropped": false,
+   "wall_ms": 3304.9334911629558,
+   "server_ms": 3303.759375,
+   "host_ms": 1.17411616295567,
+   "prompt_n": 609,
+   "prompt_ms": 2715.744615,
+   "head_ms": null,
+   "predicted_ms": 588.01476,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 4,
+    "free_steps": 0,
+    "next_calls": 31,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uad81\uad90": "\ucc3d\ub355\uad81",
+    "\uc9c1\uc9c0": "\uccad\uc8fc",
+    "\uc0b0\uc0ac": "\ubd80\uc11d\uc0ac"
+   },
+   "picks": {
+    "\uad81\uad90": "\ucc3d\ub355\uad81",
+    "\uc9c1\uc9c0": "\uccad\uc8fc",
+    "\uc0b0\uc0ac": "\ubd80\uc11d\uc0ac"
+   },
+   "text": "{\"\uad81\uad90\": \"\ucc3d\ub355\uad81\", \"\uc9c1\uc9c0\": \"\uccad\uc8fc\", \"\uc0b0\uc0ac\": \"\ubd80\uc11d\uc0ac\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 32,
+    "prompt_tokens": 609,
+    "total_tokens": 641,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-10-labor",
+   "round": 5,
+   "dropped": false,
+   "wall_ms": 2407.913453876972,
+   "server_ms": 2406.876499,
+   "host_ms": 1.0369548769722314,
+   "prompt_n": 419,
+   "prompt_ms": 1979.600936,
+   "head_ms": null,
+   "predicted_ms": 427.27556300000003,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 22,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uc8fc\ud734\uc218\ub2f9": "no",
+    "\uc0b0\uc7ac\ubcf4\ud5d8\ub8cc": "\uc0ac\uc5c5\uc8fc"
+   },
+   "picks": {
+    "\uc8fc\ud734\uc218\ub2f9": "false",
+    "\uc0b0\uc7ac\ubcf4\ud5d8\ub8cc": "\uc0ac\uc5c5\uc8fc"
+   },
+   "text": "{\"\uc8fc\ud734\uc218\ub2f9\": false, \"\uc0b0\uc7ac\ubcf4\ud5d8\ub8cc\": \"\uc0ac\uc5c5\uc8fc\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 23,
+    "prompt_tokens": 419,
+    "total_tokens": 442,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-11-realty",
+   "round": 5,
+   "dropped": false,
+   "wall_ms": 2475.2284379210323,
+   "server_ms": 2474.068629,
+   "host_ms": 1.159808921032436,
+   "prompt_n": 449,
+   "prompt_ms": 2068.036029,
+   "head_ms": null,
+   "predicted_ms": 406.0326,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 21,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uac00\uc555\ub958": "\uac11\uad6c",
+    "\ub300\ud56d\ub825": "\ub2e4\uc74c\ub0a0"
+   },
+   "picks": {
+    "\uac00\uc555\ub958": "\uac11\uad6c",
+    "\ub300\ud56d\ub825": "\ub2e4\uc74c\ub0a0"
+   },
+   "text": "{\"\uac00\uc555\ub958\": \"\uac11\uad6c\", \"\ub300\ud56d\ub825\": \"\ub2e4\uc74c\ub0a0\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 22,
+    "prompt_tokens": 449,
+    "total_tokens": 471,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  },
+  {
+   "arm": "ds41-step",
+   "kind": "qwen",
+   "arm_kind": "step",
+   "suite": "hard",
+   "id": "ko-hard-12-history",
+   "round": 5,
+   "dropped": false,
+   "wall_ms": 2051.1110920924693,
+   "server_ms": 2050.0696479999997,
+   "host_ms": 1.0414440924696464,
+   "prompt_n": 355,
+   "prompt_ms": 1709.509083,
+   "head_ms": null,
+   "predicted_ms": 340.560565,
+   "calls": {
+    "spans": 0,
+    "span_ids": 0,
+    "decisions": 2,
+    "free_steps": 0,
+    "next_calls": 18,
+    "prefill_calls": 0,
+    "next_after_calls": 0,
+    "lead": 0,
+    "tail": 0
+   },
+   "tops": {
+    "\uc81c\ub3c4": "\uade0\uc5ed\ubc95",
+    "\uac15": "\ub099\ub3d9\uac15"
+   },
+   "picks": {
+    "\uc81c\ub3c4": "\uade0\uc5ed\ubc95",
+    "\uac15": "\ub099\ub3d9\uac15"
+   },
+   "text": "{\"\uc81c\ub3c4\": \"\uade0\uc5ed\ubc95\", \"\uac15\": \"\ub099\ub3d9\uac15\"}",
+   "finish_reason": "stop",
+   "usage": {
+    "completion_tokens": 19,
+    "prompt_tokens": 355,
+    "total_tokens": 374,
+    "prompt_tokens_details": {
+     "cached_tokens": 0
+    }
+   },
+   "convention": "the jump levers",
+   "bucket": "short"
+  }
+ ]
+}

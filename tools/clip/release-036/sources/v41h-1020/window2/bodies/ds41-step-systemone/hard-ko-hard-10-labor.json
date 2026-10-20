@@ -1,0 +1,1 @@
+{"model":"Src","answers":{"주휴수당":{"type":"noul","noul":0.0012},"산재보험료":{"type":"choice","choice":"사업주","confidence":0.9999,"probabilities":{"사업주":0.9999,"국가":0.0,"근로자":0.0,"노사":0.0001}}},"usage":{"input_tokens":419,"output_tokens":23},"timings":{"prompt_n":1,"prompt_ms":18.267684,"head_ms":421.425143,"cache_n":418}}

@@ -13,7 +13,8 @@ track's measured beat grid.
 inputs.json holds what the rows do not: the sitting's label, the release version, calls_sum (which of a row's
 `calls`, the server's timings.constrained integers, sum to its engine calls: engine_calls), the token pieces file
 (tokens.py), an optional saved body of the route (answer_body, held to the decide seat's keys and order; body_hide
-names keys never drawn; left empty the answer shot shows the decided JSON and the film stamps it DRAFT), the route
+names keys never drawn; left empty the answer shot shows the decided JSON and the film stamps it DRAFT), the
+question A DECISION shows (dn_question, a question id of the request; default its first), the route
 the timed requests went through (route_measured: response_format, the footers say so and the request shot says the
 same program serves /v1/systemone, sourced by route_cite or stamped PLACEHOLDER; or systemone), the commit of
 sjcmp.py and sj-vs-clef.sh the strings quote (sjcmp_rev), the hard suite (hard: its rows dir, suite and gold files
@@ -244,8 +245,9 @@ def hard():
             opts = list(qs[q]["criteria"]) if qs[q]["type"] == "choice" else ["yes", "no"]
             if v not in opts: die("source", f"{rid}/{q}: gold {v!r} is not one of {opts}")
     n = sum(len(g) for g in gold.values())
-    files = sorted(at("rows").glob("**/rows.json"))
-    if not files: die("rows", f"no rows.json under {at('rows')}")
+    roots = [Path(v) if Path(v).is_absolute() else HERE / v for v in ([H["rows"]] if isinstance(H["rows"], str) else H["rows"])]
+    files = sorted(f for r in roots for f in r.glob("**/rows.json"))      # one sitting dir or several (hard.rows a list)
+    if not files: die("rows", f"no rows.json under {roots}")
     rows, fixture = [], False
     for f in files:
         body = json.loads(f.read_text())
@@ -272,8 +274,10 @@ def hard():
             if set(first) != set(gold): die("rows", f"hard rows of {name} {arm} answer {len(first)} of the {len(gold)} requests")
             ok = sum(first[i].get(q) == v for i, g in gold.items() for q, v in g.items())
             arms.append({"model": name, "key": key, "short": short_key, "arm": arm, "correct": ok, "n": n,
-                         "p50_ms": statistics.median(r["wall_ms"] for r in R), "rows": len(R), "tops": first})
-    return {"suite": short(at("suite")), "gold": short(at("gold")), "rows": short(at("rows")), "n": n,
+                         "p50_ms": statistics.median(r["wall_ms"] for r in R), "rows": len(R), "tops": first,
+                         "prompt_p50_ms": statistics.median(r["prompt_ms"] for r in R),
+                         "rest_p50_ms": statistics.median(r["wall_ms"] - r["prompt_ms"] for r in R)})
+    return {"suite": short(at("suite")), "gold": short(at("gold")), "rows": " + ".join(short(r) for r in roots), "n": n,
             "requests": len(gold), "fixture": fixture, "arms": arms, "cards": H.get("v41_cards", "")}
 
 
@@ -314,6 +318,7 @@ def sources():
     for name, tree, at, path in (("q36", BLOOMERY, README_REV, "crates/gpu-gates/src/q36_fixture.rs"),
                                  ("moe", BLOOMERY, README_REV, "crates/gpu-gates/src/bin/gate_qwen35moe_moe.rs"),
                                  ("seat", BLOOMERY, README_REV, "crates/gpu-gates/src/bin/shared/serve_seats/qwen3.rs"),
+                                 ("answer", BLOOMERY, README_REV, "crates/decision/src/answer.rs"),
                                  ("genloop", runner.parent, rev, "crates/serve/src/genloop.rs")):
         try:
             code[name] = subprocess.run(["git", "-C", str(tree), "show", f"{at}:{path}"], capture_output=True, text=True,
@@ -737,11 +742,20 @@ def main():
     # (the program's plan over the same ids), the decision's percentage (the saved body's, else a placeholder)
     n_step, n_jump, plan_j = cr["step"], cr["jump"], [tuple(x) for x in tok["jump_plan"]]
     if sum(n for _, n in plan_j) != len(pieces): die("source", f"{req['id']}: the plan feeds {sum(n for _, n in plan_j)} ids, the answer has {len(pieces)}")
-    q1 = req["picks"][0]
+    # the decision shown (inputs.json dn_question, default the first): its pick's percentage and, for a score, the
+    # body's legend, which must name the levels as the request does
+    qids = [p["qid"] for p in req["picks"]]
+    dq_id = INPUTS.get("dn_question") or qids[0]
+    if dq_id not in qids: die("inputs", f"dn_question {dq_id!r} is not a question of {req['id']} ({qids})")
+    dq = qids.index(dq_id)
+    q1 = req["picks"][dq]
     pct, pct_src = "··%", "PLACEHOLDER: no saved body (inputs.json answer_body)"
     if not draft_body:
-        pb = json.loads((HERE / INPUTS["answer_body"]).read_text())["answers"].get(q1["qid"], {}).get("probabilities", {})
+        ab = json.loads((HERE / INPUTS["answer_body"]).read_text())["answers"].get(q1["qid"], {})
+        pb = ab.get("probabilities", {})
         if q1["pick"] not in pb: die("inputs", f"{INPUTS['answer_body']}: no probability for {q1['qid']} = {q1['pick']}")
+        if q1["kind"] == "score" and [ab.get("legend", {}).get(o) for o in q1["options"]] != q1["labels"]:
+            die("inputs", f"{INPUTS['answer_body']}: {q1['qid']}'s legend {ab.get('legend')} is not the request's levels {q1['labels']}")
         pct, pct_src = f"{100 * pb[q1['pick']]:.0f}%", f"inputs.json answer_body {INPUTS['answer_body']}"
     if verdict == "close" and m["jump_short"] < m["clef_short"]: print("note: verdict 'close' set although the jump arm is faster")
     if verdict == "faster" and m["jump_short"] >= m["clef_short"]: die("inputs", "verdict 'faster' while the jump arm's short p50 is not under Clef-Flash's")
@@ -791,7 +805,7 @@ def main():
     copy.update(pb["copy"]); cites.update(pb["cites"])
     # Part A (make_data_a.py): the request, one token's trip, plain structured output, schemajump, the text, a decision
     import make_data_a
-    ra = make_data_a.build(sys.modules[__name__], src, req, pieces, plan_j, cr, csrc, pct, pct_src, copy, P)
+    ra = make_data_a.build(sys.modules[__name__], src, req, pieces, plan_j, cr, csrc, pct, pct_src, copy, P, dq)
     copy.update(ra["copy"]); cites.update(ra["cites"])
     ANCHORS[0] = (*ra["anchor"], None)
     ANCHORS[1] = pb["anchor_l"]

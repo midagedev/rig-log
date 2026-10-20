@@ -186,10 +186,11 @@ SCN.ajump = (t, S) => {
   if (t >= bt(S, A.same)) c.a_jp_same.forEach((s_, j) => ktxt(s_, 72, PA.spotY - 56 + j * 56, TY.cap));     // the same text as plain's calls wrote
 };
 
-// ---- A DECISION: the question's options, the pick and its percentage (the saved body's); the JSON line completes -----
+// ---- A DECISION: the question's options, the pick and its percentage (the saved body's, a share among the options,
+// labelled so); the JSON completes from the decision shown (D.a.dn.d), the lines before it written from the cut -----
 SCN.adec = (t, S) => {
   aBlack();
-  const c = D.copy, pick = c.dn_pick;
+  const c = D.copy, pick = c.dn_pick, dk = D.a.dn.d;
   ktxt(c.dn_head, 72, Y.label, TY.label);
   const ny = c.answer.length, qy = Y.head + (ny - 1) * 68 + 140;    // the question's row under the JSON's lines
   ktxt(c.rq_q1, 72, qy, aTy(c.rq_q1), { fill: K.lab });
@@ -203,7 +204,7 @@ SCN.adec = (t, S) => {
   const pf = { ...TY.pick, size: 96 }, py = qy + 200;
   ktxt(pick, 72, py, pf);
   ktxt(c.dn_pct, 72 + adv(pick, 96, pf) + 32, py, TY.fig, { size: 120, fill: K.sig });
-  ktxt(c.a_dn_cap, 72, Y.cap, TY.cap);
+  ktxt(c.a_dn_pl, 72, py + 88, TY.label);
   if (D.draft_body) stampBox(c.dn_stamp, 540, py + 120, -2);
   // the lines last (a string drawn twice keeps its n-th order): what was fed from the cut, the picks a beat on; a
   // question a line, the second and later indented by the space the program writes there
@@ -216,8 +217,8 @@ SCN.adec = (t, S) => {
     let xj = 72;
     line.forEach(([kind, s, f]) => {
       const o = { ...aFace(f), size: size * sc };
-      if (kind === "D1") seen = true;
-      if ((!seen || kj) && s.trim()) txt(s, xj, Y.head + li * 68, { ...o, fill: kind === "D1" ? K.sig : K.w, grp: "json" });
+      if (kind === dk) seen = true;
+      if ((!seen || kj) && s.trim()) txt(s, xj, Y.head + li * 68, { ...o, fill: kind === dk ? K.sig : K.w, grp: "json" });
       xj += adv(s, size * sc, o);
     });
   });

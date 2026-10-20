@@ -1,10 +1,10 @@
 # bloomery 0.3.6 릴리스 영상
 
-bloomery 0.3.6 릴리스 영상의 소스다. 1080×1080, 60 fps이고, 길이는 `data.json`이 정한다. 지금은 93.75초, 200박이다. 상한은 END까지 합쳐 100초다.
+bloomery 0.3.6 릴리스 영상의 소스다. 1080×1080, 60 fps이고, 길이는 `data.json`이 정한다. 지금은 95.63초, 204박이다. 상한은 END까지 합쳐 100초다.
 
 이야기는 하나다. 일반 생성 모델 Qwen3.6-35B-A3B가 RTX A6000 한 장 위의 bloomery-serve에서 SystemOne 엔드포인트(`POST /v1/systemone`)의 결정 요청에 답한다. 학습된 결정 모델(Clef-Flash)이 받는 것과 같은 스키마다.
 - 앞 절반(Part A, 0–40.31초)은 원리를 보여 준다. 보통의 구조화 출력(plain structured output)은 토큰마다 엔진을 한 번 부른다. schemajump는 스키마의 고정 문자열을 고르는 자리의 호출에 실어 보내고, 고르는 자리에서만 모델의 점수를 읽는다.
-- 뒤 절반(Part B, 40.31–93.75초)은 sitting 3에서 실제로 돌린 요청과 숫자다.
+- 뒤 절반(Part B, 40.31–95.63초)은 sitting 3과 V4.1 sitting에서 실제로 돌린 요청과 숫자다.
 
 화면 문법은 "Instrument"다. 검은 바탕, 흰색과 회색 셋을 쓰고, 신호색(주황)은 모델이 고른 것에만 칠한다. 글꼴은 Martian Mono, 한글은 Noto Sans KR 굵은 체다. 영상 문구는 영어, 이 문서는 한국어다.
 
@@ -21,13 +21,13 @@ bloomery 0.3.6 릴리스 영상의 소스다. 1080×1080, 60 fps이고, 길이�
 | 10.77–14.05 | 23–30 | ONE TOKEN, ONE TRIP | 40층을 토큰 하나가 16분음표마다 다섯 층씩 내려간다. `one engine call: all 40 layers` |
 | 14.05–22.49 | 30–48 | PLAIN STRUCTURED OUTPUT | 답을 질문 하나에 한 줄씩 쓴다. 토큰은 16분음표에 하나씩, 저마다 상자 안에, 저마다의 막대 위에 앉는다(고르는 호출의 막대는 신호색). 카운터가 20까지 오른다. 그다음 고정 문자열에 조명이 가고 `the schema already says this` |
 | 22.49–33.74 | 48–72 | SCHEMAJUMP | 되감기(곡의 쉼 마디). P 타격(영상 52박)부터 한 박에 한 걸음, 엔진이 도는 순서대로 그린다. 앞 고정 4토큰은 프롬프트 호출에 실리고(회색 막대), 그 점수가 `technical`을 고른다. 호출 1이 `technical`과 그 뒤 고정 구간을 넣고(막대 하나, 고른 부분만 신호색) `2`를 고른다. 호출 2도 같은 식으로 `true`를 고른다. 끝 2토큰은 호출 없이 쓴다(테두리 막대). 줄바꿈에 잘린 막대는 여백까지 열어 그린다. 카운터는 2에서 멈춘다. 범례 `one call` / `the model picks` / `in the prompt call` / `no call`, 끝에 `the same text as` / `plain structured output` |
-| 33.74–40.31 | 72–86 | A DECISION | 답의 JSON, department의 선택지와 고른 값의 테두리, `technical 52%`(route-01의 `/v1/systemone` 본문) |
-| 40.31–52.96 | 86–113 | REQUESTS ×2 | tool-03(영어), ko-06(한국어). 요청 글, 2박에 질문마다 10×10 격자가 고른 값의 몫까지 찬다(고른 값 흰색, 두 번째 회색, 나머지 어둡게). 3박에 고른 낱말이 신호색과 그 백분율로 선다. 질문이 하나인 카드에만 본문의 confidence를 선과 숫자로 보인다(`confidence 100%`). 바닥글 `POST /v1/systemone` |
+| 33.74–40.31 | 72–86 | A DECISION | 답의 JSON, urgency의 선택지(`Can wait`, `This week`, `Today`, 본문의 legend 순서)와 고른 값의 테두리, `Today 99%`(route-01의 `/v1/systemone` 본문), 라벨 `probability among the options` |
+| 40.31–47.34 / –52.96 | 86–101 / –113 | REQUESTS ×2 | tool-03(영어), ko-06(한국어). 요청 글, 2박에 질문마다 10×10 격자가 고른 값의 몫까지 찬다(고른 값 흰색, 두 번째 회색, 나머지 어둡게). 3박에 고른 낱말이 신호색과 그 백분율로 선다. 바닥글 `POST /v1/systemone` / `answer + probabilities` |
 | 52.96–55.77 | 113–119 | SAME ANSWERS | `27/27`, 요청 하나에 칸 하나 |
-| 55.77–61.40 | 119–131 | HARD QUESTIONS | 모델마다 `맞힌 수/29`와 29칸의 자(Clef-Flash 21/29, Qwen3.6-35B-A3B 18/29). V4.1-Flash의 행이 생기면(태그 뒤) 8박에 V4.1-Flash의 schemajump 대 plain structured output 줄과 그 조건이 선다. 바닥글 `29 questions we wrote, our labels` |
-| 61.40–80.62 | 131–172 | 예시 셋 | ko-hard-12(강), hard-03(report_1), hard-01(alert_3). 한 문항에 한 장면이다. 질문, 신호색 `our label: <정답>`, 모델들의 격자를 나란히 놓고 고른 값마다 ✓나 ✗를 그린다(숫자 없음) |
-| 80.62–89.99 | 172–192 | SHORT REQUESTS | L 타격(곡 191박)이 컷에 온다. `UNDER 1,000 TOKENS`. Clef-Flash 127.2 ms, Qwen3.6 + schemajump 99.9 ms, Qwen3.6 + plain structured output 169.1 ms를 칸의 자로 그리고 끝에 p50을 쓴다 |
-| 89.99–93.74 | 192–200 | END | E 타격(곡 203박)이 컷에 온다. 한 박에 걸쳐 어두워지고, `bloomery`, `0.3.6`, 2박에 주소. 3.75초이고 곡의 편곡은 211박에서 멈춘다(마지막 두 박에 페이드) |
+| 55.77–63.74 | 119–136 | HARD QUESTIONS | 많이 맞힌 모델부터 `맞힌 수/29`와 29칸의 자: DeepSeek-V4.1-Flash 27/29, Clef-Flash 21/29, Qwen3.6-35B-A3B 18/29. 바닥글 `V4.1-Flash: Q3_K_M` / `on RTX A6000 + RTX 3090` / `29 questions we wrote, our labels`. V4.1의 시간은 없다 |
+| 63.74–82.49 | 136–176 | 예시 셋 | ko-hard-08(접수2: V4.1만 `울산`으로 맞히고 둘은 `부산`), ko-hard-12(강), hard-03(report_1). 한 문항에 한 장면, 질문과 신호색 `our label: <정답>`, 모델마다 같은 크기의 칩에 고른 값과 ✓/✗(백분율 없음) |
+| 82.49–91.87 | 176–196 | SHORT REQUESTS | `UNDER 1,000 TOKENS`. Clef-Flash 127.2 ms, Qwen3.6 + schemajump 99.9 ms, Qwen3.6 + plain structured output 169.1 ms를 칸의 자로 그리고 끝에 p50을 쓴다 |
+| 91.87–95.62 | 196–204 | END | E 타격이 컷에 온다. `bloomery`, `0.3.6`, 2박에 주소. 3.75초, 마지막 두 박에 페이드 |
 
 LONG REQUESTS는 기본으로 뺐다(`b.long`, 아래 길이 손잡이). SOLAR 장면은 `inputs.json`의 `solar`가 차야 SHORT와 END 사이에 들어가고, "and …" 줄도 `and_line`이 차야 선다.
 
@@ -56,10 +56,9 @@ LONG REQUESTS는 기본으로 뺐다(`b.long`, 아래 길이 손잡이). SOLAR �
 | SHORT의 판정 줄 | jump의 short p50 < Clef-Flash의 p50이라 `faster` | `inputs.json`의 `verdict`가 비어 있을 때의 규칙 |
 | `UNDER 1,000 TOKENS` | short의 최대 프롬프트 598토큰 | Clef 행의 `prompt_n` |
 | `27/27` | jump 팔과 step 팔의 답(요청마다 첫 센 라운드의 `tops`)이 같은 요청 수 | 두 창의 en, ko 행 |
-| `21/29`, `18/29` | hard 세트 29문항에서 우리 정답 라벨과 같은 수. Qwen3.6은 jump와 step 모두 18 | `make_data.py`의 `hard()`, bloomery `tools/ref/clef/suite-hard.jsonl`과 `suite-hard.gold.jsonl`(md5 `cf8d793d…`) |
+| `27/29`, `21/29`, `18/29` | hard 세트 29문항에서 우리 정답 라벨과 같은 수. V4.1-Flash는 jump와 step 모두 27, Qwen3.6은 둘 다 18. V4.1의 행은 `sources/v41h-1020/`(2026-10-20, RTX 3090 + RTX A6000, DeepSeek-V4.1-Flash-1017 Q3_K_M, 12요청 5라운드, jump와 step의 답 12/12 같음) | `make_data.py`의 `hard()`, bloomery `tools/ref/clef/suite-hard.jsonl`과 `suite-hard.gold.jsonl`(md5 `cf8d793d…`) |
 | `20`과 `2`(route-01의 호출) | step 20, jump 2 | 행의 `calls`에서 `next_calls + prefill_calls + next_after_calls`(`inputs.json`의 `calls_sum`). 프롬프트 호출은 두 팔 모두 빼고 센다 |
-| 백분율(`technical 52%`, `web_search 100%`, `refund 93%`, `yes 73%`) | 고른 값의 확률 × 100, 반올림 | 저장한 `/v1/systemone` 본문의 `answers.<질문>.probabilities`. 예/아니오 답의 `noul`은 P(yes)다. 격자는 정확히 그만큼 칸을 채운다 |
-| `confidence 100%` | 본문의 `confidence` | 같은 본문. 질문이 둘인 카드는 선이 옆의 어느 숫자와도 맞지 않아 보이지 않는다 |
+| 백분율(`Today 99%`, `web_search 100%`, `refund 93%`, `yes 73%`) | 고른 값의 확률 × 100, 반올림 | 저장한 `/v1/systemone` 본문의 `answers.<질문>.probabilities`. 예/아니오 답의 `noul`은 P(yes)다. 격자는 정확히 그만큼 칸을 채운다 |
 | 예시의 ✓/✗ | 모델마다 고른 값과 우리 정답 라벨 | hard 행의 `tops`, gold |
 
 - 본문이 고른 값은 jump 팔이 기록한 답(행의 `tops`, 첫 센 라운드)과 같아야 한다. 다르면 `make_data_b.py`가 이름을 대고 멈춘다.
@@ -79,10 +78,8 @@ LONG REQUESTS는 기본으로 뺐다(`b.long`, 아래 길이 손잡이). SOLAR �
 
 | 손잡이 | 기본 | 영상 |
 |---|---|---|
-| (기본) | 요청 2, 예시 3, long 끔 | 93.75초(200박) |
-| `requests` 1 / 3 | 2 | 88.13초 / 99.38초 |
-| `examples` 2 / 4 | 3 | 88.13초 / 101.25초 |
-| `long` `"line"` / `"shot"` | `"off"` | 95.63초 / 105.00초 |
+| (기본) | 요청 2, 예시 3, long 끔 | 95.63초(204박) |
+| `requests`, `examples`, `long` | 2, 3, `"off"` | 한 칸마다 마디 단위로 늘거나 준다. V4.1 행을 넣은 뒤로는 다시 재지 않았다(`make_data.py`가 길이를 찍는다) |
 
 `requests`는 `make_data_b.py`의 REQUESTS(tool-03, ko-06, invoice-02, ko-review-04, ko-mail-06) 중 앞의 n개를 보인다. `long`을 `"line"`으로 하면 SHORT에 `long prompts: the gap is almost all prompt reading` 한 줄이, `"shot"`으로 하면 긴 요청 둘의 경주 장면이 들어간다. 손잡이 한 칸은 영상을 마디 단위(4박, 1.875초) 이상으로 옮긴다.
 
@@ -147,17 +144,17 @@ ssh <box> 'cd /root/clip036-render || exit 1; nohup bash setup.sh > logs/setup.l
 - 이어 붙이기: 곡 147박부터의 고른 그루브(`range(147, 203, 4)`에서 187과 191을 뺀 것)를 쓴다. sitting 3에서 이음매 다섯, 가장 큰 단차는 곡 자체의 박 사이 변화보다 1.2 dB(`splice.py check`)다.
 - 듣기 선별(`musicgen/listen.py --screen`, agy gemini-3.8-flash-high): 전자음악, 신스 베이스, 드럼, 목소리 없음, 글리치 없음, 에너지 3. 보정 짝이 맞지 않은 선별이라 판정이 아니다. 후보 `instrument-s1002`, `pulse-s1004`, `break-s1004`도 같은 선별을 지났다. `break-s1001`은 목소리가 들려 뺐다. 곡을 바꾸려면 `MUSIC_ID`와 `make_data.py`의 `TRACKS` 행을 쓴다.
 
-## 검사 (2026-10-20, 박스 렌더 5, sitting 3)
+## 검사 (2026-10-20, 박스 렌더 9, sitting 3과 V4.1 sitting)
 
 | 단계 | 결과 |
 |---|---|
 | `render.py check` | 모든 프레임과 하위 프레임에서 `PAGE ERRORS: 0`. 그린 문자열의 글자가 모두 그 글꼴에 있다(빠진 글리프 0, 한글 110자). hold, 여백, 겹침, 문자열 출처가 모두 이 검사 안에 있다 |
 | `render.py full` | rc 0 |
-| `encode` | `out/video-music.mp4`: 93.75초, 4,471,398바이트, h264 1080×1080 60 fps, AAC. `draft: true`라 경고가 찍힌다 |
+| `encode` | `out/video-music.mp4`: 95.63초, 4,565,506바이트, h264 1080×1080 60 fps, AAC. `draft: false` |
 | `pops` | 0 |
-| `sync` | 그림의 변화 시작 47개가 모두 박에서 한 프레임 안. 킥 위상 +5.1 ms |
+| `sync` | 그림의 변화 시작 44개가 모두 박에서 한 프레임 안. 킥 위상 +5.1 ms |
 | `flash` | 번쩍임 0(WCAG 2.3.1) |
-| `asserts_a.py` | Part A의 문구와 시각 20개 통과. 옛 `data.json`에서는 실패한다 |
+| `asserts_a.py` | Part A의 문구와 시각 26개 통과. 새 항목은 앞 렌더의 `data.json`에서 실패한다(FAIL-first) |
 
 ## 판정
 
@@ -178,7 +175,7 @@ ssh <box> 'cd /root/clip036-render || exit 1; nohup bash setup.sh > logs/setup.l
 - 토큰과 호출이 들어오는 박자는 시간을 주장하지 않는다.
 - hard 세트는 우리가 쓴 문항과 우리 라벨이다(바닥글에 그렇게 쓴다). 더 큰 모델이 이긴다고 쓰지 않았다. sitting 3에서는 Clef-Flash가 Qwen3.6보다 많이 맞혔고, 화면은 그 숫자를 그대로 쓴다.
 - guard-04(jump의 답이 Clef-Flash의 공식 답과 다른 요청)는 보이지 않는다(사용자 결정). 26/31은 `measured`에 있다.
-- V4.1-Flash의 숫자는 아직 없다. 행이 생기면 HARD 장면에 들어간다.
+- V4.1-Flash의 시간은 쓰지 않았다. V4.1에서는 프롬프트 읽기가 시간의 대부분이라 schemajump의 효과가 작고(벽시계 −7 % ±7 %), 이 모델을 보이는 이유는 지식 문제의 정답 수다(사용자 결정).
 
 ## 파일
 
