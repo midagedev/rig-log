@@ -1,0 +1,913 @@
+#!/usr/bin/env python3
+"""verify — 빌드 검증 스테이션 (round 1: submit, queue, fast phase)
+
+라운드는 이 트리에서 코드를 쓰기만 한다. 빌드는 두 번째 맥의 검증 스테이션이
+한다. 큐와 결과는 ~/.cache/bloomery/verify 아래에 있다.
+
+    queue/<id>/{meta.json,patch.diff,untracked.tar,claim}
+    results/<id>.md   결과 전문
+    results/<id>.rc   종료 코드 (.rc 가 완료 신호, 마지막에 쓴다)
+    station.pid       돌고 있는 스테이션의 pid
+
+<id> = <YYYYMMDD>-<label>-<n>. 결과 파일은 임시 파일에 쓰고 rename 으로 올린다
+(한 파일에 한 작성자). 이 도구는 git 을 읽기만 한다: 모든 git 호출은
+`git --no-optional-locks` 다(plain `git diff` 는 index 를 갱신해 그 mtime 을 바꾼다).
+
+명령
+    verify submit [--tree DIR] [--base REV] --phase fast|static|box
+                  [--gates "g1 g2"] [--label L]
+    verify wait ID [--timeout S]
+    verify status
+    verify station [--once]
+    verify --self-test
+
+환경변수
+    VERIFY_ROOT            큐의 루트 (기본 ~/.cache/bloomery/verify)
+    VERIFY_SUBMITTER       제출자 이름 (meta 에 들어간다)
+    VERIFY_TRACK           두 번째 맥의 트랙 이름 (기본 station-f)
+    VERIFY_PUSH_SRC        base 를 미는 로컬 저장소 (기본 ~/repo/bloomery)
+    VERIFY_PUSH_URL        base 를 받는 클론 (기본 <user>@<host>:repo/bloomery-mr/<track>)
+    VERIFY_SSH             ssh 명령 (기본 ssh + opts + host)
+"""
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+import tarfile
+import tempfile
+import time
+
+HOME = os.path.expanduser("~")
+SSH_OPTS = ["-o", "LogLevel=ERROR", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+            "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4"]
+SELF_DIR = os.path.dirname(os.path.abspath(__file__))
+F_SCRIPT = os.path.join(SELF_DIR, "f-remote.sh")
+
+
+def root():
+    return os.environ.get("VERIFY_ROOT") or os.path.join(HOME, ".cache", "bloomery", "verify")
+
+
+def qdir():
+    return os.path.join(root(), "queue")
+
+
+def rdir():
+    return os.path.join(root(), "results")
+
+
+def say(msg):
+    sys.stdout.write(str(msg) + "\n")
+
+
+def die(rc, msg):
+    sys.stderr.write("verify: %s\n" % msg)
+    sys.exit(rc)
+
+
+def write_atomic(path, data, mode=0o644):
+    d = os.path.dirname(path) or "."
+    os.makedirs(d, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".tmp-")
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data if isinstance(data, bytes) else data.encode())
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def git(tree, *args, check=True):
+    """읽기 전용 git. --no-optional-locks 로 index 를 건드리지 않는다."""
+    cmd = ["git", "--no-optional-locks", "-C", tree] + list(args)
+    p = subprocess.run(cmd, capture_output=True, text=True)
+    if check and p.returncode != 0:
+        raise RuntimeError("git %s failed (%d): %s"
+                           % (" ".join(args), p.returncode, p.stderr.strip()))
+    return p
+
+
+def default_base(tree):
+    """base 기본값: origin/main 이 있으면 그거, 없으면 HEAD."""
+    if git(tree, "rev-parse", "--verify", "--quiet", "origin/main").returncode == 0:
+        return "origin/main"
+    return "HEAD"
+
+
+def cmd_submit(args):
+    tree = os.path.abspath(args.tree or os.getcwd())
+    if not os.path.isdir(tree):
+        die(66, "no such tree: %s" % tree)
+    base = args.base or default_base(tree)
+    try:
+        base_sha = git(tree, "rev-parse", "--verify", base + "^{commit}").stdout.strip()
+        head = git(tree, "rev-parse", "HEAD").stdout.strip()
+        branch = git(tree, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() or "HEAD"
+    except RuntimeError as exc:
+        die(65, str(exc))
+    patch = git(tree, "diff", "--binary", base_sha).stdout
+    untracked = git(tree, "ls-files", "--others", "--exclude-standard", "-z").stdout
+    gates = args.gates.split() if args.gates else []
+
+    os.makedirs(qdir(), exist_ok=True)
+    os.makedirs(rdir(), exist_ok=True)
+    label = args.label or "req"
+    day = time.strftime("%Y%m%d")
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", label).strip("-") or "req"
+    n = 1
+    while True:
+        qid = "%s-%s-%d" % (day, safe, n)
+        try:
+            os.mkdir(os.path.join(qdir(), qid))
+            break
+        except FileExistsError:
+            n += 1
+    entry = os.path.join(qdir(), qid)
+    try:
+        write_atomic(os.path.join(entry, "patch.diff"), patch)
+        tar_path = os.path.join(entry, "untracked.tar")
+        _write_untracked_tar(tree, untracked, tar_path)
+        meta = {
+            "id": qid,
+            "tree": tree,
+            "head": head,
+            "branch": branch,
+            "base": base,
+            "base_sha": base_sha,
+            "phase": args.phase,
+            "gates": gates,
+            "label": label,
+            "submitter": os.environ.get("VERIFY_SUBMITTER") or "none",
+            "submitted_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        }
+        write_atomic(os.path.join(entry, "meta.json"), json.dumps(meta, indent=2) + "\n")
+    except BaseException:
+        import shutil
+        shutil.rmtree(entry, ignore_errors=True)
+        raise
+    say(qid)
+    return qid
+
+
+def _write_untracked_tar(tree, untracked, out_path):
+    """추적되지 않���(무시되지 않는) 파일을 tar 으로. 이름은 트리 기준 상대 경로."""
+    names = [x for x in untracked.split("\0") if x]
+    with tarfile.open(out_path, "w") as tf:
+        for rel in names:
+            full = os.path.join(tree, rel)
+            if os.path.islink(full) or os.path.isfile(full):
+                tf.add(full, arcname=rel, recursive=False)
+    return names
+
+
+# --- wait / status ---------------------------------------------------------
+
+def read_pid(path=None):
+    path = path or os.path.join(root(), "station.pid")
+    try:
+        with open(path) as fh:
+            return int(fh.read().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def alive(pid):
+    if not pid:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def print_result(qid):
+    rmd = os.path.join(rdir(), qid + ".md")
+    rcf = os.path.join(rdir(), qid + ".rc")
+    try:
+        with open(rmd) as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        lines = []
+    rc = ""
+    try:
+        with open(rcf) as fh:
+            rc = fh.read().strip()
+    except OSError:
+        pass
+    for line in lines[:12]:
+        say(line)
+    if rc:
+        say("rc: %s" % rc)
+    say("full: %s" % rmd)
+    return 0
+
+
+def cmd_wait(args):
+    qid = args.id
+    if os.path.exists(os.path.join(rdir(), qid + ".rc")):
+        return print_result(qid)
+    pid = read_pid()
+    if not alive(pid):
+        say("no station running")
+        return 69
+    import select
+    os.makedirs(rdir(), exist_ok=True)
+    kq = select.kqueue()
+    fd = os.open(rdir(), os.O_RDONLY)
+    try:
+        ev = select.kevent(fd, select.KQ_FILTER_VNODE,
+                           select.KQ_EV_ADD | select.KQ_EV_CLEAR, select.KQ_NOTE_WRITE)
+        kq.control([ev], 0, 0)
+        deadline = time.time() + (args.timeout if args.timeout is not None else 3600)
+        while True:
+            if os.path.exists(os.path.join(rdir(), qid + ".rc")):
+                return print_result(qid)
+            left = deadline - time.time()
+            if left <= 0:
+                say("timeout waiting for %s" % qid)
+                return 124
+            kq.control([], 1, left)   # 사건 대기. sleep 루프가 아니다.
+    finally:
+        os.close(fd)
+        kq.close()
+
+
+def cmd_status(args):
+    qd = qdir()
+    if not os.path.isdir(qd):
+        say("no queue at %s" % qd)
+        return 0
+    for qid in sorted(os.listdir(qd)):
+        entry = os.path.join(qd, qid)
+        if not os.path.isdir(entry):
+            continue
+        meta = {}
+        try:
+            with open(os.path.join(entry, "meta.json")) as fh:
+                meta = json.load(fh)
+        except (OSError, ValueError):
+            pass
+        rcf = os.path.join(rdir(), qid + ".rc")
+        claim = os.path.join(entry, "claim")
+        state = "queued"
+        if os.path.exists(rcf):
+            try:
+                with open(rcf) as fh:
+                    state = "done rc=%s" % fh.read().strip()
+            except OSError:
+                state = "done"
+        elif os.path.exists(claim):
+            cpid = None
+            try:
+                with open(claim) as fh:
+                    cpid = int(fh.read().strip())
+            except (OSError, ValueError):
+                pass
+            state = "claimed" if alive(cpid) else "stale-claim"
+        say("%s %s %s %s" % (qid, meta.get("phase", "?"), state, meta.get("label", "")))
+    return 0
+
+
+# --- 두 번째 맥 (F 단계) ---------------------------------------------------
+
+def read_host():
+    """~/.config/bloomery/mac-remote 의 한 줄 (user@host). 절대 출력하지 않는다."""
+    env = os.environ.get("VERIFY_HOST")
+    if env:
+        return env
+    path = os.path.join(HOME, ".config", "bloomery", "mac-remote")
+    with open(path) as fh:
+        line = fh.readline().strip()
+    if not line:
+        raise RuntimeError("no host line in %s" % path)
+    return line
+
+
+def track():
+    return os.environ.get("VERIFY_TRACK") or "station-f"
+
+
+def push_url():
+    env = os.environ.get("VERIFY_PUSH_URL")
+    if env:
+        return env
+    return "%s:repo/bloomery-mr/%s" % (read_host(), track())
+
+
+def ssh_argv(host):
+    env = os.environ.get("VERIFY_SSH")
+    if env:
+        return shlex.split(env) + [host]
+    return ["ssh"] + SSH_OPTS + [host]
+
+
+def make_scrub(home, user, host):
+    """돌아온 줄에서 호스트·사용자·홈 경로를 지운다."""
+    pairs = []
+    if user and host:
+        pairs.append(("%s@%s" % (user, host), "<user>@<host>"))
+    if home:
+        pairs.append((home, "~"))
+    if host:
+        pairs.append((host, "<host>"))
+    if user:
+        pairs.append((user, "<user>"))
+
+    def scrub(text):
+        for s, r in pairs:
+            if s:
+                text = text.replace(s, r)
+        return text
+    return scrub
+
+
+def push_base(sha, qid, scrub=None):
+    """base 를 스테이션 클론으로 민다 (refs/verify/<id>). origin 은 절대 아니다."""
+    src = os.environ.get("VERIFY_PUSH_SRC") or os.path.join(HOME, "repo", "bloomery")
+    url = push_url()
+    cmd = ["git", "-C", src, "push", "-q", "--no-verify", url, "%s:refs/verify/%s" % (sha, qid)]
+    p = subprocess.run(cmd, capture_output=True, text=True)
+    if p.returncode != 0:
+        err = p.stderr.strip()
+        if scrub:
+            err = scrub(err)
+        raise RuntimeError("push %s -> %s failed (%d): %s"
+                           % (sha[:12], url.split(":")[-1], p.returncode, err))
+    return p
+
+
+def make_tar(paths, out_path):
+    with tarfile.open(out_path, "w") as tf:
+        for path in paths:
+            tf.add(path, arcname=os.path.basename(path))
+    return out_path
+
+
+def remote_prep():
+    """원격 클론을 준비하고 스크럽을 만든다. (host, home, user, scrub)."""
+    host = read_host()
+    prep = ('echo HOME=$HOME; echo USER=$(id -un); '
+            'B="$HOME/repo/bloomery-mr/%s"; mkdir -p "$B"; '
+            '[ -d "$B/.git" ] || git init -q "$B"' % track())
+    p = subprocess.run(ssh_argv(host) + [prep], capture_output=True, text=True)
+    home = user = ""
+    for line in p.stdout.splitlines():
+        if line.startswith("HOME="):
+            home = line[len("HOME="):].strip()
+        elif line.startswith("USER="):
+            user = line[len("USER="):].strip()
+    return host, home, user, make_scrub(home, user, host)
+
+
+def remote_f(entry, meta, pkgs, tests, feats, workspace, host, scrub):
+    """F 를 두 번째 맥에서 돌린다. (스크럽한 출력, rc, 벽)."""
+    import shutil
+    mode = "workspace" if workspace else "packages"
+    args = ["$T", meta["id"], meta.get("base_sha") or meta["base"], mode,
+            ",".join(pkgs), ",".join(tests), feats]
+    inner = ("T=$(mktemp -d) || exit 70; trap 'rm -rf \"$T\"' EXIT; "
+             "tar -xf - -C \"$T\" || exit 71; "
+             "bash \"$T/f-remote.sh\" " + " ".join(shlex.quote(a) for a in args))
+    t0 = time.time()
+    with tempfile.TemporaryDirectory() as td:
+        for name in ("patch.diff", "untracked.tar"):
+            shutil.copy(os.path.join(entry, name), os.path.join(td, name))
+        shutil.copy(F_SCRIPT, os.path.join(td, "f-remote.sh"))
+        payload = make_tar([os.path.join(td, n) for n in
+                            ("patch.diff", "untracked.tar", "f-remote.sh")],
+                           os.path.join(td, "payload.tar"))
+        with open(payload, "rb") as fh:
+            data = fh.read()
+        r = subprocess.run(ssh_argv(host) + [inner], input=data, capture_output=True)
+    wall = time.time() - t0
+    out = scrub(r.stdout.decode("utf-8", "replace"))
+    err = scrub(r.stderr.decode("utf-8", "replace"))
+    if err.strip():
+        out += "\n".join(["", "stderr:"] + err.strip().splitlines()) + "\n"
+    return out, r.returncode, wall
+
+
+def touched_paths(entry):
+    """패치와 미추적 tar 에서 바뀐 경로."""
+    paths = set()
+    try:
+        with open(os.path.join(entry, "patch.diff"), errors="replace") as fh:
+            for line in fh:
+                if line.startswith("diff --git "):
+                    rest = line[len("diff --git "):].rstrip("\n")
+                    if " b/" in rest:
+                        paths.add(rest.split(" b/", 1)[1])
+                elif line.startswith("+++ "):
+                    p = line[4:].rstrip("\n").split("\t")[0]
+                    if p != "/dev/null":
+                        paths.add(p[2:] if p.startswith("b/") else p)
+    except OSError:
+        pass
+    try:
+        with tarfile.open(os.path.join(entry, "untracked.tar")) as tf:
+            for m in tf.getmembers():
+                paths.add(m.name)
+    except (OSError, tarfile.TarError):
+        pass
+    return paths
+
+
+def package_name(tree, crate_dir):
+    """crates/<dir>/Cargo.toml 의 [package] name."""
+    try:
+        with open(os.path.join(tree, crate_dir, "Cargo.toml")) as fh:
+            text = fh.read()
+    except OSError:
+        return None
+    m = re.search(r"(?ms)^\[package\][ \t]*$(.*?)(?=^\[|\Z)", text)
+    if not m:
+        return None
+    n = re.search(r'^[ \t]*name[ \t]*=[ \t]*"([^"]+)"', m.group(1), re.M)
+    return n.group(1) if n else None
+
+
+def touched_packages(tree, entry):
+    """(패키지 목록, 루트 파일이 바뀌었는지)."""
+    paths = touched_paths(entry)
+    crates = set()
+    root_changed = False
+    for p in paths:
+        if p in ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml"):
+            root_changed = True
+        parts = p.split("/")
+        if len(parts) >= 2 and parts[0] == "crates":
+            crates.add(parts[1])
+    pkgs = []
+    for c in sorted(crates):
+        name = package_name(tree, os.path.join("crates", c))
+        if name and name not in pkgs:
+            pkgs.append(name)
+    return pkgs, root_changed
+
+
+def pure_crates(tree):
+    """tools/recipes.py pure-crates 의 이름 목록. 실패하면 None."""
+    script = os.path.join(tree, "tools", "recipes.py")
+    if not os.path.isfile(script):
+        return None
+    cands = [os.path.join(HOME, "opt", "bloomery-bin", "python3"), "python3"]
+    for py in cands:
+        if not os.path.isabs(py) and not shutil_which(py):
+            continue
+        try:
+            p = subprocess.run([py, script, "pure-crates"], capture_output=True,
+                               text=True, cwd=tree)
+        except OSError:
+            continue
+        if p.returncode == 0:
+            names = []
+            for line in p.stdout.splitlines():
+                if line.startswith("pure "):
+                    names.append(line.split()[1])
+            return names
+    return None
+
+
+def shutil_which(name):
+    for d in os.environ.get("PATH", "").split(os.pathsep):
+        cand = os.path.join(d, name)
+        if os.path.isfile(cand) and os.access(cand, os.X_OK):
+            return cand
+    return None
+
+
+def check_features(tree):
+    """트리의 justfile `check:` 레시피의 --features 목록."""
+    try:
+        with open(os.path.join(tree, "justfile")) as fh:
+            text = fh.read()
+    except OSError:
+        return ""
+    m = re.search(r"(?ms)^check:[ \t]*$.*?--features[ \t]+(\S+)", text)
+    if not m:
+        return ""
+    # 레시피는 따옴표로 감싸져 있어서 끝의 따옴표가 붙는다 (safetensors').
+    return m.group(1).rstrip("'\"")
+
+
+def run_f(meta, entry):
+    """F 한 번. (출력, rc, 요약 dict)."""
+    tree = meta["tree"]
+    pkgs, root_changed = touched_packages(tree, entry)
+    workspace = root_changed or not pkgs
+    feats = ""
+    f = check_features(tree)
+    if f and (workspace or "bloomery-gpu-gates" in pkgs):
+        feats = f
+    pure = pure_crates(tree)
+    tests = [p for p in pkgs if pure is not None and p in pure]
+    sha = meta.get("base_sha") or meta["base"]
+    info = {
+        "packages": pkgs,
+        "tests": tests,
+        "workspace": workspace,
+        "features": feats,
+        "pure_known": pure is not None,
+    }
+    host, home, user, scrub = remote_prep()
+    try:
+        push_base(sha, meta["id"], scrub)
+    except RuntimeError as exc:
+        return ("f: push failed: %s\n" % exc), 70, info
+    out, rc, wall = remote_f(entry, meta, pkgs, tests, feats, workspace, host, scrub)
+    info["wall"] = wall
+    return out, rc, info
+
+
+# --- station ---------------------------------------------------------------
+
+def check_command(info):
+    if info["workspace"]:
+        cmd = "cargo check --target x86_64-unknown-linux-gnu --all-targets --workspace"
+    else:
+        cmd = "cargo check --target x86_64-unknown-linux-gnu --all-targets"
+        for p in info["packages"]:
+            cmd += " -p %s" % p
+    if info["features"]:
+        cmd += " --features %s" % info["features"]
+    return cmd
+
+
+def read_meta(entry):
+    try:
+        with open(os.path.join(entry, "meta.json")) as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+
+def serve_entry(qid, entry, meta):
+    phase = (meta.get("phase") or "fast").lower()
+    out, rc, info = run_f(meta, entry)
+    lines = []
+    if phase in ("static", "box"):
+        lines.append("phase %s: not built yet (round 2)" % phase[0].upper())
+    summary = [
+        "verdict: %s" % ("PASS" if rc == 0 else "FAIL"),
+        "id: %s" % qid,
+        "phase: %s" % phase,
+        "tree: %s" % meta.get("tree"),
+        "base: %s (%s)" % (meta.get("base"), (meta.get("base_sha") or "")[:12]),
+        "packages: %s" % (", ".join(info["packages"]) or "-"),
+        "check: %s" % check_command(info),
+        "tests: %s" % (", ".join(info["tests"]) or "-"),
+        "wall: %.1f s" % info.get("wall", 0.0),
+    ]
+    if not info.get("pure_known"):
+        summary.append("note: recipes.py pure-crates 를 못 읽어 native test 를 돌리지 않았다")
+    body = "\n".join(lines + summary) + "\n\n" + out
+    write_atomic(os.path.join(rdir(), qid + ".md"), body)
+    write_atomic(os.path.join(rdir(), qid + ".rc"), "%d\n" % rc)
+
+
+def serve_pass():
+    """한 번 훑어 줄 수 있는 요청을 모두 처리한다. 처리한 개수를 돌려준다."""
+    served = 0
+    try:
+        names = sorted(os.listdir(qdir()))
+    except OSError:
+        return 0
+    for qid in names:
+        entry = os.path.join(qdir(), qid)
+        if not os.path.isdir(entry):
+            continue
+        if os.path.exists(os.path.join(rdir(), qid + ".rc")):
+            continue
+        meta = read_meta(entry)
+        if meta is None:
+            continue
+        claim = os.path.join(entry, "claim")
+        if alive(read_pid(claim)):
+            continue
+        write_atomic(claim, "%d\n" % os.getpid())
+        try:
+            serve_entry(qid, entry, meta)
+        except Exception as exc:
+            body = ("verdict: FAIL\nid: %s\nstation error: %s: %s\n"
+                    % (qid, exc.__class__.__name__, exc))
+            write_atomic(os.path.join(rdir(), qid + ".md"), body)
+            write_atomic(os.path.join(rdir(), qid + ".rc"), "70\n")
+        finally:
+            try:
+                os.unlink(claim)
+            except OSError:
+                pass
+        served += 1
+    return served
+
+
+def cmd_station(args):
+    import select
+    os.makedirs(qdir(), exist_ok=True)
+    os.makedirs(rdir(), exist_ok=True)
+    pid = read_pid()
+    if alive(pid):
+        die(69, "station already running (pid %d)" % pid)
+    write_atomic(os.path.join(root(), "station.pid"), "%d\n" % os.getpid())
+    kq = select.kqueue()
+    fd = os.open(qdir(), os.O_RDONLY)
+    try:
+        ev = select.kevent(fd, select.KQ_FILTER_VNODE,
+                           select.KQ_EV_ADD | select.KQ_EV_CLEAR, select.KQ_NOTE_WRITE)
+        kq.control([ev], 0, 0)
+        while True:
+            served = serve_pass()
+            if args.once:
+                if served == 0:
+                    break
+                continue
+            kq.control([], 1, 30.0)   # 사건 대기. 30 s 상한은 죽은 claim 을 다시 보기 위함.
+    finally:
+        os.close(fd)
+        kq.close()
+        try:
+            os.unlink(os.path.join(root(), "station.pid"))
+        except OSError:
+            pass
+    return 0
+
+
+def main(argv):
+    import argparse
+    p = argparse.ArgumentParser(prog="verify", description="bloomery 빌드 검증 스테이션")
+    p.add_argument("--self-test", action="store_true")
+    sub = p.add_subparsers(dest="cmd")
+    s = sub.add_parser("submit", help="스냅샷을 큐에 넣는다")
+    s.add_argument("--tree")
+    s.add_argument("--base")
+    s.add_argument("--phase", required=True, choices=["fast", "static", "box"])
+    s.add_argument("--gates")
+    s.add_argument("--label")
+    w = sub.add_parser("wait", help="결과를 기다린다")
+    w.add_argument("id")
+    w.add_argument("--timeout", type=float, default=3600.0)
+    sub.add_parser("status", help="큐를 한 줄씩 보여준다")
+    st = sub.add_parser("station", help="큐를 처리한다")
+    st.add_argument("--once", action="store_true")
+    args = p.parse_args(argv[1:])
+    if args.self_test or args.cmd is None:
+        if args.cmd is None and not args.self_test:
+            p.print_help()
+            return 64
+        return selftest()
+    if args.cmd == "submit":
+        cmd_submit(args)
+        return 0
+    if args.cmd == "wait":
+        return cmd_wait(args)
+    if args.cmd == "status":
+        return cmd_status(args)
+    if args.cmd == "station":
+        return cmd_station(args)
+    p.print_help()
+    return 64
+
+
+
+# --- self-test -------------------------------------------------------------
+# 큐·스테이션·제출. 임시 저장소와 로컬 대역(ssh 스텁)만 쓴다. 실제 두 번째 맥은
+# 건드리지 않는다.
+
+SSH_STUB = r'''#!/bin/sh
+# VERIFY_SSH 대체: ssh 의 마지막 인자(원격 명령 문자열)를 이 셸에서 돈다.
+cmd=""
+for a in "$@"; do cmd=$a; done
+if [ -n "$VERIFY_STUB_KILL" ]; then
+  p=$(cat "$VERIFY_ROOT/station.pid" 2>/dev/null)
+  [ -n "$p" ] && kill -9 "$p" 2>/dev/null
+  sleep 0.3
+fi
+if [ -n "$VERIFY_STUB_QUEUE_AGAIN" ] && [ ! -f "$VERIFY_ROOT/.queued-again" ]; then
+  touch "$VERIFY_ROOT/.queued-again"
+  for d in "$VERIFY_ROOT"/queue/*/; do
+    [ -d "$d" ] || continue
+    n=$(basename "$d")
+    new="${n}-b"
+    [ -e "$VERIFY_ROOT/queue/$new" ] && break
+    cp -R "$d" "$VERIFY_ROOT/queue/$new"
+    rm -f "$VERIFY_ROOT/queue/$new/claim"
+    sed -i.bak "s/\"id\": \"$n\"/\"id\": \"$new\"/" "$VERIFY_ROOT/queue/$new/meta.json" 2>/dev/null
+    rm -f "$VERIFY_ROOT/queue/$new/meta.json.bak"
+    break
+  done
+fi
+exec /bin/bash -c "$cmd"
+'''
+
+
+class _Args(object):
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+
+def selftest():
+    import shutil
+    import subprocess
+    import tempfile
+    bad = []
+    tmp = tempfile.mkdtemp(prefix="verify-selftest-")
+    keys = ("VERIFY_ROOT", "VERIFY_SSH", "VERIFY_PUSH_SRC", "VERIFY_PUSH_URL", "VERIFY_TRACK",
+            "VERIFY_HOST", "VERIFY_SUBMITTER", "VERIFY_STUB_KILL", "VERIFY_STUB_QUEUE_AGAIN",
+            "HOME", "PATH")
+    saved = {k: os.environ.get(k) for k in keys}
+    try:
+        home = os.path.join(tmp, "home")
+        os.makedirs(home)
+        src = os.path.join(tmp, "src")
+        os.makedirs(os.path.join(src, "crates", "serve"))
+        os.makedirs(os.path.join(src, "tools"))
+        with open(os.path.join(src, "Cargo.toml"), "w") as fh:
+            fh.write('[workspace]\nmembers = ["crates/serve"]\n')
+        with open(os.path.join(src, "crates", "serve", "Cargo.toml"), "w") as fh:
+            fh.write('[package]\nname = "bloomery-serve"\nversion = "0.1.0"\n'
+                     'edition = "2021"\n')
+        with open(os.path.join(src, "tools", "recipes.py"), "w") as fh:
+            fh.write("print('pure      bloomery-serve')\n")
+        with open(os.path.join(src, "justfile"), "w") as fh:
+            fh.write("check:\n    cargo check --workspace --features gpu\n")
+        with open(os.path.join(src, "file.txt"), "w") as fh:
+            fh.write("one\n")
+        genv = dict(os.environ)
+        genv.update({"GIT_AUTHOR_NAME": "selftest", "GIT_AUTHOR_EMAIL": "s@example.invalid",
+                     "GIT_COMMITTER_NAME": "selftest", "GIT_COMMITTER_EMAIL": "s@example.invalid"})
+        subprocess.run(["git", "init", "-q", src], capture_output=True, env=genv)
+        subprocess.run(["git", "-C", src, "add", "-A"], capture_output=True, env=genv)
+        subprocess.run(["git", "-C", src, "commit", "-q", "-m", "base"], capture_output=True, env=genv)
+        with open(os.path.join(src, "file.txt"), "w") as fh:
+            fh.write("two\n")
+        with open(os.path.join(src, "new.txt"), "w") as fh:
+            fh.write("new\n")
+
+        remote = os.path.join(home, "repo", "bloomery-mr", "station-f")
+        os.makedirs(remote)
+        subprocess.run(["git", "init", "-q", remote], capture_output=True, env=genv)
+
+        bindir = os.path.join(tmp, "bin")
+        os.makedirs(bindir)
+        cargo = os.path.join(bindir, "cargo")
+        with open(cargo, "w") as fh:
+            fh.write('#!/bin/sh\necho "cargo stub: $*"\nexit 0\n')
+        os.chmod(cargo, 0o755)
+        sshstub = os.path.join(tmp, "sshstub")
+        with open(sshstub, "w") as fh:
+            fh.write(SSH_STUB)
+        os.chmod(sshstub, 0o755)
+
+        tenv = dict(os.environ)
+        tenv.update({
+            "VERIFY_SSH": sshstub,
+            "VERIFY_PUSH_SRC": src,
+            "VERIFY_PUSH_URL": remote,
+            "VERIFY_TRACK": "station-f",
+            "VERIFY_HOST": "selftest-host",
+            "HOME": home,
+            "PATH": bindir + os.pathsep + os.environ.get("PATH", ""),
+        })
+        for k in ("VERIFY_SSH", "VERIFY_PUSH_SRC", "VERIFY_PUSH_URL", "VERIFY_TRACK",
+                  "VERIFY_HOST", "VERIFY_STUB_KILL", "VERIFY_STUB_QUEUE_AGAIN"):
+            if k in tenv:
+                os.environ[k] = tenv[k]
+        os.environ["PATH"] = tenv["PATH"]
+        os.environ["HOME"] = home   # 스텁과 원격 스크립트가 이 홈을 본다
+
+        # 1) submit: 트리의 git 상태가 그대로인가
+        root1 = os.path.join(tmp, "root1")
+        os.environ["VERIFY_ROOT"] = root1
+        before_status = git(src, "status", "--porcelain").stdout
+        before_stash = git(src, "stash", "list").stdout
+        before_head = git(src, "rev-parse", "HEAD").stdout
+        index = os.path.join(src, ".git", "index")
+        before_mtime = os.stat(index).st_mtime_ns
+        qid = cmd_submit(_Args(tree=src, base="HEAD", phase="fast", gates="", label="selftest"))
+        after_status = git(src, "status", "--porcelain").stdout
+        after_stash = git(src, "stash", "list").stdout
+        after_head = git(src, "rev-parse", "HEAD").stdout
+        after_mtime = os.stat(index).st_mtime_ns
+        if before_status != after_status:
+            bad.append("submit 이 git status 를 바꾸었다")
+        if before_stash != after_stash:
+            bad.append("submit 이 stash 목록을 바꾸었다")
+        if before_head != after_head:
+            bad.append("submit 이 HEAD 를 바꾸었다")
+        if before_mtime != after_mtime:
+            bad.append("submit 이 index 의 mtime 을 바꾸었다 (%s -> %s)" % (before_mtime, after_mtime))
+        entry = os.path.join(root1, "queue", qid)
+        with open(os.path.join(entry, "patch.diff")) as fh:
+            patch = fh.read()
+        if "file.txt" not in patch or "two" not in patch:
+            bad.append("patch 에 변경이 없다")
+        with tarfile.open(os.path.join(entry, "untracked.tar")) as tf:
+            members = tf.getnames()
+        if "new.txt" not in members:
+            bad.append("untracked.tar 에 미추적 파일이 없다: %s" % members)
+        meta = read_meta(entry)
+        if not meta or meta.get("tree") != src or meta.get("phase") != "fast":
+            bad.append("meta 가 잘못됐다: %s" % meta)
+        if meta.get("submitter") in (None, ""):
+            bad.append("meta 에 submitter 가 없다")
+
+        # 2) 스테이션이 처리하고, 처리 중에 들어온 요청을 그 다음에 처리한다
+        os.environ["VERIFY_STUB_QUEUE_AGAIN"] = "1"
+        served = serve_pass()
+        if served != 1:
+            bad.append("첫 패스가 %d 개를 처리했다 (1 이어야 한다)" % served)
+        if not os.path.exists(os.path.join(root1, "results", qid + ".rc")):
+            bad.append("결과 .rc 가 없다")
+        served2 = serve_pass()
+        if served2 != 1:
+            bad.append("두 번째 패스가 %d 개를 처리했다 (1 이어야 한다)" % served2)
+        others = [n for n in os.listdir(os.path.join(root1, "results")) if n.endswith(".rc")]
+        if len(others) != 2:
+            bad.append("결과가 %d 개다 (2 이어야 한다)" % len(others))
+        os.environ["VERIFY_STUB_QUEUE_AGAIN"] = ""
+
+        # 3) 스테이션이 죽으면 다음 스테이션이 다시 처리한다
+        root2 = os.path.join(tmp, "root2")
+        os.environ["VERIFY_ROOT"] = root2
+        qid2 = cmd_submit(_Args(tree=src, base="HEAD", phase="fast", gates="", label="kill"))
+        os.environ["VERIFY_STUB_KILL"] = "1"
+        tenv["VERIFY_ROOT"] = root2
+        tenv["VERIFY_STUB_KILL"] = "1"
+        p = subprocess.run([sys.executable, os.path.abspath(__file__), "station", "--once"],
+                           env=tenv, capture_output=True, text=True)
+        if p.returncode == 0:
+            bad.append("죽어야 할 스테이션이 0 으로 끝났다")
+        if os.path.exists(os.path.join(root2, "results", qid2 + ".rc")):
+            bad.append("죽은 스테이션이 결과를 남겼다")
+        claim = os.path.join(root2, "queue", qid2, "claim")
+        if not os.path.exists(claim):
+            bad.append("죽은 스테이션이 claim 을 남기지 않았다")
+        os.environ["VERIFY_STUB_KILL"] = ""
+        tenv["VERIFY_ROOT"] = root2
+        tenv.pop("VERIFY_STUB_KILL", None)
+        p = subprocess.run([sys.executable, os.path.abspath(__file__), "station", "--once"],
+                           env=tenv, capture_output=True, text=True)
+        if p.returncode != 0:
+            bad.append("두 번째 스테이션이 %d 로 끝났다: %s" % (p.returncode, p.stderr.strip()))
+        if not os.path.exists(os.path.join(root2, "results", qid2 + ".rc")):
+            bad.append("죽은 요청을 다음 스테이션이 다시 처리하지 않았다")
+
+        # 4) 스테이션이 없으면 wait 은 곧바로 69
+        root3 = os.path.join(tmp, "root3")
+        os.environ["VERIFY_ROOT"] = root3
+        qid3 = cmd_submit(_Args(tree=src, base="HEAD", phase="fast", gates="", label="nowait"))
+        write_atomic(os.path.join(root3, "station.pid"), "999999\n")
+        rc = cmd_wait(_Args(id=qid3, timeout=5.0))
+        if rc != 69:
+            bad.append("스테이션이 없을 때 wait 의 rc 가 %d 다 (69 이어야 한다)" % rc)
+
+        # 5) phase S/B: round 2 전에는 F 만 돈다
+        root4 = os.path.join(tmp, "root4")
+        os.environ["VERIFY_ROOT"] = root4
+        qid4 = cmd_submit(_Args(tree=src, base="HEAD", phase="static", gates="", label="sbox"))
+        serve_pass()
+        with open(os.path.join(root4, "results", qid4 + ".md")) as fh:
+            body = fh.read()
+        if "phase S: not built yet (round 2)" not in body:
+            bad.append("phase S 의 결과 줄이 없다: %s" % body.splitlines()[:3])
+        if "verdict:" not in body:
+            bad.append("phase S 의 결과에 판정이 없다")
+        qid5 = cmd_submit(_Args(tree=src, base="HEAD", phase="box", gates="", label="sbox"))
+        serve_pass()
+        with open(os.path.join(root4, "results", qid5 + ".md")) as fh:
+            body = fh.read()
+        if "phase B: not built yet (round 2)" not in body:
+            bad.append("phase B 의 결과 줄이 없다")
+
+        # 6) wait 은 결과를 15 줄 안에서 보여주고 경로를 준다
+        os.environ["VERIFY_ROOT"] = root1
+        rc = cmd_wait(_Args(id=qid, timeout=5.0))
+        if rc != 0:
+            bad.append("결과가 있을 때 wait 의 rc 가 %d 다" % rc)
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        shutil.rmtree(tmp, ignore_errors=True)
+    if bad:
+        for line in bad:
+            sys.stderr.write("verify self-test FAIL: %s\n" % line)
+        sys.stderr.write("verify: self-test %d failed\n" % len(bad))
+        return 1
+    print("verify: self-test ok")
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
