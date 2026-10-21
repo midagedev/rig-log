@@ -28,9 +28,13 @@ HOME = os.path.expanduser("~")
 CARGO_BUILD = ("build", "check", "test", "clippy", "nextest", "run", "bench", "oxide")
 JUST_RECIPES = ("mac-*", "gate-*", "check*", "lint", "test*", "build*", "smoke",
                 "contrib-check", "canon-check", "ptx-*", "narrow")
+# mac-* is a blanket, but mac-locks only reads the second Mac's pool and its
+# track locks (tools/mac-remote.sh --locks): it builds nothing and runs no gate.
+# The lead's list keeps mac-static and mac-check out of this set.
+JUST_ALLOWED = ("mac-locks",)
 BUILD_SCRIPTS = ("tools/box.sh", "tools/gate-batch.sh", "tools/mac-check.sh",
                  "tools/mac-static.sh", "tools/mac-remote.sh", "tools/static-sched.py",
-                 "tools/box-static.sh")
+                 "tools/box-static.sh", "tools/check-recipes.sh")
 BUILD_SCRIPT_NAMES = tuple(sorted(set(os.path.basename(s) for s in BUILD_SCRIPTS)))
 SELFTEST_SCRIPTS = ("check-recipes.sh", "recipes.py", "gate-batch.sh", "mac-static.sh",
                      "mac-remote.sh", "mac-check.sh", "wt.sh", "narrow-scan.sh",
@@ -221,6 +225,8 @@ def build_hit(words):
         for w in words[1:]:
             if w.startswith("-"):
                 continue
+            if w in JUST_ALLOWED:
+                return None
             if recipe_matches(w):
                 return ("just " + w, "just")
             return None
@@ -451,7 +457,8 @@ SELFTEST_ROWS = [
     ("{wt}", "just check", "deny", "deny"),
     ("{wt}", "just lint", "deny", "deny"),
     ("{wt}", "just affected", "deny", "allow"),
-    ("{wt}", "just mac-locks", "deny", "deny"),  # lead 의 목록이 mac-* 를 통째로 준다
+    ("{wt}", "just mac-locks", "deny", "allow"),  # 읽기 전용 (원격 락과 슬롯을 본다)
+    ("{wt}", "bash tools/check-recipes.sh", "deny", "deny"),
     ("{wt}", "bash tools/box.sh 'cargo check'", "deny", "deny"),
     ("{wt}", "{box}", "deny", "deny"),
     ("{plain}", "bash {box}", "deny", "deny"),

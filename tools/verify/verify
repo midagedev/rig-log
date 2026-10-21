@@ -44,6 +44,11 @@ SSH_OPTS = ["-o", "LogLevel=ERROR", "-o", "BatchMode=yes", "-o", "ConnectTimeout
             "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4"]
 SELF_DIR = os.path.dirname(os.path.abspath(__file__))
 F_SCRIPT = os.path.join(SELF_DIR, "f-remote.sh")
+sys.path.insert(0, SELF_DIR)
+try:
+    import phases
+except ImportError:  # pragma: no cover - the phases module sits beside this script
+    phases = None
 
 
 def root():
@@ -551,14 +556,36 @@ def read_meta(entry):
         return None
 
 
-def serve_entry(qid, entry, meta):
+def serve_entry(qid, entry, meta, phase_res=None):
+    """한 요청의 결과 파일을 쓴다.
+
+    F 는 항상 돈다. S/B 는 모아서 한 번에 돌린 결과(phase_res)를 받는다:
+    그 요청에게 붙은 빨강, main 의 빨강, 전체 로그의 길. phase_res['rc'] 가 None 이면
+    그 요청은 다음 mix 를 기다린다: 결과 파일만 쓰고 .rc 는 쓰지 않는다(큐에 남는다).
+    """
     phase = (meta.get("phase") or "fast").lower()
     out, rc, info = run_f(meta, entry)
     lines = []
-    if phase in ("static", "box"):
-        lines.append("phase %s: not built yet (round 2)" % phase[0].upper())
+    deferred = False
+    if phase_res is not None:
+        prc = phase_res.get("rc")
+        reds = phase_res.get("reds") or []
+        mains = phase_res.get("mains") or []
+        if prc is None:
+            deferred = True
+            lines.append("phase %s: 이 요청의 패치가 mix 에 씌워지지 않아 다음 mix 를 기다린다"
+                         % phase[0].upper())
+            lines.append("phase %s: %s" % (phase[0].upper(), phase_res.get("deferred", "")))
+        else:
+            lines.append("phase %s: %s" % (phase[0].upper(),
+                         ("빨강 " + " ".join(reds)) if reds else "빨강 없음"))
+            if mains:
+                lines.append("phase %s: main 의 빨강 %s" % (phase[0].upper(), " ".join(mains)))
+            lines.append("phase %s: 전체 로그 %s" % (phase[0].upper(), phase_res.get("log")))
+    # 판정은 F 와 그 요청의 단계(S/B) 결과를 합친 것이다: 단계의 빨강이 있으면 FAIL.
+    final = rc if rc != 0 else int(phase_res.get("rc") or 0) if phase_res else rc
     summary = [
-        "verdict: %s" % ("PASS" if rc == 0 else "FAIL"),
+        "verdict: %s" % ("PASS" if final == 0 else "FAIL"),
         "id: %s" % qid,
         "phase: %s" % phase,
         "tree: %s" % meta.get("tree"),
@@ -572,16 +599,18 @@ def serve_entry(qid, entry, meta):
         summary.append("note: recipes.py pure-crates 를 못 읽어 native test 를 돌리지 않았다")
     body = "\n".join(lines + summary) + "\n\n" + out
     write_atomic(os.path.join(rdir(), qid + ".md"), body)
-    write_atomic(os.path.join(rdir(), qid + ".rc"), "%d\n" % rc)
+    if deferred:
+        return
+    write_atomic(os.path.join(rdir(), qid + ".rc"), "%d\n" % final)
 
 
-def serve_pass():
-    """한 번 훑어 줄 수 있는 요청을 모두 처리한다. 처리한 개수를 돌려준다."""
-    served = 0
+def collect_pending():
+    """큐에서 아직 처리되지 않은 요청을 phase 별로 모은다."""
+    groups = {"fast": [], "static": [], "box": []}
     try:
         names = sorted(os.listdir(qdir()))
     except OSError:
-        return 0
+        return groups
     for qid in names:
         entry = os.path.join(qdir(), qid)
         if not os.path.isdir(entry):
@@ -595,19 +624,82 @@ def serve_pass():
         if alive(read_pid(claim)):
             continue
         write_atomic(claim, "%d\n" % os.getpid())
+        phase = (meta.get("phase") or "fast").lower()
+        groups.setdefault(phase, []).append((qid, entry, meta))
+    return groups
+
+
+def serve_collected(items, phase):
+    """S/B 는 모아서 한 번에: mix 하나, 단계(또는 게이트 배치) 한 번, 빨강의 귀속."""
+    if phases is None:
+        for qid, entry, meta in items:
+            body = ("verdict: FAIL\nid: %s\nstation error: phases 모듈이 없다\n" % qid)
+            write_atomic(os.path.join(rdir(), qid + ".md"), body)
+            write_atomic(os.path.join(rdir(), qid + ".rc"), "70\n")
+        return len(items)
+    cfg = phases.default_cfg()
+    entries = [{"id": qid, "dir": entry, "meta": meta} for qid, entry, meta in items]
+    try:
+        if phase == "static":
+            res, summary = phases.s_phase(cfg, entries, "s.log")
+        else:
+            res, summary = phases.b_phase(cfg, entries, "b.log")
+    except Exception as exc:
+        for qid, entry, meta in items:
+            body = ("verdict: FAIL\nid: %s\nphase %s error: %s: %s\n"
+                    % (qid, phase, exc.__class__.__name__, exc))
+            write_atomic(os.path.join(rdir(), qid + ".md"), body)
+            write_atomic(os.path.join(rdir(), qid + ".rc"), "70\n")
+        return len(items)
+    done = 0
+    for qid, entry, meta in items:
+        one = res.get(qid)
+        if one is None:
+            continue
         try:
-            serve_entry(qid, entry, meta)
+            serve_entry(qid, entry, meta, phase_res=one)
         except Exception as exc:
             body = ("verdict: FAIL\nid: %s\nstation error: %s: %s\n"
                     % (qid, exc.__class__.__name__, exc))
             write_atomic(os.path.join(rdir(), qid + ".md"), body)
             write_atomic(os.path.join(rdir(), qid + ".rc"), "70\n")
-        finally:
+        if os.path.exists(os.path.join(rdir(), qid + ".rc")):
+            done += 1
+    # 다음 mix 를 기다리는 요청(.rc 없음)은 처리한 개수에 넣지 않는다: 그게 없으면
+    # station 은 같은 mix 를 또 돌리고 또 기다리는 루프가 된다.
+    return done
+
+
+def serve_pass():
+    """한 번 훑어 줄 수 있는 요청을 모두 처리한다. 처리한 개수를 돌려준다."""
+    served = 0
+    groups = collect_pending()
+    try:
+        for qid, entry, meta in groups.get("fast", []):
             try:
-                os.unlink(claim)
-            except OSError:
+                serve_entry(qid, entry, meta)
+            except Exception as exc:
+                body = ("verdict: FAIL\nid: %s\nstation error: %s: %s\n"
+                        % (qid, exc.__class__.__name__, exc))
+                write_atomic(os.path.join(rdir(), qid + ".md"), body)
+                write_atomic(os.path.join(rdir(), qid + ".rc"), "70\n")
+            served += 1
+        for phase in ("static", "box"):
+            items = groups.get(phase) or []
+            if not items:
+                continue
+            try:
+                served += serve_collected(items, phase)
+            finally:
                 pass
-        served += 1
+    finally:
+        for phase in ("fast", "static", "box"):
+            for qid, entry, meta in groups.get(phase, []):
+                if phase == "fast":
+                    try:
+                        os.unlink(os.path.join(entry, "claim"))
+                    except OSError:
+                        pass
     return served
 
 
@@ -715,6 +807,73 @@ class _Args(object):
         self.__dict__.update(kw)
 
 
+# --- S/B 단계의 스텁(자체 시험용). 두 번째 맥과 박스는 가짜다. ---------------
+RECIPES_STUB = """import sys
+if len(sys.argv) > 1 and sys.argv[1] == 'static-key':
+    jobs = sys.argv[2]
+    names = []
+    for line in open(jobs):
+        f = line.rstrip('\\n').split('\\t')
+        if len(f) == 4:
+            names.append((f[0], f[2]))
+    if '--files' in sys.argv:
+        want = sys.argv[sys.argv.index('--files') + 1]
+        for name, spec in names:
+            if name == want:
+                print('file.txt')
+                sys.exit(0)
+        sys.exit(1)
+    for name, spec in names:
+        print('%s\\t%s\\t%s' % (name, 'k-' + name, spec))
+    sys.exit(0)
+print('pure      bloomery-serve')
+"""
+
+# 정적 단계의 스텁: 트랙 클론 하나를 만들고, 빨강 한 단계와 job 파일을 남긴다.
+PHASES_STUB_MAC_REMOTE = """#!/bin/sh
+TREE=$2
+TRACK=$(basename "$TREE")
+B="$HOME/repo/bloomery-mr/$TRACK"
+if [ ! -d "$B/.git" ]; then
+  mkdir -p "$(dirname "$B")"
+  git clone --local "$TREE" "$B" >/dev/null 2>&1
+fi
+D="$B/target/mac-static/run.0001"
+mkdir -p "$D"
+printf 'check-demo\\t-\\ttree\\tbash tools/check-demo.sh\\n' > "$D/jobs.tsv"
+printf '0\\n' > "$D/check-demo.rc"
+echo "mac-static: results target/mac-static/run.0001"
+echo "mac-static: check-demo rc 1 in 1 s"
+echo "mac-remote: red step check-demo (rc 1): the last 40 lines of the log on the remote"
+exit 1
+"""
+
+PHASES_STUB_CHECK_DEMO = """#!/bin/sh
+# 패치된 트리(file.txt 가 two)만 빨강이다.
+grep -q '^two$' file.txt && exit 1
+exit 0
+"""
+
+PHASES_STUB_BOX = """#!/bin/sh
+for a in "$@"; do cmd=$a; done
+case "$cmd" in
+  *"test -e /root/bloomery-batch.gpuhold"*) [ -f "$HOME/hold" ] && exit 0 || exit 1 ;;
+esac
+exit 0
+"""
+
+PHASES_STUB_GATE_BATCH = """#!/bin/sh
+list=""
+while [ $# -gt 0 ]; do
+  case "$1" in --list) list=$2; shift 2;; *) shift;; esac
+done
+echo "gate-demo rc 1 3s try=1 lane=A tier=fixture"
+echo "DONE total=1 red=1 tier=fixture"
+echo "red: gate-demo  $list.gate-demo.log"
+exit 1
+"""
+
+
 def selftest():
     import shutil
     import subprocess
@@ -737,9 +896,25 @@ def selftest():
             fh.write('[package]\nname = "bloomery-serve"\nversion = "0.1.0"\n'
                      'edition = "2021"\n')
         with open(os.path.join(src, "tools", "recipes.py"), "w") as fh:
-            fh.write("print('pure      bloomery-serve')\n")
+            fh.write(RECIPES_STUB)
+        with open(os.path.join(src, "tools", "affected-gates.sh"), "w") as fh:
+            fh.write("echo '  gate-demo  file.txt  [why]'\n")
+        with open(os.path.join(src, "tools", "mac-remote.sh"), "w") as fh:
+            fh.write(PHASES_STUB_MAC_REMOTE)
+        with open(os.path.join(src, "tools", "box.sh"), "w") as fh:
+            fh.write(PHASES_STUB_BOX)
+        with open(os.path.join(src, "tools", "gate-batch.sh"), "w") as fh:
+            fh.write(PHASES_STUB_GATE_BATCH)
+        with open(os.path.join(src, "tools", "check-demo.sh"), "w") as fh:
+            fh.write(PHASES_STUB_CHECK_DEMO)
+        for _n in ("mac-remote.sh", "box.sh", "gate-batch.sh", "check-demo.sh",
+                   "affected-gates.sh"):
+            os.chmod(os.path.join(src, "tools", _n), 0o755)
         with open(os.path.join(src, "justfile"), "w") as fh:
-            fh.write("check:\n    cargo check --workspace --features gpu\n")
+            fh.write("check:\n    cargo check --workspace --features gpu\n"
+                     "gate-demo:\n"
+                     "    @if grep -q '^two$' file.txt; then echo 'gate-demo: red'; exit 1; "
+                     "else echo 'gate-demo ran'; fi\n")
         with open(os.path.join(src, "file.txt"), "w") as fh:
             fh.write("one\n")
         genv = dict(os.environ)
@@ -871,29 +1046,53 @@ def selftest():
         if rc != 69:
             bad.append("스테이션이 없을 때 wait 의 rc 가 %d 다 (69 이어야 한다)" % rc)
 
-        # 5) phase S/B: round 2 전에는 F 만 돈다
+        # 5) phase S/B: 모아서 한 번 돌고, 빨강은 요청에게 붙는다
         root4 = os.path.join(tmp, "root4")
         os.environ["VERIFY_ROOT"] = root4
+        os.environ["VERIFY_BLOOMERY"] = src
         qid4 = cmd_submit(_Args(tree=src, base="HEAD", phase="static", gates="", label="sbox"))
-        serve_pass()
+        qid5 = cmd_submit(_Args(tree=src, base="HEAD", phase="box", gates="", label="sbox"))
+        served = serve_pass()
+        if served != 2:
+            bad.append("S/B 패스가 %d 개를 처리했다 (2 이어야 한다)" % served)
         with open(os.path.join(root4, "results", qid4 + ".md")) as fh:
             body = fh.read()
-        if "phase S: not built yet (round 2)" not in body:
-            bad.append("phase S 의 결과 줄이 없다: %s" % body.splitlines()[:3])
+        if "phase S: 빨강 check-demo" not in body:
+            try:
+                _log = open(os.path.join(root4, "logs", "s.log")).read()
+            except OSError:
+                _log = "(no s.log)"
+            bad.append("phase S 의 빨강이 요청에 붙지 않았다: %s\n--s.log--\n%s"
+                       % (body.splitlines()[:6], _log[:1200]))
         if "verdict:" not in body:
             bad.append("phase S 의 결과에 판정이 없다")
-        qid5 = cmd_submit(_Args(tree=src, base="HEAD", phase="box", gates="", label="sbox"))
-        serve_pass()
+        if not os.path.exists(os.path.join(root4, "results", qid4 + ".rc")):
+            bad.append("phase S 결과의 .rc 가 없다")
         with open(os.path.join(root4, "results", qid5 + ".md")) as fh:
             body = fh.read()
-        if "phase B: not built yet (round 2)" not in body:
-            bad.append("phase B 의 결과 줄이 없다")
+        if "phase B: 빨강 gate-demo" not in body:
+            bad.append("phase B 의 빨강이 요청에 붙지 않았다: %s" % body.splitlines()[:6])
+        if not os.path.exists(os.path.join(root4, "results", qid5 + ".rc")):
+            bad.append("phase B 결과의 .rc 가 없다")
+        try:
+            _blog = open(os.path.join(root4, "logs", "b.log")).read()
+        except OSError:
+            _blog = "(no b.log)"
+        if "the union of the gates: gate-demo" not in _blog:
+            bad.append("phase B 로그에 게이트 합집합이 없다: %s" % _blog.splitlines()[:4])
 
         # 6) wait 은 결과를 15 줄 안에서 보여주고 경로를 준다
         os.environ["VERIFY_ROOT"] = root1
         rc = cmd_wait(_Args(id=qid, timeout=5.0))
         if rc != 0:
             bad.append("결과가 있을 때 wait 의 rc 가 %d 다" % rc)
+
+        # 7) S/B 단계의 규칙들(mix, 귀속, 합집합, 홀드 대기, 가지치기)
+        if phases is None:
+            bad.append("phases 모듈이 없다")
+        else:
+            if phases.selftest() != 0:
+                bad.append("phases 모듈의 자체 시험이 실패했다")
     finally:
         for k, v in saved.items():
             if v is None:
