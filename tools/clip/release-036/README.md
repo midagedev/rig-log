@@ -91,7 +91,7 @@ LONG REQUESTS는 기본으로 뺐다(`b.long`, 아래 길이 손잡이). SOLAR �
 |---|---|---|
 | `rows`, `b.rows`, `b.bodies`, `hard.rows` | `sources/sit3-1020` | 새 sitting의 행과 본문 디렉터리. 박스의 결과를 `sources/<이름>/`으로 복사한다 |
 | `hard.arm_map` | 없음(`HARD_ARMS`) | V4.1 행의 팔 이름이 `HARD_ARMS`에 없으면 여기에 `{"<팔>": ["DeepSeek-V4.1-Flash", "jump"]}` 식으로 적는다 |
-| `hard.suite`, `hard.gold` | rel036 작업 트리의 파일 | 태그 뒤에는 bloomery main의 `tools/ref/clef/suite-hard(.gold).jsonl`(같은 바이트) |
+| `hard.suite`, `hard.gold` | bloomery main의 `tools/ref/clef/suite-hard(.gold).jsonl`(v0.3.6 태그와 같은 바이트, md5 `cf8d793d…`, `1e66790f…`) | 세트가 바뀌면 그 파일. 바뀐 세트는 영상의 hard 행을 다시 재야 한다 |
 | `sitting` | `sitting 3, 2026-10-20, RTX A6000` | 새 sitting의 이름(화면에는 없고 `data.json`의 `notes`에 남는다) |
 | `verdict` | `""`(행에서 정한다) | `"close"`나 `"faster"`로 강제할 수 있다. 행과 맞지 않는 `"faster"`는 거부된다 |
 | `solar` | 비어 있음 | `decode`, `prefill`, `cond`가 다 차야 장면이 생긴다 |

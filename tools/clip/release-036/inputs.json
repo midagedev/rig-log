@@ -36,8 +36,8 @@
       "sources/sit3-1020",
       "sources/v41h-1020"
     ],
-    "suite": "../../../../bloomery-rel036/tools/ref/clef/suite-hard.jsonl",
-    "gold": "../../../../bloomery-rel036/tools/ref/clef/suite-hard.gold.jsonl",
+    "suite": "../../../../bloomery/tools/ref/clef/suite-hard.jsonl",
+    "gold": "../../../../bloomery/tools/ref/clef/suite-hard.gold.jsonl",
     "v41_cards": "RTX A6000 + RTX 3090 · Q3_K_M",
     "bodies": [
       "sources/v41h-1020/window1/bodies",
