@@ -2483,6 +2483,14 @@ chain at m = 2 (the same term as the recentlit "verify m-rows" line above).
 - **이미 가진 것:** m열 GEMV, split-KV 디코드, KDA/GDN 디코드, conv1d update, router + quantize(qwen3moe), moe align, QK-norm + RoPE, gated norm, 디바이스 워드 그래프, n-gram 드래프트.
 - **업스트림 후보: `cuda-intrinsics-gen`의 `mxf4nvf4` admission.** #1329 뒤. 중복 검색, 형제 선례, ptxas `sm_121a` FAIL-first가 남았다. 우리 쪽 소비자는 아직 없다.
 - **장부 정정:** 1번 머지(`cc32f261`이 핀에 있음), 13번은 저장소 이전으로 닫힘(NVIDIA/cuda-rust#1438에서 다시 만든다), 19번 링크 이전, 3·15·25번 제출처 이전.
+- **NVIDIA flare-local-inference(47581cc, 10-21 읽음) — 프롬프트 quantum 연결: 이슈 #583.** 서버 쪽 교대 실행은 이미 있다(d73f44793). 실제 좌석은 `prompt_quantum`에 `None`을 답한다. 카드 전체 Qwen3-30B에서 4,096 프롬프트가 다른 스트림을 약 0.60 s 세운다. 512 단위면 약 0.08 s[유도]. 0단계는 비트 동일 확인.
+- **같은 출처 — 메시지 경계 체크포인트: 이슈 #582.** 저장 상태가 메시지 시작점을 갖고, 상태끼리 위치 행을 공유한다. 0단계는 놓친 접두를 재는 캐시 레코드.
+- **같은 출처 — logprob 요청이 draft를 끈다(`serve/src/logprobs.rs:23`): 트래커.** Qwen3.8 P 4096에서 79.33→57.88 tok/s(plan.md의 q38rules 값). 축약을 호스트에서 한다: 토큰당 0.7–1.2 ms와 600 KB D2H[유도].
+- **같은 출처 — 모두 NaN인 행의 샘플링(`sampler/src/lib.rs:436`이 id 0을 답한다): 확인 먼저.** logprob 경로는 이름 있는 거부다. 디바이스 fault word가 먼저 잡는지 읽고, 아니면 이름 있는 오류로.
+- **같은 출처 — DSpark 채움 토큰: 확인 먼저.** 우리는 `tokenizer.ggml.mask_token_id`, 참조는 체크포인트의 `dspark_noise_token_id`. 변환 파일에서 두 값을 읽어 비교한다.
+- **같은 출처 — 재생 전 scratch 오염 게이트: 채택 후보.** 캡처 그래프가 읽지만 그래프가 쓰지 않는 버퍼를 잡는다. MTP/DSpark 캡처 재생에 적용.
+- **같은 출처 — GLM batched-speculation 결함: 우리와 무관.** 패키지 export가 scratch를 0으로 지우는 문제다. 우리는 export가 없고 행 수마다 캡처한다(최대 8).
+- **같은 출처 — GLM NextN draft 폭 1 대 5, 샘플링 기본값을 모델 카드에서, T>0의 `min(1,p/q)` 수락: 트래커.** 각각 한 번의 A/B가 판정한다. 수락 규칙은 draft의 q가 필요하다(Qwen3.8만 있음).
 
 **한 프로세스에 여러 모델** (사용자 아이디어, 10-12; 다른 엔진 조사는 리드 세션 웹 검색): llama.cpp router mode(`--models-max`, LRU), mistral.rs(런타임 로드·언로드), vLLM(인스턴스당 한 모델, sleep 1/2), Ollama·LM Studio는 모두 모델을 통째로 올리고 내린다. 여러 모델이 VRAM/RAM/NVMe 예산 하나를 텐서·expert 단위로 나눠 쓰는 엔진은 찾지 못했다(좁은 조사).
 - **공유 residency(모델 N개, 티어 예산 하나): 보류, 기록만.** 통합 티어 residency의 확장이다. 쉬는 모델은 언로드하지 않고 RAM·NVMe로 밀려나므로, 전환 비용이 전체 재로드(vLLM 블로그 30–100 s 이상)에서 핫셋 page-in으로 바뀐다. 카드 시간도 공유이므로 스케줄러가 하나여야 한다. draft 모델은 이 구조에서 앉은 모델 하나가 된다.
