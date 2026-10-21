@@ -2491,7 +2491,7 @@ chain at m = 2 (the same term as the recentlit "verify m-rows" line above).
 - **같은 출처 — 재생 전 scratch 오염 게이트: 채택 후보.** 캡처 그래프가 읽지만 그래프가 쓰지 않는 버퍼를 잡는다. MTP/DSpark 캡처 재생에 적용.
 - **같은 출처 — GLM batched-speculation 결함: 우리와 무관.** 패키지 export가 scratch를 0으로 지우는 문제다. 우리는 export가 없고 행 수마다 캡처한다(최대 8).
 - **같은 출처 — GLM NextN draft 폭 1 대 5, 샘플링 기본값을 모델 카드에서, T>0의 `min(1,p/q)` 수락: 트래커.** 각각 한 번의 A/B가 판정한다. 수락 규칙은 draft의 q가 필요하다(Qwen3.8만 있음).
-- **같은 출처 — 기여 후보 셋: 보류(사용자 2026-10-21).** D2 `docs/api.md:107`의 'temperature 0 거부'가 :372와 코드(clamp 뒤 검사)와 어긋난다(문서 한 줄). D1 export의 `os.pread` 11곳이 Windows를 막는다(TODO.txt의 요청, dopc에서 FAIL-first 가능). D3 공용 Jinja 경로가 클라이언트의 특수 토큰 철자를 토큰으로 읽는다(#573과 같은 부류, 이슈 먼저).
+- **같은 출처 — 기여 후보 셋: 닫음(2026-10-21).** 저장소가 PR을 협업자에게만 연다(`pull_request_creation_policy: collaborators_only`); 사용자 "우리 갈길 가자". 기록으로만 남긴다: D2 `docs/api.md:107`의 'temperature 0 거부'가 :372와 코드(clamp 뒤 검사)와 어긋난다(문서 한 줄). D1 export의 `os.pread` 11곳이 Windows를 막는다(TODO.txt의 요청, dopc에서 FAIL-first 가능). D3 공용 Jinja 경로가 클라이언트의 특수 토큰 철자를 토큰으로 읽는다(#573과 같은 부류, 이슈 먼저).
 
 **한 프로세스에 여러 모델** (사용자 아이디어, 10-12; 다른 엔진 조사는 리드 세션 웹 검색): llama.cpp router mode(`--models-max`, LRU), mistral.rs(런타임 로드·언로드), vLLM(인스턴스당 한 모델, sleep 1/2), Ollama·LM Studio는 모두 모델을 통째로 올리고 내린다. 여러 모델이 VRAM/RAM/NVMe 예산 하나를 텐서·expert 단위로 나눠 쓰는 엔진은 찾지 못했다(좁은 조사).
 - **공유 residency(모델 N개, 티어 예산 하나): 보류, 기록만.** 통합 티어 residency의 확장이다. 쉬는 모델은 언로드하지 않고 RAM·NVMe로 밀려나므로, 전환 비용이 전체 재로드(vLLM 블로그 30–100 s 이상)에서 핫셋 page-in으로 바뀐다. 카드 시간도 공유이므로 스케줄러가 하나여야 한다. draft 모델은 이 구조에서 앉은 모델 하나가 된다.
