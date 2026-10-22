@@ -143,6 +143,8 @@ Ranked by value. Source = section in this file. Owner = suggested session.
   - `tools/gate-bound.sh`'s cleanup-alive self-test case flakes under load (seen once in a mix, green alone).
   - `check-emb2` goes red in a loaded mix (96–99 s against 4.7 s alone; green twice alone): a load-bound wait.
   - The second Mac keeps static's `emb2-main` clone dir; it is harmless and can go at the next prune.
+  - 2026-10-22 (models): `hw_drafted_passes_interleave_across_slots` (serve tests) flakes on the Mac, 4 of 6 on an
+    unchanged base. Not yet read for its cause.
 - **Gate keys over-select by crate edge** (lead, round hfcut): three `crates/hf`-only commits moved 107 of 107 keys of
   a train (2026-10-20), because `crates/model` and `crates/gpu-gates` depend on hf whole.
 - **lease.sh FIFO reader hang on EINTR** (lead, 2026-10-20; from round leaseflk2): under load on the Mac,
