@@ -2531,6 +2531,18 @@ chain at m = 2 (the same term as the recentlit "verify m-rows" line above).
   결합 분포를 박스에서 잰다.
 - **confidence head·요청 간 가변 검증·FP4 KV·후보-희소 채점·디바이스 융합 샘플러·배치 불변 모드: 기각 또는 보류.** 각 항이
   잡음(±1.0 %) 안이거나 배치 1에서 쓸 수 없다(완전 오라클 head 상한 +4.5 %, FP4 인덱스 키 128K에서 −1.0 %).
+- **Mac 포트 조사에서 본 기존 커널(#593, 2026-10-22).** M2.2c 설계·리뷰 라운드의 범위 밖 목록을 훑었다. 작은 것 중 고칠 것은
+  없었다(qdot의 import 셋은 쓰이고, `rope_neox`의 f64 합은 ik 순서를 맞춘 것이며, macOS SDK `sys/mman.h`에는
+  `MADV_POPULATE_READ`가 없어 `host_lock.rs`의 한 바이트씩 읽기가 맞다. CUDA head가 argmax 때도 쓰는 1 MB logits는 스텝 바이트의
+  ~0.05 %[유도], qwen3moe 라우터는 warp top-k라 Metal의 한 스레드 꼬리(F4)가 없다). 남은 둘:
+  - **qwen35moe gated-delta state f16: 한 항 측정 후.** state는 층당 2 MiB 읽기 + 2 MiB 쓰기 × 30 = 125.8 MB/스텝이다. f16이면
+    절반이고, 읽기·쓰기 효율 0.5에서 3090 기준 ~0.13 ms/스텝[유도]다(M4 Pro rwstream f 0.52–0.56 [측정]). 잴 항은 CUDA delta
+    kernel의 달성 대역(ncu 한 번)이다. ≥ 0.8이면 이득이 ~0.08 ms로 줄어든다. ggml과 state 형식이 달라지는 정밀도 거래라 아래
+    referee가 먼저이고, Metal S16과 한 결정으로 묶는다.
+  - **qwen35moe chain referee(`exact_ref`): 열 것(L).** `crates/gpu-gates/src/bin/exact_ref.rs`는 deepseek2 전용이라 delta
+    state·router 정밀도 레버를 σ로 판정할 `--act ours` 시뮬레이션이 qwen35moe에 없다. 위 f16 state와 Metal S16의 선행 조건이다.
+  - CUDA의 장치 내 id 연쇄(run-ahead)는 위「제로오버헤드 스케줄」의 스텝 사이 유휴 천장(1.5–2.3 %)과 같은 항이라 따로 올리지
+    않는다.
 
 ### 재판정 잔여 (revisit)
 
