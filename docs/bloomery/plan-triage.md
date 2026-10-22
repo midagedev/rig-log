@@ -2543,6 +2543,27 @@ chain at m = 2 (the same term as the recentlit "verify m-rows" line above).
     state·router 정밀도 레버를 σ로 판정할 `--act ours` 시뮬레이션이 qwen35moe에 없다. 위 f16 state와 Metal S16의 선행 조건이다.
   - CUDA의 장치 내 id 연쇄(run-ahead)는 위「제로오버헤드 스케줄」의 스텝 사이 유휴 천장(1.5–2.3 %)과 같은 항이라 따로 올리지
     않는다.
+- **Mac 포트 라운드들이 남긴 것(#593, 2026-10-23).** M2.3·FIX2·PR #666 리뷰에서 범위 밖으로 적어 둔 것 가운데 바로 하지 않은 것.
+  속도 아이디어는 모두 값을 먼저 매긴 뒤 만든다.
+  - **Metal head 에필로그: 값 매긴 뒤.** 15,520개 threadgroup마다 thread 0이 logits 16개를 device 범위 장벽 둘 뒤에서 훑는다.
+    M1 Pro에서 head 단독 4.6–4.9 ms, 바이트 몫 3.0–3.4 ms[측정]. 16행 키의 SIMD 축약으로 장벽 하나. 장벽 항을 먼저 잰다.
+  - **Metal 라우터 `route_last`: 값 매긴 뒤(작을 듯).** 선택 라운드마다 threadgroup 장벽 둘, 이중 버퍼 stage면 하나.
+    꼬리가 바이트 몫 위로 21–25 µs[측정, M1 Pro].
+  - **Metal 라우터가 x̂를 한 번만 쓰기(M).** 라우터와 gate-up이 각각 잔차를 정규화하며 읽는다. 한 번 써 두면 짝이 다시
+    정규화하지 않는다.
+  - **토큰 경계 MTLFence 대 device 전용 MTLEvent(S).** objc2-metal `MTLFence` feature가 필요하고, 경계 항을 한 번 잰다.
+  - **CUDA `FaultWord::read`가 스트림 전체를 sync(M).** `crates/gpu/src/device.rs:503-507`. CUDA run-ahead도 같은 벽에
+    걸린다. 슬롯을 event 뒤에 읽는다.
+  - **통합 메모리에서 `row_prefetch` 짝(설계 라운드).** `crates/gpu/src/lib.rs:2171`의 Metal 대응은 커널 변형이다.
+  - **품질·도구:** `crates/device/src/fault.rs`의 병렬 표 셋을 `fault_sites!` 매크로 하나로(M); `record/lib.rs`(1548줄)와
+    `gpu-gates/src/record.rs`(5128줄) 분할, R15(M–L); objc2-metal 0.3.2가 MTLDevice·MTLCommandQueue·MTLLibrary·
+    MTLComputePipelineState에 Send+Sync를 선언하니 남은 `ThreadSafe` impl을 걷어 unsafe 핀을 내린다(M); `orphan-tests`가
+    `lab-*` 레시피를 박스 cfg로 평가해 macOS 전용 lib 테스트를 등록할 수 없다(M); `--mutants-all`을 둘씩 돌려 51개 벽을
+    반으로(S); `metal_matvec_time`이 어느 레시피에도 없다(S); 리뷰 봇의 증분 diff(PREV...HEAD)는 아직 API에 묻고 큰 interdiff에서
+    406이 난다(S).
+  - **CI t0에 clippy가 없다(S, 결정 필요).** contrib-check t0는 rustfmt만 설치한다. 기여 PR 셋이 clippy 오류를 안고 main에
+    들어왔고 리드가 고쳤다(#665 MXFP8, unsafe append, BF16 f32tile). t0에 x86_64-linux clippy 교차 검사(링커 없음)를 넣거나 병합
+    체크리스트에 `just remote-static`을 적는다.
 
 ### 재판정 잔여 (revisit)
 
