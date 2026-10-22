@@ -86,6 +86,7 @@ Ranked by value. Source = section in this file. Owner = suggested session.
 | 20 | #320 review follow-ups: moe.rs:373 fuse the two adds (one launch + 8×hidden bytes a MoE layer a token, derived); a gate-paths row for crates/gpu/src/arch/nemotron_h_moe/body.rs (narrow names gate-gpu-p1's dependency read) | Bolt | engine | P3 |
 
 ### Open, by owner
+- **gate-ptx-spill red on main (2026-10-23, found by the mac-train batch).** `generate_ds41`의 `mxfp8_gemv_ids`가 ptxas spill 28 / jit_local 16인데 `tools/ref/ptx-shapes.tsv` 핀은 0. origin/main 31b5be41f와 mac-train HEAD의 md5가 같다 (`6a1620374c4367a567928af5f9f4b0a0`), 그러니 트레인이 아니라 main의 상태. 후보는 MXFP8 head(`e53cabebb`)와 그 뒤 q8f32.rs를 건드린 `6d98b58c2`·`5b302b32a`. 할 일: 들어온 커밋을 스캔으로 가르고, spill을 없애거나(레지스터 압력) 날짜 붙은 근거로 재핀. 별도로 gate-ptx-spill 중앙값 677 s가 900 s 한도의 0.75를 넘는다(gate-batch rc 65, `--over-budget-ok`로 돌림).
 - **#128** (lead/engine): AGENTS.md one-liner `ds41_card_buckets` → `grouped_buckets` approved by the user; merge after
   Shingler re-approves and CI is green.
 - **#53** (DGX Spark checklist): reply posted 10-14 (dataset "today", proposals flexible). Follow through: dataset
