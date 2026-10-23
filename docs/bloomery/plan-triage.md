@@ -2,6 +2,30 @@
 
 여기는 **아직 할 일만** 있다. 2026-09-25 새벽에 다시 썼다 — 그 전 판(라운드 보고 절 스무 개와 09-23 GPU 선 목록의 원문, 155 KB)은 [`plan-ledger.md`](plan-ledger.md) 「plan-triage.md 2026-09-25 이전 판」에 원문 그대로 있고, 항목의 근거·수치·기제가 필요하면 거기서 찾는다. 항목은 받을 라운드별로 한 줄씩이고 크기는 XS·S·M·L이다. 착륙한 줄은 지운다(원문은 장부, 결과는 커밋 메시지와 rig-log). 수치는 `[유도]`가 아니면 실측이다.
 
+## Release 0.3.9 — Muse Spark Open + MiniMax-M3.1-Flash (the user, 2026-10-23 ~11:40 KST: "muse랑 minimax지원 두개를 메인 피쳐로")
+
+The plan of record; the 0.3.3 section below is history. Headline: two new models, text path, each served by
+`bloomery-serve` on the real file on the box (RTX A6000 + RTX 3090 + host tier).
+
+**Cut criteria, per model:** the real-file e2e gate green against its oracle sets; the serve gate; decode @ depth 6
+and 4096 and pp @ P = 512 and 4096 beside the public baseline in one lease (prediction card first); the user-facing
+pass (serving defaults, short and >= 4K prompt). Vision, audio and the DSpark draft are after 0.3.9.
+**Cut rule:** cut when both pass or on 2026-10-26, whichever first; a model that misses moves to 0.3.10, the other
+ships without waiting. The int039 content already on the integration head (42 commits on 10-23) rides along and lands
+on main as topic PRs while the models work.
+
+| Track | Stage | Owner / state (10-23 11:40) |
+|---|---|---|
+| Muse (#684) | (b) card body on the fixture vs mainline `ba3c05f71` | grok round musebody4 fixing the e2e (enqueue_gate_up shape); then ptx pins for 6 new entries |
+| Muse | real-file oracle sets `ref_musespark_{a..e}` | box CPU dump after the M3.1F download frees the page cache; card `musespark-dump.card` |
+| Muse | (c) placement (`plan_host_routed`), session, seat, real-file meta/load/e2e, serve gate, prompt batch | next GLM round after (b) lands |
+| Muse | numbers | design §5: decode ~20-21 tok/s d6 host-DRAM bound, pp512 ~34-51 [derived] |
+| M3.1F (#698) | design: reader split (attention kind vs FFN kind per layer), GGUF + oracle route, MSA on card, placement | grok round mm31design |
+| M3.1F | weights | safetensors 252 GB at `76faee1b` into the box stage (MXFP8 + NVFP4 experts) |
+| M3.1F | (a) reader split + tokenizer/template + our streaming convert + local llama.cpp oracle patch (sparse flag per layer) | after design |
+| M3.1F | (b) MSA kernels + body on a fixture (one dense-FFN MSA layer + one MoE MSA layer) | after (a); the largest piece |
+| M3.1F | (c) placement + serve on the real file, numbers | last; the GGUF users load: unsloth's if it appears, else ours (publishing needs the user's yes) |
+
 ## Release 0.3.3 — current plan (lead, 2026-10-14 ~10:20 KST; this file is the plan of record from now on)
 
 v0.3.2 shipped. main `4a9419ea` (#146 opt-axes docs landed; since 10-13: MiMo ring R-pieces, nvtier one-column
