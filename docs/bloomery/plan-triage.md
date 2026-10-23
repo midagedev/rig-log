@@ -2576,6 +2576,10 @@ chain at m = 2 (the same term as the recentlit "verify m-rows" line above).
   - **M4 Pro 첫 실파일 실행(R5)에서 남은 것.** open 60–74 s(약 300 MB/s 복사, mmap/`newBufferWithBytesNoCopy`로 0에
     가깝게, M), 프롬프트는 호스트가 먹이는 한 토큰씩이라 약 2 tok/s(배치 프리필 R6, L), 첫 프롬프트 스텝 약 480 ms(원인 미상,
     값 매기기 S).
+  - **`gate-serve` 흔들림: `slots::hw_drafted_passes_interleave_across_slots`(S).** PR #666 픽스처 배치(2026-10-23,
+    레인 A, 다른 게이트와 동시)에서 "stream 1 ended before stream 0 began"으로 red, 같은 트리 단독 재실행 3/3 green. 트레인은
+    `crates/serve`를 건드리지 않는다. 두 스트림의 도착 겹침을 벽시계 순서로 판정하므로 부하에서 갈린다. 겹침을 엔진 쪽 패스
+    순서(이미 같은 테스트가 보는 `passes`)로만 판정하거나 첫 청크 전에 둘째 요청이 들어왔음을 보장한다.
   - **GLM 라운드 보고의 품질 항목(S).** R1TARGET의 ahead 거부 가드 중복; `Out::Logits` 동률 규칙이
     `crates/runtime/src/lib.rs:73-80` 문서에 없다; `chain.rs`·`target.rs`의 greedy 도우미 중복(공통 소유자 하나로).
 
