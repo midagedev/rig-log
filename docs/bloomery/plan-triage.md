@@ -2598,6 +2598,10 @@ chain at m = 2 (the same term as the recentlit "verify m-rows" line above).
     185 GB/s), mat-vec 묶음 약 1.9 ms(75–83 %). flash·router·delta_out만 메우면 약 10.7 ms ≈ 93 tok/s[유도].
     K1FLASH·K2ROUTE 라운드(GLM)가 받았다. 다음: Q4_K/Q6_K 행 코어에 MLX 레버(SIMD group당 4행, 512값 블록, m>1 wide,
     expert gather) — K2 착지 뒤(같은 파일). 표: `~/.cache/bloomery/mac-port/m4bench/prof1-m4pro.md`.
+  - **PR #726 리뷰가 남긴 것(2026-10-23).** (D) Metal prompt가 id마다 host가 먹이는 한 스텝이다. M4 Pro turn 1 546 id에
+    9.67 s, id당 약 17.7 ms[측정, 부하 4.3–5.1]. 묶은 prompt pass는 expert 가중치를 chunk당 한 번 읽는다(L, 다음 Metal 라운드).
+    (E) checkpoint take가 73,728,000바이트 host `Vec`을 만들고 두 번 복사한다(shared pages→Vec→slot), cut은 같은 크기를
+    0으로 채운다. shared pages끼리 바로 복사하면 take마다 할당 하나·복사 하나가 준다(S–M, unsafe 핀은 그대로 둘 방법을 먼저).
   - **K3MV·QGEN·K1B 결과(2026-10-23, GLM 라운드).** K3MV(SIMD group당 4행, 9788dc79e): M1 Pro 프로브 +5–46 %, M4 Pro
     프로파일 GPU 13.56 → 11.79 ms/토큰(−13 %), 실제 decode A/B 79.2 → 80.0 tok/s는 부하 5–10에서 잡음 안[측정, 개발 루프].
     행 수(4 대 8)·sg는 조용한 저녁 창의 M4 Pro sweep로 정한다(오늘 sweep은 부하로 판정 불가). QGEN(d7f410146): 양자화별 디코드
