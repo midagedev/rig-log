@@ -2598,6 +2598,14 @@ chain at m = 2 (the same term as the recentlit "verify m-rows" line above).
     185 GB/s), mat-vec 묶음 약 1.9 ms(75–83 %). flash·router·delta_out만 메우면 약 10.7 ms ≈ 93 tok/s[유도].
     K1FLASH·K2ROUTE 라운드(GLM)가 받았다. 다음: Q4_K/Q6_K 행 코어에 MLX 레버(SIMD group당 4행, 512값 블록, m>1 wide,
     expert gather) — K2 착지 뒤(같은 파일). 표: `~/.cache/bloomery/mac-port/m4bench/prof1-m4pro.md`.
+  - **K3MV·QGEN·K1B 결과(2026-10-23, GLM 라운드).** K3MV(SIMD group당 4행, 9788dc79e): M1 Pro 프로브 +5–46 %, M4 Pro
+    프로파일 GPU 13.56 → 11.79 ms/토큰(−13 %), 실제 decode A/B 79.2 → 80.0 tok/s는 부하 5–10에서 잡음 안[측정, 개발 루프].
+    행 수(4 대 8)·sg는 조용한 저녁 창의 M4 Pro sweep로 정한다(오늘 sweep은 부하로 판정 불가). QGEN(d7f410146): 양자화별 디코드
+    한 소유자(`quant.metal`), 본문 넷 템플릿, 57쌍 비트 동일 — A4가 본문 복사 없이 붙는다. K1B(어텐션, 미착지, `mac-k1b`
+    14903f99d WIP): 정확성 green이나 100/4096 keys 동률, 512/1024 +50 % 회귀[측정, M1 Pro]. 남긴 사실: 의존 셔플 150–230 ns,
+    분기 안 조건부 raise(원자)가 미발화에도 에필로그 ~13 µs, 거의 빈 dispatch 골격 80–95 µs(M1 Pro, threadgroup 2개). 다음
+    어텐션 라운드의 레버: raise를 루프 밖 한 번으로(M, pair/fold도 같은 패턴), norm 나비 20셔플 단축(M), MLX 2-pass로 점수 교환
+    셔플 사슬 끊기(L) — 어려운 라운드라 opus.
   - **M4 Pro 첫 실파일 실행(R5)에서 남은 것.** open 60–74 s(약 300 MB/s 복사, mmap/`newBufferWithBytesNoCopy`로 0에
     가깝게, M), 프롬프트는 호스트가 먹이는 한 토큰씩이라 약 2 tok/s(배치 프리필 R6, L), 첫 프롬프트 스텝 약 480 ms(원인 미상,
     값 매기기 S).
