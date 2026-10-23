@@ -25,6 +25,7 @@ on main as topic PRs while the models work.
 | M3.1F | (a) reader split + tokenizer/template + our streaming convert + local llama.cpp oracle patch (sparse flag per layer) | after design |
 | M3.1F | (b) MSA kernels + body on a fixture (one dense-FFN MSA layer + one MoE MSA layer) | after (a); the largest piece |
 | M3.1F | (c) placement + serve on the real file, numbers | last; the GGUF users load: unsloth's if it appears, else ours (publishing needs the user's yes) |
+| M3 (old) | not verified from 0.3.9 (user 10-23): its UD-IQ4_XS file is gone; code stays (M3.1F reuses gpu-minimaxm3); the five `gate-gpu-minimaxm3-*` real-only gates move to the M3.1F checkpoint; README + release notes say so | lead |
 
 ## Release 0.3.3 — current plan (lead, 2026-10-14 ~10:20 KST; this file is the plan of record from now on)
 
