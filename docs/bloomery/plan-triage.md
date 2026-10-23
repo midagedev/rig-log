@@ -2601,6 +2601,13 @@ chain at m = 2 (the same term as the recentlit "verify m-rows" line above).
   - **M4 Pro 첫 실파일 실행(R5)에서 남은 것.** open 60–74 s(약 300 MB/s 복사, mmap/`newBufferWithBytesNoCopy`로 0에
     가깝게, M), 프롬프트는 호스트가 먹이는 한 토큰씩이라 약 2 tok/s(배치 프리필 R6, L), 첫 프롬프트 스텝 약 480 ms(원인 미상,
     값 매기기 S).
+  - **main(78c3680d3)의 픽스처 계층 red 7개 이상(2026-10-23, 확인).** origin/main 워크트리에서 따로 돌린 7개가 모두 red:
+    gate-fixture-budget, gate-gpu-mxfp8(`resident_sel_f32: blk.4.ssm_f_b.mxfp8.weight is not a q8_0, fp8_b128 or nvfp4
+    stack`), gate-gpu-glm5next-e2e·tp("stale recorded fixture budget": 계획이 층마다 [202, 202, 202]개를 잡아 기록된 절반 144와
+    다름), gate-ds41-load(check v의 drop 회수), gate-gpu-qwen38-serve(`unset_place_is_the_rule`·`slots_default_xstream_line`
+    FAIL), gate-gpu-solar2-twocard(main rc 66, PR #666 트리에서는 같은 stale budget). PR #666 배치의 red 17개는 이 계열과
+    알려진 iq3s6이다. 기록된 픽스처 예산이 main의 NVFP4·HC 착지 뒤 계획과 어긋난 것으로 보인다(int039 트랙의 "planned budget"
+    작업과 겹치는지 확인). 로그: `~/.cache/bloomery/batches/bloomery-mainchk/`.
   - **`gate-serve` 흔들림: `slots::hw_drafted_passes_interleave_across_slots`(S).** PR #666 픽스처 배치(2026-10-23,
     레인 A, 다른 게이트와 동시)에서 "stream 1 ended before stream 0 began"으로 red, 같은 트리 단독 재실행 3/3 green. 트레인은
     `crates/serve`를 건드리지 않는다. 두 스트림의 도착 겹침을 벽시계 순서로 판정하므로 부하에서 갈린다. 겹침을 엔진 쪽 패스
