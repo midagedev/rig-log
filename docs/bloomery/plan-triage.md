@@ -2566,6 +2566,18 @@ chain at m = 2 (the same term as the recentlit "verify m-rows" line above).
   - **CI t0에 clippy가 없다(S, 결정 필요).** contrib-check t0는 rustfmt만 설치한다. 기여 PR 셋이 clippy 오류를 안고 main에
     들어왔고 리드가 고쳤다(#665 MXFP8, unsafe append, BF16 f32tile). t0에 x86_64-linux clippy 교차 검사(링커 없음)를 넣거나 병합
     체크리스트에 `just remote-static`을 적는다.
+  - **M4 Pro 디코드 프로파일과 레버 목록(PROF1, 2026-10-23).** 실파일 Q4_K_M, 위치 68–99, 그룹마다 따로 잰 GPU 시간
+    합 12.93 ms 대 실제 스텝 12.70 ms(디스패치 비용은 작다)[측정, 개발 루프]. 240 GB/s 바닥은 8.9 ms(약 112 tok/s)[유도].
+    구멍 큰 순서: attn_flash 1.10 ms(2.2 GB/s, 지연 묶임, key 100개에서 threadgroup 4개, lane 0 혼자 하는 append),
+    router 0.85 ms(99.5 GB/s, SIMD group마다 입력 8 KB를 다시 읽고 노름), delta_out 1.00 ms(143 GB/s, 같은 모양 attn_out
+    185 GB/s), mat-vec 묶음 약 1.9 ms(75–83 %). flash·router·delta_out만 메우면 약 10.7 ms ≈ 93 tok/s[유도].
+    K1FLASH·K2ROUTE 라운드(GLM)가 받았다. 다음: Q4_K/Q6_K 행 코어에 MLX 레버(SIMD group당 4행, 512값 블록, m>1 wide,
+    expert gather) — K2 착지 뒤(같은 파일). 표: `~/.cache/bloomery/mac-port/m4bench/prof1-m4pro.md`.
+  - **M4 Pro 첫 실파일 실행(R5)에서 남은 것.** open 60–74 s(약 300 MB/s 복사, mmap/`newBufferWithBytesNoCopy`로 0에
+    가깝게, M), 프롬프트는 호스트가 먹이는 한 토큰씩이라 약 2 tok/s(배치 프리필 R6, L), 첫 프롬프트 스텝 약 480 ms(원인 미상,
+    값 매기기 S).
+  - **GLM 라운드 보고의 품질 항목(S).** R1TARGET의 ahead 거부 가드 중복; `Out::Logits` 동률 규칙이
+    `crates/runtime/src/lib.rs:73-80` 문서에 없다; `chain.rs`·`target.rs`의 greedy 도우미 중복(공통 소유자 하나로).
 
 ### 재판정 잔여 (revisit)
 
