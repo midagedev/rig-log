@@ -2611,6 +2611,11 @@ chain at m = 2 (the same term as the recentlit "verify m-rows" line above).
     9.67 s, id당 약 17.7 ms[측정, 부하 4.3–5.1]. 묶은 prompt pass는 expert 가중치를 chunk당 한 번 읽는다(L, 다음 Metal 라운드).
     (E) checkpoint take가 73,728,000바이트 host `Vec`을 만들고 두 번 복사한다(shared pages→Vec→slot), cut은 같은 크기를
     0으로 채운다. shared pages끼리 바로 복사하면 take마다 할당 하나·복사 하나가 준다(S–M, unsafe 핀은 그대로 둘 방법을 먼저).
+  - **PR #757(MLX A4) 머지가 남긴 것(2026-10-24).** (F) 행 바이트 공식 `cols / values_per_block() * block_bytes()`가
+    Metal 쪽 약 10곳에 반복된다(`shared/oracle.rs`, gate `fixture.rs`·`clauses_experts::row_bytes`, `metal_matvec_time`).
+    `Quant::row_bytes(cols)` 한 owner로 모은다(S, 동작 불변). (G) `crates/chain/src/site.rs`에 `tools/gate-paths.tsv` 행이
+    없어서 host만 바뀐 변경도 `just narrow`가 전체 목록(약 190개)으로 남는다. 이 파일을 읽는 게이트를 행으로 적으면
+    다음 site 변경의 배치가 준다(S, recipes.py check로 확인).
   - **K3MV·QGEN·K1B 결과(2026-10-23, GLM 라운드).** K3MV(SIMD group당 4행, 9788dc79e): M1 Pro 프로브 +5–46 %, M4 Pro
     프로파일 GPU 13.56 → 11.79 ms/토큰(−13 %), 실제 decode A/B 79.2 → 80.0 tok/s는 부하 5–10에서 잡음 안[측정, 개발 루프].
     행 수(4 대 8)·sg는 조용한 저녁 창의 M4 Pro sweep로 정한다(오늘 sweep은 부하로 판정 불가). QGEN(d7f410146): 양자화별 디코드
