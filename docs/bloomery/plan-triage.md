@@ -2611,6 +2611,16 @@ chain at m = 2 (the same term as the recentlit "verify m-rows" line above).
     9.67 s, id당 약 17.7 ms[측정, 부하 4.3–5.1]. 묶은 prompt pass는 expert 가중치를 chunk당 한 번 읽는다(L, 다음 Metal 라운드).
     (E) checkpoint take가 73,728,000바이트 host `Vec`을 만들고 두 번 복사한다(shared pages→Vec→slot), cut은 같은 크기를
     0으로 채운다. shared pages끼리 바로 복사하면 take마다 할당 하나·복사 하나가 준다(S–M, unsafe 핀은 그대로 둘 방법을 먼저).
+  - **M4 Pro MLX 4bit 비교(2026-10-24 11:10 KST, 개발 루프 증거: Mac에 타이밍 runner 없음).** mlx-community
+    Qwen3.6-35B-A3B 4bit 폴더를 `prepare`로 split(19,522,095,840 B)으로 바꿔 `generate_metal`(f2b73ba65, md5 86d8f57c)로
+    연다. greedy 40토큰이 mlx-lm 0.32.2와 글자까지 같다. 4라운드 교차 sitting(arm 순서 회전, AC 전원, 부하 2.6–4.9,
+    `runs/a4-20261024T111032`), decode tok/s 평균±SD: ours-mlx 102.40±0.65 · ours-q4k 87.12±0.67 · mlx-lm(-p 16)
+    93.08±0.40 · mlx-lm(-p 512) 91.95±0.41 · llama.cpp b11827 tg128 67.12±0.33. ours-mlx는 같은 깊이의 mlx-lm보다
+    +10.0 %(95 % 구간 ±1.0 %), llama.cpp의 1.53배. 예측(+8 %, ours-q4k 대비)이 +17.5 %로 빗나간 항: profile 32토큰
+    (ours-mlx 1.896 GB·9.32 ms/토큰, ours-q4k 2.138 GB·11.52 ms)에서 (1) 바이트가 파일 크기 비보다 더 준다(−11.3 %, head
+    Q6_K 418 MB→A4 287 MB, Q6_K down 262→214 MB); (2) 같은 바이트에서 A4 커널이 빠르다: gate_up 426 MB가 A4 223.8 GB/s,
+    Q4_K 191.8 GB/s. **레버(H):** Q4_K pair·delta_p1·head가 같은 바이트의 A4보다 14–17 % 느리다. Q4_K의 6-bit scale
+    풀기가 원인 후보다(K-quant 경로 전체 decode에 걸림, M). 측정 전 디코드 명령 수와 레지스터부터 비교한다.
   - **PR #757(MLX A4) 머지가 남긴 것(2026-10-24).** (F) 행 바이트 공식 `cols / values_per_block() * block_bytes()`가
     Metal 쪽 약 10곳에 반복된다(`shared/oracle.rs`, gate `fixture.rs`·`clauses_experts::row_bytes`, `metal_matvec_time`).
     `Quant::row_bytes(cols)` 한 owner로 모은다(S, 동작 불변). (G) `crates/chain/src/site.rs`에 `tools/gate-paths.tsv` 행이
