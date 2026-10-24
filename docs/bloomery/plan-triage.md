@@ -2675,6 +2675,22 @@ chain at m = 2 (the same term as the recentlit "verify m-rows" line above).
     3579 vs mlx 10158). M5 GPU의 neural accelerator(Metal 4 tensor op `matmul2d`)를 우리 GEMM이 안 탄다 — mac-nax 라운드(NA).
     (n) main `tools/bloomery/reach_cache.py`(2d82c751c)가 Python 3.14에서 `marshal.dumps(code, 2)` ValueError로
     `just check-recipes` self-test 빨강(slice 상수는 marshal 5 이상): Mac 정적 계층 막힘(S, 작성 세션 소관).
+    **진행(2026-10-25 새벽):** (b)·(e)는 PR #779(layer당 buffer, 복사 1회)로 닫았다. (k)는 PR #792(MK):
+    `Engine::prefill_marked`로 mark를 call 하나에 넘기고, delta 커널(`gdn_rows_snap`·`gdn_ring_snap`)이 pass 안 mark 행의
+    state를 복사본에 남긴다. M4 Pro chat turn 2 prompt_ms 187–191 → 113–114 ms[측정, 교대 2회]; mark 없는 경로는 같음
+    (p4k 1000.3 vs 997.5 tok/s, 25행 pass wall 79.8 ms 양쪽). (m)은 mac-nax(NA): M5 판정(MLX `is_nax_available` 규칙)이
+    tensor-op GEMM 라이브러리(language 4.0)를 고른다; M4에서는 dense ±0.5 %, routed +10–27 % 느림(선택 안 됨), M5 예측
+    2048행 pass 약 572 → 255 ms[유도] — 기여자 측정 대기.
+    (o) seqstate point 예산(`crates/runtime/src/seqstate.rs:141`)이 `every` 격자와 끝만 세고 message mark는 안 센다:
+    ctx ≤ every면 2칸이라 mark 2개짜리 call이 첫 mark를 밀어낸다(MK 전에도 같은 예산, 회귀 아님; 공통 소유, M).
+    (p) mark 복사 버퍼 142 MB를 첫 marked pass에서 연다 → turn 1에 1회 약 24–60 ms[유도]; (j)와 함께 open·warm-up으로(S).
+    (q) point를 settle 뒤 host memcpy로 뜬다(개당 약 1.3 ms, 직렬): pass 끝 blit으로 GPU 뒤에 숨기기(M).
+    (r) CUDA 엔진도 `prefill_marked`로 mark를 call 하나에 유지 가능(`gpu-gates/src/bind.rs:3026`, call당 pass floor 절약, L).
+    (s) e2e `q_mark_cut`과 `q_free`가 1024-id stepped run을 각자 돈다: reference 공유로 gate wall 절약(S).
+    (t) NA tensor 라이브러리를 open마다 source에서 runtime compile(`library.rs`): 4.0 metallib을 build에서(S).
+    (u) NA tensor GEMM이 K step마다 activation을 cast·staging(`gemm_tensor.metal:147`): GEMM당 한 번 f16으로 cast해 두고
+    device에서 바로 읽기 — M5에서 다음 항(M). (v) kernels 게이트 `headnorm_rows`가 linear_gate fault를 올린 채 끝나 다음
+    clause 결과가 순서에 의존(`clauses_route.rs:1294`, S). (w) routed probe가 A4 f16만 잰다 — Q4_K GGUF expert 미측정(S).
 
 ### 재판정 잔여 (revisit)
 
