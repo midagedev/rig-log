@@ -2659,6 +2659,8 @@ chain at m = 2 (the same term as the recentlit "verify m-rows" line above).
     두 번 복사(`snapshot_stores` → `Checkpoints::take`, S). (f) GPU 클럭이 100 ms 넘게 쉬면 떨어져 첫 스텝 gpu 10 → 22–30 ms;
     residency로는 안 고쳐진다(서버 첫 스텝 약 15 ms, 값 매긴 뒤). 원인 기록: residency 없이는 드라이버가 첫 바인딩에
     배선(첫 prompt 약 2.3 s)하고 오래 안 쓰인 buffer의 배선을 풀어 긴 pass 뒤 첫 decode 스텝이 최대 1.6 s였다.
+    (g) 실패 경로 회귀 게이트(S–M, 리뷰 봇): rows arena 할당이 중간에 실패해도 residency set이 그대로인지, prefill pipeline
+    빌드가 거부되면 state가 그대로인지 — 실패 주입 훅이 있어야 한다.
 
 ### 재판정 잔여 (revisit)
 
