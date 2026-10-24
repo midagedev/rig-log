@@ -2661,6 +2661,20 @@ chain at m = 2 (the same term as the recentlit "verify m-rows" line above).
     배선(첫 prompt 약 2.3 s)하고 오래 안 쓰인 buffer의 배선을 풀어 긴 pass 뒤 첫 decode 스텝이 최대 1.6 s였다.
     (g) 실패 경로 회귀 게이트(S–M, 리뷰 봇): rows arena 할당이 중간에 실패해도 residency set이 그대로인지, prefill pipeline
     빌드가 거부되면 state가 그대로인지 — 실패 주입 훅이 있어야 한다.
+    **진행(2026-10-25):** (a)는 PR #777로 닫았다 — routed 64-row 타일, K 루프를 run의 fragment 수로 타일마다 한 번 고름(가설
+    "weight 쪽 병목"은 틀렸다: 루프 안 `if (live)` 검사가 건너뛰는 MMA보다 비쌌다). M4 Pro 873 ids 764 → 914, 7985 ids 856 →
+    990 tok/s[측정, 교대 2회, 부하 3.0–5.1]; experts class U=512 412 → 240 ms, U=2048 1095 → 771 ms. (b)·(e)는 mac-passfix
+    브랜치(PF): pass 한 buffer + checkpoint/cut 복사 1회로 checkpoint 24.7 → 1.3 ms, chat turn 2 −41 %. 한 buffer는 느린
+    칩에서 GPU timeout 위험이라 layer당 buffer로 다시 자르는 중(PF2).
+    (h) 작은 pass(m ≤ 64)의 dense GEMM 64-row 타일 padding 약 29 ms/pass(M4, m=9·16·64 gemm class 31.9–33.6 ms vs byte
+    floor 2.6 ms): small-m 타일(M). (i) 8 ids 이하 조각은 step으로 id당 약 10 ms(`target.rs:107`, S). (j) 프로세스 첫 call
+    +85–101 ms(rows arena 465 MB host zero, residency, pipeline; `rows.rs:42`, S–M). (k) 메시지 시작점마다 call을 끊지
+    말고 pass 하나에 `StateOut::after_rows = marks`로 snapshot: 26 ids 예 약 −93 ms[유도]; runtime `prompt.rs`와 CUDA를
+    건드린다(M–L, 공통 소유). (l) `crates/device/src/pages.rs:111,125` copy가 원소마다 atomic이라 vectorize 안 됨(S).
+    (m) M5 Ultra 확장성: 기여자 측정에서 M3 → M5 우리 1.25–1.29×, llama.cpp 2.0–2.1×, mlx-lm 2.2–3.1×(pp4096 M5 Ultra
+    3579 vs mlx 10158). M5 GPU의 neural accelerator(Metal 4 tensor op `matmul2d`)를 우리 GEMM이 안 탄다 — mac-nax 라운드(NA).
+    (n) main `tools/bloomery/reach_cache.py`(2d82c751c)가 Python 3.14에서 `marshal.dumps(code, 2)` ValueError로
+    `just check-recipes` self-test 빨강(slice 상수는 marshal 5 이상): Mac 정적 계층 막힘(S, 작성 세션 소관).
 
 ### 재판정 잔여 (revisit)
 
