@@ -2650,6 +2650,15 @@ chain at m = 2 (the same term as the recentlit "verify m-rows" line above).
     순서(이미 같은 테스트가 보는 `passes`)로만 판정하거나 첫 청크 전에 둘째 요청이 들어왔음을 보장한다.
   - **GLM 라운드 보고의 품질 항목(S).** R1TARGET의 ahead 거부 가드 중복; `Out::Logits` 동률 규칙이
     `crates/runtime/src/lib.rs:73-80` 문서에 없다; `chain.rs`·`target.rs`의 greedy 도우미 중복(공통 소유자 하나로).
+  - **배치 프리필(PR #773, 2026-10-24) 뒤에 남은 것.** M4 Pro 실파일 prompt 760–855 tok/s, mlx-lm pp512 943·pp4096 1038의
+    약 0.82배[측정, 개발 루프, 부하 2.3–5.9]. 연산 천장 약 1300 tok/s[유도: 토큰당 약 2.4 GMAC, 약 6.5 TFLOPS]의 약 66 %.
+    (a) routed expert 타일 채움: 전문가 GEMM이 dense 3.2 TF 대비 약 1.1 TF(M1 Pro, L). (b) pass의 op마다 command buffer
+    하나(약 200개/pass, `session.rs` `PassOps::one`): 같은 barrier로 pass당 한 buffer, `pass_profile`만 분할(M, 리뷰 봇 G).
+    (c) open 43–46 s(19.5 GB, page fault 1.19M major, `arena.rs` `Loader::quant`의 mmap 복사): 청크 `pread`·`madvise`(M).
+    (d) residency set 바이트를 `recommendedMaxWorkingSetSize`와 대조해 넘으면 이름으로 거부(S). (e) mark마다 73.7 MB state를
+    두 번 복사(`snapshot_stores` → `Checkpoints::take`, S). (f) GPU 클럭이 100 ms 넘게 쉬면 떨어져 첫 스텝 gpu 10 → 22–30 ms;
+    residency로는 안 고쳐진다(서버 첫 스텝 약 15 ms, 값 매긴 뒤). 원인 기록: residency 없이는 드라이버가 첫 바인딩에
+    배선(첫 prompt 약 2.3 s)하고 오래 안 쓰인 buffer의 배선을 풀어 긴 pass 뒤 첫 decode 스텝이 최대 1.6 s였다.
 
 ### 재판정 잔여 (revisit)
 
