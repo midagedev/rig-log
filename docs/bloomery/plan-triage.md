@@ -2614,9 +2614,9 @@ chain at m = 2 (the same term as the recentlit "verify m-rows" line above).
   - **M4 Pro MLX 4bit 비교(2026-10-24 11:10 KST, 개발 루프 증거: Mac에 타이밍 runner 없음).** mlx-community
     Qwen3.6-35B-A3B 4bit 폴더를 `prepare`로 split(19,522,095,840 B)으로 바꿔 `generate_metal`(f2b73ba65, md5 86d8f57c)로
     연다. greedy 40토큰이 mlx-lm 0.32.2와 글자까지 같다. 4라운드 교차 sitting(arm 순서 회전, AC 전원, 부하 2.6–4.9,
-    `runs/a4-20261024T111032`), decode tok/s 평균±SD: ours-mlx 102.40±0.65 · ours-q4k 87.12±0.67 · mlx-lm(-p 16)
+    `runs/a4-20261024T111032`), decode tok/s 평균±SD: ours-mlx ~~102.40±0.65~~ 101.60±0.64 · ours-q4k ~~87.12±0.67~~ 86.44±0.66 (정정 10-24: `decode_tok_s`가 prompt의 첫 토큰을 127 pass로 나눴다, avlp12 지적, #768) · mlx-lm(-p 16)
     93.08±0.40 · mlx-lm(-p 512) 91.95±0.41 · llama.cpp b11827 tg128 67.12±0.33. ours-mlx는 같은 깊이의 mlx-lm보다
-    +10.0 %(95 % 구간 ±1.0 %), llama.cpp의 1.53배. 예측(+8 %, ours-q4k 대비)이 +17.5 %로 빗나간 항: profile 32토큰
+    ~~+10.0 %~~ +9.2 %(95 % 구간 ±1.0 %), llama.cpp의 ~~1.53배~~ 1.51배. 예측(+8 %, ours-q4k 대비)이 +17.5 %로 빗나간 항: profile 32토큰
     (ours-mlx 1.896 GB·9.32 ms/토큰, ours-q4k 2.138 GB·11.52 ms)에서 (1) 바이트가 파일 크기 비보다 더 준다(−11.3 %, head
     Q6_K 418 MB→A4 287 MB, Q6_K down 262→214 MB); (2) 같은 바이트에서 A4 커널이 빠르다: gate_up 426 MB가 A4 223.8 GB/s,
     Q4_K 191.8 GB/s. **레버(H):** Q4_K pair·delta_p1·head가 같은 바이트의 A4보다 14–17 % 느리다. Q4_K의 6-bit scale
