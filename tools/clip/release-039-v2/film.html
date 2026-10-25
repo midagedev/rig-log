@@ -1,0 +1,924 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>bloomery 0.3.9</title>
+<style>html,body{margin:0;background:#07080A;overflow:hidden}#stage{width:1080px;height:1080px}canvas{display:block}</style>
+</head><body><div id="stage"><canvas id="gl" width="1080" height="1080"></canvas></div>
+<script>
+// The 0.3.9 release film, v2 (DESIGN.md). window.seek(t) draws the frame at t (a pure function of t); window.frame(i)
+// returns frame i as a JPEG data URL, each the mean of its sub-frame draws over a 180° shutter; window.checkAll(f0, f1)
+// walks the frames without pictures and returns every floor, margin, overlap and hold fault. Every string drawn is a
+// key of data.json's copy; a missing key, font or GPU feature is a named fault (window.fault), never a fallback.
+"use strict";
+window.FILM = "release-039-v2"; window.ready = false; window.fault = ""; window.LOG = new Set();
+const W = 1080, H = 1080, FPS = 60, MARGIN = 72, CAP = 46;
+const COL = {void: "#07080A", bone: "#EDEAE4", ash: "#8E949C", steel: "#7F96AD", ember: "#FF6A2B", core: "#FFD9B8",
+             floor: "#14171C", pale: "#DCE6F0"};
+const RGB = Object.fromEntries(Object.entries(COL).map(([k, v]) => [k, [1, 3, 5].map(i => parseInt(v.slice(i, i + 2), 16))]));
+const rgba = (c, a) => { const v = RGB[c] || c; return `rgba(${v[0]},${v[1]},${v[2]},${Math.max(0, Math.min(1, a))})`; };
+function die(msg) { window.fault = window.fault || msg; console.error("FAULT: " + msg); throw new Error(msg); }
+
+// ---- math --------------------------------------------------------------------------------------------------------
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, u) => a + (b - a) * u;
+const win = (t, a, b) => clamp((t - a) / (b - a));
+const expoOut = u => u >= 1 ? 1 : 1 - Math.pow(2, -10 * u);
+const expoIn = u => u <= 0 ? 0 : Math.pow(2, 10 * (u - 1));
+const quintOut = u => 1 - Math.pow(1 - u, 5);
+const cubicOut = u => 1 - Math.pow(1 - u, 3);
+const smooth = u => u * u * (3 - 2 * u);
+function bezier(x1, y1, x2, y2) {           // CSS cubic-bezier as a function of u in [0, 1]
+  const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx, cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+  const X = s => ((ax * s + bx) * s + cx) * s, Y = s => ((ay * s + by) * s + cy) * s, dX = s => (3 * ax * s + 2 * bx) * s + cx;
+  return u => { if (u <= 0) return 0; if (u >= 1) return 1; let s = u;
+    for (let i = 0; i < 8; i++) { const e = X(s) - u, d = dX(s); if (Math.abs(e) < 1e-6 || Math.abs(d) < 1e-6) break; s -= e / d; }
+    let lo = 0, hi = 1; for (let i = 0; i < 30 && Math.abs(X(s) - u) > 1e-6; i++) { if (X(s) < u) lo = s; else hi = s; s = (lo + hi) / 2; }
+    return Y(s); };
+}
+const FLY = bezier(.65, 0, .2, 1);
+function spring(u, zeta = 0.55, cycles = 1.6) {   // a damped spring from 0 to 1 over u in [0, 1], overshoot about 4 %
+  if (u <= 0) return 0; if (u >= 1) return 1;
+  const w = 2 * Math.PI * cycles, wd = w * Math.sqrt(1 - zeta * zeta), x = u * 1.0;
+  const v = 1 - Math.exp(-zeta * w * x) * (Math.cos(wd * x) + (zeta * w / wd) * Math.sin(wd * x));
+  return v + (1 - v) * smooth(clamp((u - 0.75) / 0.25));
+}
+const V = {add: (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]], sub: (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]],
+  mul: (a, s) => [a[0] * s, a[1] * s, a[2] * s], dot: (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2],
+  cross: (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]],
+  len: a => Math.hypot(a[0], a[1], a[2]), lerp: (a, b, u) => [lerp(a[0], b[0], u), lerp(a[1], b[1], u), lerp(a[2], b[2], u)]};
+V.norm = a => V.mul(a, 1 / (V.len(a) || 1));
+function rng(seed) { let s = seed >>> 0; return () => { s = (s + 0x6D2B79F5) >>> 0; let t = s; t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+
+// ---- data --------------------------------------------------------------------------------------------------------
+let D, P, LEAD, SEG = {}, GRP = {};
+const B = b => Math.max(0, b * P - LEAD);          // the time of film beat b (half a frame early, as make_data.py)
+function seg(id) { return SEG[id] || die("no station " + id); }
+function grp(id) { return GRP[id] || die("no group " + id); }
+function copy(key) { if (!(key in D.copy)) die("no copy key " + key); return D.copy[key]; }
+
+// ---- camera --------------------------------------------------------------------------------------------------------
+const deg = Math.PI / 180;
+function pose(pos, look, o = {}) {
+  const d = V.sub(look, pos), yaw = Math.atan2(d[0], d[2]) / deg, pitch = Math.atan2(d[1], Math.hypot(d[0], d[2])) / deg;
+  return {pos, yaw: o.yaw ?? yaw, pitch: o.pitch ?? pitch, roll: o.roll || 0, f: o.f || 1500, dist: o.dist || 6, ap: o.ap ?? 0.05};
+}
+function basis(p) {
+  const y = p.yaw * deg, x = p.pitch * deg, r = p.roll * deg;
+  const fwd = [Math.sin(y) * Math.cos(x), Math.sin(x), Math.cos(y) * Math.cos(x)];
+  let right = V.norm(V.cross([0, 1, 0], fwd)), up = V.cross(fwd, right);
+  if (r) { const c = Math.cos(r), s = Math.sin(r); [right, up] = [V.add(V.mul(right, c), V.mul(up, s)), V.add(V.mul(up, c), V.mul(right, -s))]; }
+  return {fwd, right, up};
+}
+function lerpPose(a, b, u) {
+  let dy = b.yaw - a.yaw; while (dy > 180) dy -= 360; while (dy < -180) dy += 360;
+  return {pos: V.lerp(a.pos, b.pos, u), yaw: a.yaw + dy * u, pitch: lerp(a.pitch, b.pitch, u), roll: lerp(a.roll, b.roll, u),
+          f: lerp(a.f, b.f, u), dist: lerp(a.dist, b.dist, u), ap: lerp(a.ap, b.ap, u)};
+}
+let CAM = null;                                   // the current camera: pose + basis
+function setCam(p) { CAM = Object.assign({}, p, basis(p)); }
+function proj(w) {                                // world -> [sx, sy, z] in the current camera, or null behind it
+  const d = V.sub(w, CAM.pos), z = V.dot(d, CAM.fwd);
+  if (z < 0.25) return null;
+  return [W / 2 + CAM.f * V.dot(d, CAM.right) / z, H / 2 - CAM.f * V.dot(d, CAM.up) / z, z];
+}
+function coc(z) { return CAM.ap * CAM.f * Math.abs(z - CAM.dist) / (z * CAM.dist); }
+// A station's plane (planeOf; window.frame is the page API): its text plane, `dist` in front of its rest pose, laid out in the 1080 px grid (1 px = dist/f m).
+function planeOf(p) { const b = basis(p); return {...b, C: V.add(p.pos, V.mul(b.fwd, p.dist)), s: p.dist / p.f, pose: p}; }
+function at(F, x, y, dz = 0) { return V.add(V.add(F.C, V.mul(F.right, (x - W / 2) * F.s)), V.add(V.mul(F.up, (H / 2 - y) * F.s), V.mul(F.fwd, dz))); }
+
+// ---- the display list -------------------------------------------------------------------------------------------------
+// Items carry a camera depth z and a layer: the depth-of-field bucket of their circle of confusion (far 3..1, sharp,
+// near 1..2), the glow layer (added, blurred) or the HUD (screen space). Each layer is a 2D canvas, composited on the GPU.
+const LAYERS = ["F3", "F2", "F1", "S", "N1", "N2", "G", "HUD"];
+const SIGMA = {F3: 7.5, F2: 3.6, F1: 1.4, S: 0, N1: 1.6, N2: 4.5, G: 0, HUD: 0};
+let DL = [], RASTER = true, NOW = 0, TF = 0, CHECK = null;
+function bucket(z) { const c = coc(z); const near = z < CAM.dist;
+  if (c < 1.3) return "S"; if (near) return c < 5 ? "N1" : "N2"; return c < 3.2 ? "F1" : c < 7.5 ? "F2" : "F3"; }
+function emit(it) { DL.push(it); return it; }
+
+// fonts and text
+const FACE = {sans: "Geist", mono: "GeistMono"};
+const MCTX = document.createElement("canvas").getContext("2d");
+function fontStr(face, weight, size) { return `${weight} ${size}px ${FACE[face]}`; }
+const MEAS = new Map();
+function measure(s, face, weight, size, track) {
+  const k = `${face}|${weight}|${size}|${track}|${s}`; let v = MEAS.get(k); if (v !== undefined) return v;
+  MCTX.font = fontStr(face, weight, size); MCTX.letterSpacing = `${track * size}px`;
+  v = MCTX.measureText(s).width - (s.length ? track * size : 0); MEAS.set(k, v); return v;
+}
+function glyphX(s, face, weight, size, track) {  // each glyph's left edge, kerning kept (see the pair-advance note)
+  const xs = []; for (let i = 0; i < s.length; i++) xs.push(measure(s.slice(0, i + 1), face, weight, size, track) - measure(s[i], face, weight, size, track));
+  return xs;
+}
+function wrapLines(s, face, weight, size, track, maxW) {
+  if (!maxW || measure(s, face, weight, size, track) <= maxW) return [s];
+  const parts = s.includes(" · ") ? s.split(" · ").map((p, i, a) => i < a.length - 1 ? p + " ·" : p) : null;
+  const words = parts || s.split(" "), lines = []; let cur = "";
+  for (const w of words) { const tryS = cur ? cur + " " + w : w;
+    if (cur && measure(tryS, face, weight, size, track) > maxW) { lines.push(cur); cur = w; } else cur = tryS; }
+  if (cur) lines.push(cur);
+  return lines.map(l => l.replace(/ ·$/, ""));
+}
+// A text item. o: key (or s with key for the log), F, x, y (baseline, plane px), dz, size, face, weight, color, align,
+// track (em), alpha, enter {t, d, kind: rise|wipe|fade|slam}, exit {t, d, kind: fade|up|down}, role read|live|deco,
+// grp (data.json group id the read check holds it to), glow (0..1, an ember halo), wrap (px), lh, hl [substring, color],
+// hlAlpha, tailA (the alpha of the rest of the highlight's line after it), screen (HUD, no camera).
+function text(o) {
+  const s = o.s ?? copy(o.key);
+  if (o.s !== undefined && !o.counter && !copy(o.key).includes(o.s.trim())) die(`${o.key}: draws ${o.s}, not its copy`);
+  else if (o.s !== undefined && o.counter && !/^[+]?[\d,.]*[×]?$/.test(o.s.trim()) && !copy(o.key).includes(o.s.trim()))
+    die(`${o.key}: draws ${o.s}, neither a count nor its copy`);
+  const face = o.face || "sans", weight = o.weight || 500, size = o.size || CAP, track = o.track || 0;
+  const t = NOW; let alpha = o.alpha ?? 1, dy = 0, sc = 1, wipe = 1, rise = null;
+  const en = o.enter, ex = o.exit;
+  if (en) { if (t < en.t) return null; const u = (t - en.t) / (en.d || 0.36);
+    if (en.kind === "wipe") wipe = expoOut(clamp(u));
+    else if (en.kind === "fade") { alpha *= smooth(clamp(u)); dy = (1 - expoOut(clamp(u))) * 14; }
+    else if (en.kind === "slam") { const e = expoOut(clamp(u)); sc = lerp(1.16, 1, e); alpha *= clamp(u * 6); }
+    else rise = {t0: en.t, d: en.d || 0.36, stg: en.stg ?? 0.028}; }
+  if (ex && t > ex.t) { const u = clamp((t - ex.t) / (ex.d || 0.2)); if (u >= 1) return null;
+    alpha *= 1 - (ex.kind === "cut" ? expoOut(u) : smooth(u));   // a cut leaves at full speed on its beat
+    if (ex.kind === "up") dy -= expoIn(u) * 36; if (ex.kind === "down") dy += expoIn(u) * 36; }
+  if (alpha <= 0.002) return null;
+  const lines = wrapLines(s, face, weight, size, track, o.wrap), lh = (o.lh || 1.22) * size;
+  let sx, sy, z, k;
+  if (o.screen) { sx = o.x; sy = o.y; z = 0.5; k = 1; }
+  else { const p = proj(at(o.F, o.x, o.y, o.dz || 0)); if (!p) return null; [sx, sy, z] = p; k = CAM.f * o.F.s / z; }
+  k *= sc;
+  const widths = lines.map(l => measure(l, face, weight, size, track)), wmax = Math.max(...widths);
+  const ax = o.align === "center" ? 0.5 : o.align === "right" ? 1 : 0;
+  const asc = 0.74 * size, desc = 0.22 * size;
+  const bb = [sx - ax * wmax * k, sy + (dy - asc) * k, sx + (1 - ax) * wmax * k, sy + (dy + (lines.length - 1) * lh + desc) * k];
+  for (const l of lines) window.LOG.add(FACE[face] + "\t" + l);
+  const it = {kind: "text", z, layer: o.screen ? "HUD" : bucket(z), key: o.key, role: o.role || "read", grp: o.grp, bb,
+              px: size * k, alpha, id: o.id || o.key, exiting: !!(ex && t > ex.t)};
+  if (RASTER) it.draw = (ctx, glowCtx) => {
+    for (const C of glowCtx && o.glow ? [ctx, glowCtx] : [ctx]) {
+      const isG = C === glowCtx;
+      C.save(); C.translate(sx, sy + dy * k); C.scale(k, k);
+      C.font = fontStr(face, weight, size); C.letterSpacing = `${track * size}px`;
+      C.globalAlpha = alpha * (isG ? o.glow : 1);
+      lines.forEach((l, li) => {
+        const x0 = -ax * widths[li], y0 = li * lh;
+        if (wipe < 1) { C.save(); C.beginPath(); C.rect(x0 - 4, y0 - asc - 8, (widths[li] + 8) * wipe, asc + desc + 16); C.clip(); }
+        const runs = [];                           // [text, x, colour, alpha]
+        let base = isG ? COL.ember : (COL[o.color] || o.color || COL.bone);
+        if (o.molten && !isG) { const gr = C.createLinearGradient(0, y0 - asc, 0, y0 + desc * 0.4);
+          gr.addColorStop(0, COL.core); gr.addColorStop(0.42, COL.ember); gr.addColorStop(1, "#C23C14"); base = gr; }
+        if (o.hl && l.includes(o.hl[0])) { const i = l.indexOf(o.hl[0]);
+          const xa = measure(l.slice(0, i), face, weight, size, track) + (i ? track * size : 0);
+          const xb = measure(l.slice(0, i + o.hl[0].length), face, weight, size, track) + track * size;
+          runs.push([l.slice(0, i), 0, base, 1], [o.hl[0], xa, isG ? COL.ember : rgba(o.hl[1], o.hlAlpha ?? 1), 1],
+                    [l.slice(i + o.hl[0].length), xb, base, o.tailA ?? 1]);
+        } else runs.push([l, 0, base, 1]);
+        if (rise && t < rise.t0 + rise.d + rise.stg * l.length) {
+          C.save(); C.beginPath(); C.rect(x0 - 20, y0 - asc - 12, widths[li] + 40, asc + desc + 16); C.clip();
+          let gi = 0;
+          for (const [rs, rx, rc, ra] of runs) { const xs = glyphX(rs, face, weight, size, track);
+            for (let i = 0; i < rs.length; i++, gi++) { const u = clamp((t - rise.t0 - gi * rise.stg) / rise.d); if (u <= 0) continue;
+              const e = expoOut(u); C.fillStyle = rc; C.globalAlpha = alpha * (isG ? o.glow : 1) * clamp(u * 2.2) * ra;
+              C.fillText(rs[i], x0 + rx + xs[i], y0 + (1 - e) * 0.62 * size); } }
+          C.restore();
+        } else for (const [rs, rx, rc, ra] of runs) { if (!rs || ra <= 0) continue;
+          C.fillStyle = rc; C.globalAlpha = alpha * (isG ? o.glow : 1) * ra; C.fillText(rs, x0 + rx, y0); }
+        if (wipe < 1) C.restore();
+      });
+      C.restore();
+    }
+  };
+  return emit(it);
+}
+// A hero number: the copy's number counts up from `from` over [t0, t1] (landing on t1, a beat) on Geist Mono, in a box
+// as wide as the final string, so the unit never moves; the unit (the copy after the number) is set smaller beside it
+// (unit: "right") or under it ("below").
+function heroParts(key) { const s = copy(key), m = s.match(/^([+−-]?[\d,.]+)(×)?\s*(.*)$/); if (!m) die(`${key}: not a hero number`);
+  return {num: m[1] + (m[2] || ""), unit: m[3]}; }
+function fmtLike(target, v) {
+  const sign = /^[+]/.test(target) ? "+" : "", dec = (target.split(".")[1] || "").replace(/\D/g, "").length;
+  let s = Math.abs(v).toFixed(dec); if (target.includes(",")) s = s.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return sign + s;
+}
+// A count's shown value: a quint run from its landing (t0, a beat) that reaches the target when it settles, 0.18 s
+// later (or at t1, if sooner). The value is rounded, so it changes on every frame of the run up to the target and no
+// digit flips alone after the run has gone still.
+function countShown(num, from, target, t0, t1) {
+  const u = clamp((TF - t0) / Math.min(0.18, t1 - t0)); if (u >= 1) return num;
+  const dec = (num.split(".")[1] || "").replace(/\D/g, "").length, step = Math.pow(10, -dec);
+  return fmtLike(num, Math.min(target, Math.round(lerp(from, target, quintOut(u)) / step) * step));
+}
+function hero(o) {
+  const {num, unit} = heroParts(o.key), size = o.size, face = "mono", weight = o.weight || 300;
+  let shown = num;
+  if (o.count && !num.endsWith("×")) { const target = parseFloat(num.replace(/[+,]/g, ""));
+    shown = countShown(num, o.from ?? 0, target, o.count[0], o.count[1]);
+    const w0 = measure(num, face, weight, size, 0), w1 = measure(shown, face, weight, size, 0);
+    o.xoff = (o.align === "right" ? 0 : w0 - w1); }
+  const wnum = measure(num, face, weight, size, 0);
+  // a counted hero is there at full strength on its landing frame: the landing is the beat's picture onset
+  if (o.count && o.enter && o.enter.kind === "fade") o.enter = {...o.enter, d: Math.min(o.enter.d ?? 0.12, 1 / FPS)};
+  const a = text({...o, s: shown, counter: true, face, weight, size, x: o.x + (o.xoff || 0), id: o.key + ":n"});
+  let b = null;
+  if (unit && o.unit !== "none") {
+    const us = o.unitSize || Math.round(size * 0.26), ux = o.unit === "below" ? o.x : o.x + wnum + us * 0.35;
+    const uy = o.unit === "below" ? o.y + us * 1.75 : o.y;
+    b = text({...o, s: unit, counter: true, face: "mono", weight: 500, size: us, x: ux, y: uy, color: o.unitColor || "ash", glow: 0, molten: false, id: o.key + ":u", enter: o.unitEnter || o.enter});
+  }
+  return [a, b];
+}
+// A box with an orientation (axes: unit right, up, fwd), centre c and size [w, h, d] (metres), drawn as its visible faces.
+// o: fill, fillA, edge, edgeA, edgeW (px), glass, strata {step (m), alpha}, band {y0, y1 (0..1 of h from the base), colour,
+// alpha, glow}, topGlow, light (world, for the face shading), fog.
+function box(o) {
+  const ax = o.axes || [[1, 0, 0], [0, 1, 0], [0, 0, 1]], [w, h, d] = o.size;
+  if (h <= 1e-4 || w <= 1e-4) return null;
+  const c = o.c, hx = V.mul(ax[0], w / 2), hy = V.mul(ax[1], h / 2), hz = V.mul(ax[2], d / 2);
+  const corner = (i, j, k) => V.add(c, V.add(V.mul(hx, i), V.add(V.mul(hy, j), V.mul(hz, k))));
+  const pc = proj(c); if (!pc) return null;
+  const faces = [[ax[0], [[1, -1, -1], [1, -1, 1], [1, 1, 1], [1, 1, -1]]], [V.mul(ax[0], -1), [[-1, -1, 1], [-1, -1, -1], [-1, 1, -1], [-1, 1, 1]]],
+    [ax[1], [[-1, 1, -1], [1, 1, -1], [1, 1, 1], [-1, 1, 1]]], [V.mul(ax[1], -1), [[-1, -1, 1], [1, -1, 1], [1, -1, -1], [-1, -1, -1]]],
+    [ax[2], [[1, -1, 1], [-1, -1, 1], [-1, 1, 1], [1, 1, 1]]], [V.mul(ax[2], -1), [[-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1]]]];
+  const vis = [];
+  faces.forEach(([n, q], idx) => {
+    const wq = q.map(v => corner(...v)), fc = V.mul(wq.reduce((a, b) => V.add(a, b)), 0.25);
+    if (V.dot(n, V.sub(CAM.pos, fc)) <= 0) return;
+    vis.push({n, q, wq, pq: wq.map(proj), top: idx === 2, cap: idx === 2 || idx === 3});
+  });
+  if (!vis.length || vis.some(f => f.pq.some(x => !x))) return null;
+  const L = o.light ? V.norm(V.sub(o.light, c)) : [0.3, 0.8, -0.5];
+  const fog = o.fog ?? Math.exp(-Math.max(0, pc[2] - 9) / 26);
+  const it = {kind: "box", z: pc[2], layer: o.layer || bucket(pc[2]), id: o.id, bbH: o.markH,
+              bb: [Math.min(...vis.flatMap(v => v.pq.map(p => p[0]))), Math.min(...vis.flatMap(v => v.pq.map(p => p[1]))),
+                   Math.max(...vis.flatMap(v => v.pq.map(p => p[0]))), Math.max(...vis.flatMap(v => v.pq.map(p => p[1])))]};
+  if (RASTER) it.draw = (ctx, g) => {
+    const A = (o.alpha ?? 1) * fog;
+    for (const f of vis) {
+      const shade = 0.35 + 0.65 * Math.max(0, V.dot(f.n, L));
+      const path = C => { C.beginPath(); f.pq.forEach((p, i) => i ? C.lineTo(p[0], p[1]) : C.moveTo(p[0], p[1])); C.closePath(); };
+      const base = RGB[o.fill || "void"] || o.fill;
+      ctx.fillStyle = `rgba(${base.map(v => Math.round(v * (o.glass ? 1 : shade))).join(",")},${(o.fillA ?? 1) * A * (o.glass ? 0.5 + 0.5 * shade : 1)})`;
+      path(ctx); ctx.fill();
+      if (o.band && !f.cap) {                    // a horizontal band of the side face: [y0, y1] of the height
+        const [b0, b1] = [o.band.y0, Math.min(1, o.band.y1)];
+        const yv = b => (b * 2 - 1);
+        const pts = [[-1, yv(b0)], [1, yv(b0)], [1, yv(b1)], [-1, yv(b1)]];
+        // the face's corner order runs (bottom, bottom, top, top); its first two differ in x or z
+        const q = f.q, sel = [q[0], q[1], q[2], q[3]];
+        const lo = [corner(sel[0][0], sel[0][1], sel[0][2]), corner(sel[1][0], sel[1][1], sel[1][2])];
+        const hi = [corner(sel[3][0], sel[3][1], sel[3][2]), corner(sel[2][0], sel[2][1], sel[2][2])];
+        const P4 = [V.lerp(lo[0], hi[0], b0), V.lerp(lo[1], hi[1], b0), V.lerp(lo[1], hi[1], b1), V.lerp(lo[0], hi[0], b1)].map(proj);
+        if (P4.every(Boolean)) for (const C of g && o.band.glow ? [ctx, g] : [ctx]) {
+          C.fillStyle = rgba(o.band.color || "ember", (o.band.alpha ?? 0.9) * A * (C === g ? o.band.glow : 1) * (0.7 + 0.3 * shade));
+          C.beginPath(); P4.forEach((p, i) => i ? C.lineTo(p[0], p[1]) : C.moveTo(p[0], p[1])); C.closePath(); C.fill(); }
+      }
+      if (o.strata && !f.cap) {
+        const n = Math.floor(h / o.strata.step); ctx.strokeStyle = rgba(o.strata.color || "ash", o.strata.alpha * A); ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        const q = f.q, lo = [corner(...q[0]), corner(...q[1])], hi = [corner(...q[3]), corner(...q[2])];
+        for (let i = 1; i <= n; i++) { const u = i * o.strata.step / h; if (u >= 0.999) break;
+          const a = proj(V.lerp(lo[0], hi[0], u)), b = proj(V.lerp(lo[1], hi[1], u)); if (a && b) { ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); } }
+        ctx.stroke();
+      }
+      if (f.top && o.topGlow) for (const C of g ? [ctx, g] : [ctx]) {
+        C.fillStyle = rgba("ember", o.topGlow * A * (C === g ? 0.8 : 0.55)); path(C); C.fill(); }
+      if (o.edge) { ctx.strokeStyle = rgba(o.edge, (o.edgeA ?? 0.8) * A); ctx.lineWidth = o.edgeW || 3; ctx.lineJoin = "round"; path(ctx); ctx.stroke(); }
+    }
+  };
+  return emit(it);
+}
+// A glow sprite at a world point (radius in metres) into the glow layer, and its floor pool in the far layers.
+function glow(w, r, color, a, pool = 0) {
+  const p = proj(w); if (!p) return;
+  const R = Math.max(2, CAM.f * r / p[2]);
+  emit({kind: "glow", z: p[2], layer: "G", draw: RASTER && ((ctx, g) => {
+    const gr = g.createRadialGradient(p[0], p[1], 0, p[0], p[1], R);
+    gr.addColorStop(0, rgba("core", a)); gr.addColorStop(0.25, rgba(color, a * 0.55)); gr.addColorStop(1, rgba(color, 0));
+    g.fillStyle = gr; g.fillRect(p[0] - R, p[1] - R, 2 * R, 2 * R); })});
+  if (pool) {                                      // the pool on the floor: an ellipse from the floor point and two radii
+    const f0 = [w[0], 0.001, w[2]], pr = proj(f0); if (!pr) return;
+    const pa = proj(V.add(f0, V.mul(CAM.right, pool * 2.2))), pb = proj(V.add(f0, V.mul(V.norm([CAM.fwd[0], 0, CAM.fwd[2]]), pool * 2.2)));
+    if (!pa || !pb) return;
+    const rx = Math.max(4, Math.hypot(pa[0] - pr[0], pa[1] - pr[1])), ry = Math.max(2, Math.abs(pb[1] - pr[1]) + 2);
+    emit({kind: "pool", z: pr[2] + 0.01, layer: "F1", draw: RASTER && (ctx => {
+      ctx.save(); ctx.translate(pr[0], pr[1]); ctx.scale(1, ry / rx);
+      const gr = ctx.createRadialGradient(0, 0, 0, 0, 0, rx); gr.addColorStop(0, rgba(color, a * 0.28)); gr.addColorStop(1, rgba(color, 0));
+      ctx.fillStyle = gr; ctx.fillRect(-rx, -rx, 2 * rx, 2 * rx); ctx.restore(); })});
+  }
+}
+// A polyline in a station's plane (px), drawn on to `prog` of its length.
+function pline(F, pts, o) {
+  const P2 = pts.map(([x, y]) => proj(at(F, x, y, o.dz || 0))); if (P2.some(p => !p)) return;
+  const z = P2.reduce((a, p) => a + p[2], 0) / P2.length, k = CAM.f * F.s / z;
+  emit({kind: "line", z, layer: o.layer || bucket(z), draw: RASTER && ((ctx, g) => {
+    let tot = 0; const seglen = []; for (let i = 1; i < P2.length; i++) { const l = Math.hypot(P2[i][0] - P2[i - 1][0], P2[i][1] - P2[i - 1][1]); seglen.push(l); tot += l; }
+    const want = tot * (o.prog ?? 1); if (want <= 0.5) return;
+    for (const C of o.glow && g ? [ctx, g] : [ctx]) {
+      C.strokeStyle = rgba(o.color || "steel", (o.alpha ?? 1) * (C === g ? o.glow : 1)); C.lineWidth = (o.w || 3) * k; C.lineCap = "round";
+      if (o.dash) C.setLineDash(o.dash.map(v => v * k)); else C.setLineDash([]);
+      C.beginPath(); C.moveTo(P2[0][0], P2[0][1]); let acc = 0;
+      for (let i = 1; i < P2.length; i++) { const l = seglen[i - 1];
+        if (acc + l >= want) { const u = (want - acc) / l; C.lineTo(lerp(P2[i - 1][0], P2[i][0], u), lerp(P2[i - 1][1], P2[i][1], u)); break; }
+        C.lineTo(P2[i][0], P2[i][1]); acc += l; }
+      C.stroke(); C.setLineDash([]);
+    }
+  })});
+}
+// A dot in a station's plane (px): a pulse head, a node.
+function dot(F, x, y, r, color, a, o = {}) {
+  const p = proj(at(F, x, y, o.dz || 0)); if (!p) return; const k = CAM.f * F.s / p[2];
+  emit({kind: "dot", z: p[2] - 0.01, layer: o.layer || bucket(p[2]), draw: RASTER && ((ctx, g) => {
+    for (const C of o.glow && g ? [ctx, g] : [ctx]) { C.fillStyle = rgba(color, a * (C === g ? o.glow : 1));
+      C.beginPath(); C.arc(p[0], p[1], r * k * (C === g ? 2.2 : 1), 0, 2 * Math.PI); C.fill(); } })});
+}
+// A slab in a station's plane: an extruded rectangle (px; depth in metres) seen with the camera's parallax.
+function slab(F, x, y, w, h, d, o) {
+  if (w <= 0.5) return null;
+  return box({...o, c: at(F, x + w / 2, y + h / 2, (o.dz || 0) + d / 2), size: [w * F.s, h * F.s, d], axes: [F.right, F.up, F.fwd], markH: h});
+}
+
+// ---- the world: floor, dust, the ember ---------------------------------------------------------------------------------
+const DUST = (() => { const r = rng(39), out = []; for (let i = 0; i < 1400; i++)
+  out.push([lerp(-14, 14, r()), lerp(0.15, 6.5, r()), lerp(-12, 175, r()), lerp(0.006, 0.02, r()), lerp(0.18, 0.55, r()), r() * 6.28]); return out; })();
+function world(t, light, tint) {
+  // sky: void, a faint lift at the horizon
+  const hz = proj(V.add(CAM.pos, V.add(V.mul([CAM.fwd[0], 0, CAM.fwd[2]], 400), [0, -CAM.pos[1], 0])));
+  emit({kind: "sky", z: 1e6, layer: "F3", draw: RASTER && (ctx => {
+    const y = hz ? hz[1] : H / 2, gr = ctx.createLinearGradient(0, y - 420, 0, y + 260);
+    gr.addColorStop(0, "rgba(7,8,10,0)"); gr.addColorStop(0.62, rgba(tint, 0.05)); gr.addColorStop(0.7, rgba(tint, 0.07)); gr.addColorStop(1, "rgba(7,8,10,0)");
+    ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H); })});
+  // the floor grid: 2 m cells around the camera's view, in 4 m pieces so depth of field and fog follow distance
+  const cx = Math.round((CAM.pos[0] + CAM.fwd[0] * 22) / 2) * 2, cz = Math.round((CAM.pos[2] + CAM.fwd[2] * 22) / 2) * 2;
+  const segs = {};
+  const add = (a, b) => { const pa = proj(a), pb = proj(b); if (!pa || !pb) return; const z = (pa[2] + pb[2]) / 2;
+    if (z > 70) return; const fog = Math.exp(-z / 19), ld = light ? Math.hypot((a[0] + b[0]) / 2 - light[0], (a[2] + b[2]) / 2 - light[2]) : 99;
+    const lit = Math.exp(-ld * ld / 30), lv = Math.min(3, Math.floor((0.12 * fog + 0.5 * lit * fog) * 14));
+    if (lv <= 0 && fog < 0.05) return; const key = bucket(z) + "|" + lv + "|" + (lit > 0.25 ? 1 : 0);
+    (segs[key] = segs[key] || {z, lines: []}).lines.push([pa, pb]); };
+  for (let x = cx - 36; x <= cx + 36; x += 2) for (let z = cz - 34; z < cz + 34; z += 4) add([x, 0, z], [x, 0, z + 4]);
+  for (let z = cz - 34; z <= cz + 34; z += 2) for (let x = cx - 36; x < cx + 36; x += 4) add([x, 0, z], [x + 4, 0, z]);
+  for (const [key, s] of Object.entries(segs)) { const [layer, lv, warm] = key.split("|");
+    emit({kind: "grid", z: s.z + 50, layer, draw: RASTER && (ctx => {
+      ctx.strokeStyle = warm === "1" ? rgba("ember", 0.05 + lv * 0.05) : rgba([62, 68, 78], 0.10 + lv * 0.09); ctx.lineWidth = 1.4;
+      ctx.beginPath(); for (const [a, b] of s.lines) { ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); } ctx.stroke(); })});
+  }
+  // dust: soft discs, their radius the larger of their size and their circle of confusion
+  const dl = {};
+  for (const m of DUST) { const w = [m[0] + 0.15 * Math.sin(t * 0.21 + m[5]), m[1] + 0.12 * Math.sin(t * 0.17 + m[5] * 2), m[2]];
+    const p = proj(w); if (!p || p[2] > 34 || p[0] < -60 || p[0] > W + 60 || p[1] < -60 || p[1] > H + 60) continue;
+    const r0 = Math.max(0.9, CAM.f * m[3] / p[2]), c = coc(p[2]), r = Math.max(r0, c * 0.9), a = m[4] * Math.min(1, (r0 / r) ** 1.3) * clamp(p[2] / 2);
+    const lb = p[2] < CAM.dist ? "N1" : "F1"; (dl[lb] = dl[lb] || []).push([p, r, a]); }
+  for (const [layer, ds] of Object.entries(dl)) emit({kind: "dust", z: layer === "N1" ? 0.4 : 40, layer, draw: RASTER && (ctx => {
+    for (const [p, r, a] of ds) { ctx.fillStyle = rgba(tint === "pale" ? [200, 210, 222] : [222, 190, 170], a * 0.55);
+      ctx.beginPath(); ctx.arc(p[0], p[1], r, 0, 6.2832); ctx.fill(); } })});
+}
+
+// ---- the stations -------------------------------------------------------------------------------------------------------
+let K_GB = 0;                                       // metres of monolith height per GB (equal footprints: height is volume)
+const POSE = {}, FR = {};
+function stations() {
+  K_GB = 3.2 / D.fig.size.mm;
+  POSE.title = [pose([0, 1.6, -0.25], [0, 1.6, 6]), pose([0, 1.6, 0.25], [0, 1.6, 6.5])];
+  POSE.bytes = [pose([-0.18, 1.35, 15.9], [-0.18, 1.5, 22]), pose([0.18, 1.33, 16.15], [0.12, 1.5, 22.2])];
+  POSE.m31 = [pose([-1.15, 1.55, 46], [-1.15, 1.6, 52]), pose([-0.9, 1.55, 46.2], [-0.95, 1.6, 52.2])];
+  POSE.thanks = [pose([-7.2, 1.7, 76], [-7.4, 1.72, 82]), pose([-7.0, 1.72, 76.25], [-7.25, 1.74, 82.2])];
+  POSE.apple = [pose([0, 1.6, 100], [0, 1.6, 106]), pose([0.2, 1.6, 100.2], [0.18, 1.6, 106.2])];
+  // the M4 lanes drift on through both races (the prompt's rest pose starts where the decode's ends)
+  POSE.m4dec = [pose([0, 1.6, 118], [0, 1.6, 124]), pose([0.32, 1.66, 118.3], [0.24, 1.62, 124.3])];
+  POSE.m4pp = [pose([0.32, 1.66, 118.3], [0.24, 1.62, 124.3]), pose([0.62, 1.72, 118.6], [0.46, 1.64, 124.6])];
+  // a truck left (on from the flight's way) and a dolly in, yaw held: the text's 8 % of each cancels at the left margin
+  POSE.ultras = [pose([-0.35, 3.55, 112.4], [0, 2.2, 118.45]), pose([-0.65, 3.45, 112.9], [-0.3, 2.18, 118.95])];
+  POSE.steps = [pose([0, 1.6, 140], [0, 1.6, 146]), pose([0.18, 1.6, 140.18], [0.16, 1.6, 146.18])];
+  POSE.end = [pose([0, 1.2, 152], [0, 2.6, 146]), pose([0, 1.35, 153.2], [0, 2.75, 147.2])];
+  for (const k in POSE) FR[k] = planeOf(POSE[k][0]);
+}
+const ORDER = ["title", "bytes", "m31", "thanks", "apple", "m4dec", "m4pp", "ultras", "steps", "end"];
+function firstLand(id) { return seg(id).groups[0].land; }
+function cameraAt(t) {
+  for (let i = 0; i < ORDER.length; i++) {
+    const id = ORDER[i], S = seg(id), a = i ? firstLand(id) : 0, b = S.out;
+    if (i && t < a) {                              // the flight in, from the previous station's out to this first landing
+      const pid = ORDER[i - 1], A = POSE[pid][1], Bp = POSE[id][0], t0 = seg(pid).out, u = FLY(win(t, t0, a));
+      const p = lerpPose(A, Bp, u), d = V.len(V.sub(Bp.pos, A.pos));
+      const lift = {bytes: 1.2, m31: 0.5, thanks: 0.8, apple: 1.0, steps: 0.6, end: 1.6}[id] || 0;
+      p.pos = V.add(p.pos, [0, lift * Math.sin(Math.PI * u), 0]);
+      p.ap = lerp(A.ap, Bp.ap, u) * (1 + 1.8 * Math.sin(Math.PI * u));          // a wider aperture mid-flight
+      p.dist = lerp(A.dist, Bp.dist, u) + d * 0.25 * Math.sin(Math.PI * u);
+      return p;
+    }
+    if (t < b || i === ORDER.length - 1) {
+      const u = smooth(win(t, a, b)); return lerpPose(POSE[id][0], POSE[id][1], u);
+    }
+  }
+}
+function keyLight(t) {                              // the ember (or, in the Apple half, a pale light) that leads the camera
+  const L = {title: [0.8, 2.6, 9.5], bytes: [0.4, 4.4, 26.5],
+    m31: [1.0, 3.2, 56], thanks: [-6.0, 3.2, 84], apple: [2.6, 3.8, 108], m4dec: [2.2, 3.4, 126], m4pp: [2.2, 3.4, 126],
+    ultras: [2.2, 4.0, 128], steps: [2.0, 3.4, 147], end: [0, 2.8, 143]};
+  let id = ORDER[0];
+  for (const k of ORDER) if (t >= seg(k).t0 - 0.0001) id = k;
+  const i = ORDER.indexOf(id);
+  if (i > 0 && t < firstLand(id)) { const p = ORDER[i - 1], u = FLY(win(t, seg(p).out, firstLand(id))); return V.lerp(L[p], L[id], u); }
+  return L[id];
+}
+// A station's text plane rides its camera's drift (all but 8 % of it, centred), so read text holds still on screen while
+// the world behind it (monoliths, floor, dust, lights) keeps its full parallax; before the first landing and after the
+// flight out it stays at its ends, so it flies with the world.
+function stationPose(id, t) {
+  const a = ORDER.indexOf(id) ? firstLand(id) : 0, u = smooth(win(t, a, seg(id).out));
+  return lerpPose(POSE[id][0], POSE[id][1], 0.04 + 0.92 * u);
+}
+const FA = (id, t) => planeOf(stationPose(id, t));
+const tintAt = t => (t >= B(seg("apple").b0 - 0.4) && t < B(seg("end").b0 - 0.4)) ? "pale" : "ember";
+const live = (id, t, pre = 2, post = 2) => t >= seg(id).t0 - pre * P && t <= seg(id).t1 + post * P;
+const G = (sid, g) => grp(sid + "." + g);
+
+
+// Every scene draws its station; NOW is the sub-frame's time, TF the frame's (counters read TF so digits do not smear).
+const ex = (t, d = 0.24, kind = "fade") => ({t, d, kind});
+const outOf = id => seg(id).out;
+function monolith(x, z, h, L, o = {}) {
+  return box({c: [x, h / 2, z], size: [1.8, h, 1.0], fill: [26, 29, 35], edge: "ember", edgeA: o.edgeA ?? 0.3, edgeW: 2,
+              strata: {step: 10 * K_GB, alpha: o.strataA ?? 0.14}, topGlow: o.topGlow ?? 0.12, light: L, id: o.id, band: o.band, alpha: o.alpha});
+}
+// An ember bar's flicker: three slow incommensurate sines, 0.77..1.23; heat() tints the bar toward the core at its peaks.
+const flick = (t, s) => 1 + 0.12 * Math.sin(5.2 * t + s) + 0.07 * Math.sin(10.7 * t + 2.3 * s) + 0.04 * Math.sin(19.3 * t + 4.1 * s);
+const heat = f => { const u = 0.2 * clamp((f - 1) / 0.23); return RGB.ember.map((v, i) => Math.round(lerp(v, RGB.core[i], u))); };
+// Pale embers rising slowly behind a station of the Apple half from a0 to b0 (atmosphere, not data): x spread around c,
+// 0.5..12.5 m past it, each on its own slow loop up from the floor (the THANKS sparks' language, paler and slower).
+function paleMotes(t, c, seed, a0, b0) {
+  const env = clamp((t - a0) / 0.6) * (1 - win(t, b0, b0 + 0.4)); if (env <= 0) return;
+  const r = rng(seed);
+  for (let i = 0; i < 60; i++) { const x = c[0] + (r() - 0.5) * 14, z = c[2] + 0.5 + r() * 12, sp = 0.1 + r() * 0.18, ph = r() * 9, rad = 0.024 + 0.03 * r();
+    const y = 0.15 + (t * sp + ph) % 4.6, a = 0.6 * Math.sin(Math.PI * (y - 0.15) / 4.6) * env;
+    if (a > 0.02) glow([x + 0.14 * Math.sin(t * 0.8 + ph), y, z], rad, "pale", a); }
+}
+function fitSize(key, face, weight, size, track, maxW) {
+  const w = measure(copy(key), face, weight, size, track); if (w <= maxW) return size;
+  const s2 = Math.floor(size * maxW / w); if (s2 < 44) die(`${key} does not fit ${maxW} px at the 44 px floor`); return s2;
+}
+
+const SCENES = {
+title(t) {
+  const F = FA("title", t), b1 = B(1), out = outOf("title");
+  const em = V.lerp([0, 1.0, 70], [0, 1.7, 9.0], expoOut(win(t, 0, b1)));
+  const flare = t >= b1 ? Math.exp(-(t - b1) / 0.45) : 0;
+  if (t < out + 2 * P) glow(em, 0.35 + 0.9 * flare, "ember", (0.5 + 0.5 * flare) * (1 - win(t, out, out + 2 * P)), 1.4);
+  if (t >= b1 && t < b1 + 1.2) {                  // the anamorphic streak on the drop
+    const a = 0.5 * Math.exp(-(t - b1) / 0.35), p = proj(em);
+    if (p) emit({kind: "streak", z: 1, layer: "G", draw: RASTER && ((c, g) => { const gr = g.createLinearGradient(0, 0, W, 0);
+      gr.addColorStop(0, rgba("ember", 0)); gr.addColorStop(0.5, rgba("core", a)); gr.addColorStop(1, rgba("ember", 0));
+      g.fillStyle = gr; g.fillRect(0, p[1] - 3, W, 6); })});
+  }
+  if (!live("title", t, 1, 1)) return;
+  const e = ex(out, 0.3), grp = "title.lockup", e3 = B(3);
+  text({key: "name", F, x: 540, y: 520, size: 210, weight: 620, track: -0.035, align: "center", glow: 0.3,
+        enter: {t: b1, d: 0.42, stg: 0.034, kind: "rise"}, exit: e, grp});
+  text({key: "version", F, x: 540, y: 640, face: "mono", size: 92, weight: 300, color: "ember", align: "center", glow: 0.4, molten: true,
+        enter: {t: B(1.5), d: 0.26, stg: 0.05, kind: "rise"}, exit: e, grp});
+  const rule = expoOut(win(t, e3, e3 + 0.4)), ra = 0.9 * (1 - win(t, out, out + 0.3));
+  pline(F, [[540 - 60 * rule, 752], [540 + 60 * rule, 752]], {color: "ember", w: 3, glow: 0.6, alpha: ra});
+  // the two halves, each a centred pair: the platform in mono, what it gets in ash
+  [["t_nv", "t_nv1", 836, 0], ["t_ap", "t_ap1", 906, 0.08]].forEach(([kl, kd, y, dt]) => {
+    const wl = measure(copy(kl), "mono", 500, CAP, 0.06), wd = measure(copy(kd), "sans", 400, CAP, 0), x0 = 540 - (wl + 26 + wd) / 2;
+    text({key: kl, F, x: x0, y, face: "mono", weight: 500, size: CAP, track: 0.06, enter: {t: e3 + dt, d: 0.24, kind: "wipe"}, exit: e, grp});
+    text({key: kd, F, x: x0 + wl + 26, y, size: CAP, weight: 400, color: "ash", enter: {t: e3 + dt + 0.06, d: 0.24, kind: "wipe"}, exit: e, grp});
+  });
+},
+bytes(t) {
+  const F = FA("bytes", t), g = G("bytes", "fit"), L = keyLight(t), out = outOf("bytes"), Z = D.fig.size;
+  // one move: both monoliths rise to their bytes at one footprint and count together; on the third beat the glass vessel
+  // of the cards' 72 GB (the A6000's 48 under the 3090's 24) rises in front of them; on "Neither model fits." the part of
+  // each monolith the vessel could hold glows
+  const vA = g.land + 3 * P, fA = g.land + 5 * P, gone = seg("m31").t0 + 3 * P;
+  const rise = expoOut(win(t, seg("bytes").t0 + 0.12, g.still)), bu = expoOut(win(t, fA, fA + P));
+  const band = hh => bu > 0 ? {y0: 0, y1: Z.cards * K_GB / hh * bu, color: "ember", alpha: 0.82, glow: 0.45} : null;
+  if (t < gone) {
+    monolith(-1.3, 24.5, Z.muse * K_GB * rise, L, {id: "mono:muse", band: band(Z.muse * K_GB)});
+    monolith(1.3, 24.5, Z.mm * K_GB * rise, L, {id: "mono:mm", band: band(Z.mm * K_GB)});
+    const u = expoOut(win(t, vA, vA + P));
+    if (u > 0) {
+      const hA = Z.a6000 * K_GB * u, hB = Z.r3090 * K_GB * u;
+      const mk = (c, sz, i) => box({c, size: sz, fill: "steel", fillA: 0.07 + 0.06 * i, glass: true, edge: "steel", edgeA: 0.9, edgeW: 3,
+                                   light: L, fog: 1, id: "vessel" + i});
+      mk([0, hA / 2, 23], [1.8, hA, 1.0], 1);
+      mk([0, hA + hB / 2, 23], [1.8, hB, 1.0], 0);
+    }
+  }
+  if (!live("bytes", t, 1, 1)) return;
+  const e = ex(out, 0.24, "up"), grp = "bytes.fit";
+  for (const [kv, kn, x] of [["b_muse_v", "b_muse", 72], ["b_mm_v", "b_mm", 560]]) {
+    hero({key: kv, F, x, y: 470, size: 150, count: [g.land, g.still], color: "ember", molten: true, glow: 0.35, unitSize: 64,
+          unitColor: "bone", enter: {t: g.land, d: 0.12, kind: "fade"}, exit: e, grp});
+    text({key: kn, F, x, y: 576, size: fitSize("b_mm", "sans", 600, 48, 0, 448), weight: 600, enter: {t: g.land + 0.1, d: 0.3, kind: "rise"}, exit: e, grp});
+  }
+  // the vessel's label, one centred line under it: the cards' bytes, then their names
+  const wv = measure(copy("v_cards_v"), "sans", 560, 64, 0), wc = measure(copy("v_cards"), "sans", 500, CAP, 0), xv = 540 - (wv + 24 + wc) / 2;
+  text({key: "v_cards_v", F, x: xv, y: 960, size: 64, weight: 560, enter: {t: vA, d: 0.3, kind: "rise"}, exit: e, grp});
+  text({key: "v_cards", F, x: xv + wv + 24, y: 960, size: CAP, weight: 500, color: "steel", enter: {t: vA + 0.12, d: 0.3, kind: "wipe"}, exit: e, grp});
+  text({key: "v_fit", F, x: 72, y: 200, size: 92, weight: 640, track: -0.02, enter: {t: fA, d: 0.36, kind: "rise"}, exit: e, grp});
+},
+m31(t) {
+  const F = FA("m31", t), gs = G("m31", "speed"), gj = G("m31", "jk"), L = keyLight(t), out = outOf("m31");
+  if (!live("m31", t, 2, 2)) return;
+  const rise = expoOut(win(t, seg("m31").t0 - P, gs.land));
+  monolith(1.4, 65, D.fig.size.mm * K_GB * rise, L, {id: "mono:m31", strataA: 0.16, edgeA: 0.22});
+  const e = ex(out, 0.26), grp = "m31.speed";
+  // the answer to "Neither model fits." rises where that line stood, on the flight's landing; the model and both of
+  // its numbers land on the next beat and count together
+  text({key: "m_run", F, x: 72, y: 200, size: 92, weight: 640, track: -0.02, enter: {t: gs.land, d: 0.36, kind: "rise"}, exit: e, grp});
+  const h2 = gs.land + P;
+  text({key: "m_head", F, x: 72, y: 296, size: 60, weight: 600, enter: {t: h2, d: 0.34, kind: "rise"}, exit: e, grp});
+  hero({key: "m_d", F, x: 72, y: 516, size: 250, count: [h2, h2 + P], color: "ember", molten: true, glow: 0.35, unit: "below", unitSize: 56,
+        enter: {t: h2, d: 0.12, kind: "fade"}, exit: e, grp});
+  text({key: "m_dl", F, x: 72 + measure("tok/s", "mono", 500, 56, 0) + 22, y: 614, size: 56, weight: 600, enter: {t: h2 + 0.1, d: 0.3, kind: "rise"}, exit: e, grp});
+  hero({key: "m_p", F, x: 530, y: 516, size: 250, count: [h2, h2 + P], color: "ember", molten: true, glow: 0.35, unit: "below", unitSize: 56,
+        enter: {t: h2, d: 0.12, kind: "fade"}, exit: e, grp});
+  text({key: "m_pl", F, x: 530 + measure("tok/s", "mono", 500, 56, 0) + 22, y: 614, size: 56, weight: 600, enter: {t: h2 + 0.1, d: 0.3, kind: "rise"}, exit: e, grp});
+  text({key: "m_muse", F, x: 72, y: 702, size: CAP, weight: 500, color: "bone", hl: ["16.7 tok/s", "ember"], enter: {t: h2 + 2 * P, d: 0.3, kind: "wipe"}, exit: e, grp});
+  text({key: "m_cond", F, x: 72, y: 764, size: CAP, weight: 400, color: "ash", enter: {t: gj.land, d: 0.3, kind: "wipe"}, exit: e, grp: "m31.jk"});
+  // the line that hands his name on: two beats before the station ends the name leaves the line (its "'s" goes first,
+  // so nothing of the name is left behind) and flies into the next station's headline
+  const hand = B(seg("m31").b1 - 2), land = firstLand("thanks");
+  text({key: "m_jk", F, x: 72, y: 870, size: 50, weight: 500, color: "bone", wrap: 760, hl: ["@juliankang4", "ember"], hlAlpha: t >= hand ? 0 : 1,
+        tailA: 1 - smooth(win(t, hand - 0.16, hand)), enter: {t: gj.land, d: 0.3, kind: "wipe"}, exit: e, grp: "m31.jk"});
+  // a world billboard: it lifts out of the line, then rides the camera's flight to the headline's place at the next station
+  if (t >= hand && t < land) {
+    const x0 = 72 + measure("card experts run ", "sans", 500, 50, 0), FT = FA("thanks", land), wT = measure("@juliankang4", "sans", 650, 120, -0.01);
+    const lift = expoOut(win(t, hand, hand + 0.5)), u = FLY(win(t, out, land));
+    const pw = V.lerp(at(F, x0, 870 - 26 * lift, -0.3 * lift), at(FT, 540 - wT / 2, 262), u), p = proj(pw);
+    if (p) { const em = lerp(50 * F.s, 120 * FT.s, u) * CAM.f / p[2];
+      text({key: "k_name", screen: true, x: p[0], y: p[1], size: em, weight: Math.round(lerp(500, 650, u)), track: -0.01 * u, color: "ember",
+            glow: 0.4 * lift, role: "deco", id: "handoff"}); }
+  }
+},
+thanks(t) {
+  const F = FA("thanks", t), gn = G("thanks", "name"), gp = G("thanks", "pre"), gf = G("thanks", "four"), gm = G("thanks", "more"), out = outOf("thanks");
+  if (!live("thanks", t, 2, 1)) return;
+  // sparks rise from the floor behind his name
+  const r = rng(668);
+  for (let i = 0; i < 110; i++) { const x = -12 + r() * 10, z = 83.5 + r() * 6, sp = 0.25 + r() * 0.5, ph = r() * 9;
+    const y = ((t * sp + ph) % 4.5), a = 0.85 * Math.sin(Math.PI * y / 4.5) * clamp((t - seg("thanks").t0 + 2 * P) / 0.6) * (1 - win(t, out, out + 0.5));
+    if (a > 0.02) glow([x + 0.12 * Math.sin(t * 1.3 + ph), y, z], 0.03 + 0.03 * ((i * 7) % 5) / 4, "ember", a); }
+  const e = ex(out, 0.26);
+  text({key: "k_name", F, x: 540, y: 262, size: 120, weight: 650, track: -0.01, align: "center", color: "ember", glow: 0.4, enter: {t: gn.land, d: 0.01, kind: "fade"}, exit: e, grp: "thanks.name"});
+  text({key: "k_sub", F, x: 540, y: 336, size: CAP, weight: 400, color: "ash", align: "center", enter: {t: gn.land + 0.12, d: 0.3, kind: "wipe"}, exit: e, grp: "thanks.name"});
+  const hx = {t: gm.land, d: 0.16, kind: "cut"};       // the swap is on the beat: the old pair goes as the new lines land
+  hero({key: "k1_v", F, x: 72, y: 632, size: 250, color: "ember", molten: true, glow: 0.4, unit: "none", enter: {t: gp.land, d: 0.22, kind: "slam"}, exit: hx, grp: "thanks.pre"});
+  text({key: "k1_l", F, x: 430, y: 540, size: 54, weight: 600, enter: {t: gp.land + 0.1, d: 0.3, kind: "rise"}, exit: hx, grp: "thanks.pre"});
+  text({key: "k1_c", F, x: 430, y: 604, face: "mono", size: CAP, weight: 400, color: "ash", wrap: 560, lh: 1.25, enter: {t: gp.land + 0.2, d: 0.3, kind: "wipe"}, exit: hx, grp: "thanks.pre"});
+  const fx = 72 + measure("28 → ", "mono", 300, 120, 0);
+  text({key: "k2_v", s: "28 →", F, x: 72, y: 870, face: "mono", size: 120, weight: 300, color: "ash", enter: {t: gf.land, d: 0.2, kind: "fade"}, exit: hx, grp: "thanks.four", id: "k2_v:from"});
+  const k2 = countShown("56", 28, 56, gf.land, gf.still);
+  text({key: "k2_v", s: k2, counter: true, F, x: fx, y: 870, face: "mono", size: 250, weight: 300, color: "ember", molten: true, glow: 0.4,
+        enter: {t: gf.land, d: 1 / FPS, kind: "fade"}, exit: hx, grp: "thanks.four", id: "k2_v:n"});
+  text({key: "k2_v", s: "tok/s", counter: false, F, x: fx + measure("56", "mono", 300, 250, 0) + 20, y: 870, face: "mono", size: 56, weight: 500, color: "ash",
+        enter: {t: gf.land + 0.1, d: 0.2, kind: "fade"}, exit: hx, grp: "thanks.four", id: "k2_v:u"});
+  text({key: "k2_l", F, x: 72, y: 974, size: 48, weight: 600, enter: {t: gf.land + 0.12, d: 0.3, kind: "rise"}, exit: hx, grp: "thanks.four"});
+  text({key: "k_w1", F, x: 72, y: 540, size: 56, weight: 500, enter: {t: gm.land, d: 0.34, kind: "rise"}, exit: e, grp: "thanks.more"});
+  text({key: "k_w2", F, x: 72, y: 618, size: 56, weight: 500, enter: {t: gm.land + 0.08, d: 0.34, kind: "rise"}, exit: e, grp: "thanks.more"});
+  text({key: "k_bg", F, x: 72, y: 800, size: 72, weight: 650, color: "ember", glow: 0.3, enter: {t: gm.land + 0.16, d: 0.34, kind: "rise"}, exit: e, grp: "thanks.more"});
+  text({key: "k_bg1", F, x: 72, y: 866, size: CAP, weight: 400, color: "ash", wrap: 936, enter: {t: gm.land + 0.24, d: 0.3, kind: "wipe"}, exit: e, grp: "thanks.more"});
+},
+apple(t) {
+  const F = FA("apple", t), gw = G("apple", "what"), gh = G("apple", "how"), L = keyLight(t), out = outOf("apple");
+  if (!live("apple", t, 1, 1.5)) return;
+  const hit = B(seg("apple").b0);
+  if (t >= hit && t < hit + 1.0) { const a = 0.42 * Math.exp(-(t - hit) / 0.3);
+    emit({kind: "streak", z: 1, layer: "G", draw: RASTER && ((c, g) => { const gr = g.createLinearGradient(0, 0, W, 0);
+      gr.addColorStop(0, rgba("pale", 0)); gr.addColorStop(0.5, rgba("pale", a)); gr.addColorStop(1, rgba("pale", 0)); g.fillStyle = gr; g.fillRect(0, 534, W, 6); })}); }
+  // the die: a slab with 20 GPU cores (the M4 Pro's), lit one by one
+  const yaw = -20 * deg, axes = [[Math.cos(yaw), 0, -Math.sin(yaw)], [0, 1, 0], [Math.sin(yaw), 0, Math.cos(yaw)]];
+  const c = [2.0, 1.7, 110.2], fade = 1 - win(t, out - 1 / FPS, out + 0.5);
+  box({c, size: [2.5, 2.5, 0.2], axes, fill: [17, 19, 23], edge: "steel", edgeA: 0.6 * fade, edgeW: 3, light: L, alpha: fade, id: "die"});
+  const front = V.sub(c, V.mul(axes[2], 0.101));
+  for (let i = 0; i < 20; i++) { const cx = i % 5, cy = Math.floor(i / 5), on = expoOut(win(t, hit + 0.15 + i * 0.045, hit + 0.45 + i * 0.045));
+    const u0 = -1.0 + cx * 0.42, v0 = 0.62 - cy * 0.42, q = [[u0, v0], [u0 + 0.34, v0], [u0 + 0.34, v0 - 0.34], [u0, v0 - 0.34]]
+      .map(([u, v]) => proj(V.add(front, V.add(V.mul(axes[0], u), V.mul(axes[1], v)))));
+    if (q.some(p => !p) || on <= 0) continue;
+    const z = q[0][2] - 0.02;
+    emit({kind: "core", z, layer: bucket(z), draw: RASTER && ((ctx, g) => { for (const C of [ctx, g]) {
+      C.fillStyle = rgba("ember", (C === g ? 0.35 : 0.55) * on * fade * (1 - 0.7 * win(t, out - 1 / FPS, out + 1 / FPS))); C.beginPath(); q.forEach((p, k) => k ? C.lineTo(p[0], p[1]) : C.moveTo(p[0], p[1])); C.closePath(); C.fill(); } })});
+  }
+  const e = ex(out, 0.26);
+  text({key: "a_head", F, x: 72, y: 300, size: fitSize("a_head", "sans", 650, 136, -0.02, 900), weight: 650, track: -0.02, enter: {t: hit, d: 0.4, stg: 0.03, kind: "rise"}, exit: e, grp: "apple.what"});
+  text({key: "a_srv", F, x: 72, y: 404, face: "mono", size: 54, weight: 500, color: "ember", glow: 0.3, enter: {t: hit + 0.18, d: 0.3, kind: "wipe"}, exit: e, grp: "apple.what"});
+  text({key: "a_own", F, x: 72, y: 474, size: 52, weight: 400, enter: {t: hit + 0.28, d: 0.3, kind: "wipe"}, exit: e, grp: "apple.what"});
+  text({key: "a_l1", F, x: 72, y: 806, size: 54, weight: 600, enter: {t: gh.land, d: 0.34, kind: "rise"}, exit: e, grp: "apple.how"});
+  text({key: "a_l2", F, x: 72, y: 872, size: CAP, weight: 400, color: "ash", enter: {t: gh.land + 0.1, d: 0.3, kind: "wipe"}, exit: e, grp: "apple.how"});
+  text({key: "a_l3", F, x: 72, y: 930, size: CAP, weight: 400, color: "ash", enter: {t: gh.land + 0.18, d: 0.3, kind: "wipe"}, exit: e, grp: "apple.how"});
+},
+m4(t) {                                           // the M4 Pro lanes: decode, then the same lanes morph to the prompt
+  const F = m4Frame(t), d1 = G("m4dec", "p1"), d2 = G("m4dec", "p2"), dl = G("m4dec", "lab"), q1 = G("m4pp", "p1"), q2 = G("m4pp", "p2"), ql = G("m4pp", "lab");
+  const outQ = outOf("m4pp"), swap = ql.land;
+  if (t < seg("m4dec").t0 - 2 * P || t > firstLand("ultras")) return;
+  paleMotes(t, [0.3, 0, 124.3], 404, firstLand("m4dec") - P, outQ);
+  // each pair on its own scale (ULTRAS's rule): its bloomery bar at MAX, its partner at their ratio. The pairs ran
+  // different weights, so a bar is never drawn on the other pair's scale
+  const fig = D.fig.m4, MAX = 560, Sd = fig.dec.map(p => MAX / p[0]), Sp = fig.pp.map(p => MAX / p[0]);
+  // the decode lanes hold until the prompt's tag lands and collapse on that beat, at full speed, one beat before the
+  // prompt's first race, so no lane stands bare for longer than a beat
+  const collapse = expoOut(win(t, swap, swap + 0.36));
+  const dim = 1 - win(t, outQ, firstLand("ultras"));
+  const lanes = [
+    {y: 366, name: "r_bl", id: "bl1", c: "ember", h: 44, vs: 104, pi: 0, dec: ["r_d1", fig.dec[0][0], d1], pp: ["q_1", fig.pp[0][0], q1]},
+    {y: 476, name: "r_mlx", id: "mlx", c: "steel", h: 32, vs: 72, pi: 0, dec: ["r_d2", fig.dec[0][1], d1], pp: ["q_2", fig.pp[0][1], q1]},
+    {y: 676, name: "r_bl", id: "bl2", c: "ember", h: 44, vs: 104, pi: 1, dec: ["r_d3", fig.dec[1][0], d2], pp: ["q_3", fig.pp[1][0], q2]},
+    {y: 786, name: "r_lcpp", id: "lcpp", c: "steel", h: 32, vs: 72, pi: 1, dec: ["r_d4", fig.dec[1][1], d2], pp: ["q_4", fig.pp[1][1], q2]}];
+  const eT = ex(outQ, 0.3);
+  // the first pair's label and lane names land with the tag (the beat after the Apple card), its bars race a beat later
+  text({key: "r_p1", F, x: 72, y: 300, size: 48, weight: 600, enter: {t: dl.land, d: 0.3, kind: "rise"}, exit: eT, grp: "m4dec.p1"});
+  text({key: "r_p2", F, x: 72, y: 610, size: 48, weight: 600, enter: {t: d2.land, d: 0.3, kind: "rise"}, exit: eT, grp: "m4dec.p2"});
+  lanes.forEach((Ln, li) => {
+    const g = Ln.dec[2], gq = Ln.pp[2], isPP = t >= gq.land, ember = Ln.c === "ember", fl = flick(t, 1.7 * li);
+    text({key: Ln.name, id: "lane:" + Ln.id, F, x: 72, y: Ln.y, size: CAP, weight: 500, color: ember ? "bone" : "ash",
+          enter: {t: g === d1 ? dl.land : g.land, d: 0.3, kind: "wipe"}, exit: eT, grp: "m4dec." + (g === d1 ? "p1" : "p2")});
+    let w, key;
+    if (!isPP) { w = Ln.dec[1] * Sd[Ln.pi] * quintOut(win(t, g.land, g.still)) * (1 - collapse); key = Ln.dec[0]; }
+    else { w = Ln.pp[1] * Sp[Ln.pi] * quintOut(win(t, gq.land, gq.still)); key = Ln.pp[0]; }
+    slab(F, 72, Ln.y + 16, w, Ln.h, ember ? 0.3 : 0.2, {fill: Ln.c, fillA: ember ? 0.95 : 0.32, glass: !ember, edge: ember ? "core" : "steel",
+      edgeA: ember ? 0.4 : 0.9, edgeW: ember ? 2 : 3, topGlow: ember ? 0.5 * fl : 0, alpha: dim * (isPP ? 1 : 1 - collapse), fog: 1, id: "bar:" + Ln.id,
+      band: ember ? {y0: 0, y1: 1, color: heat(fl), alpha: 0.9, glow: 0.5 * dim * fl} : null});
+    // the value rides the bar's end once the bar is past its lane's name, so the two never cross; the decode values cut
+    // with the collapse, at full speed on its beat
+    const vx = 72 + Math.max(w, measure(copy(Ln.name), "sans", 500, CAP, 0) + 12) + 24, vy = Ln.y + 16 + Ln.h;
+    if (!isPP && t >= g.land && collapse < 1) hero({key, F, x: vx, y: vy, size: Ln.vs, count: [g.land, g.still], color: Ln.c, molten: ember, glow: ember ? 0.3 : 0,
+      unit: "none", enter: {t: g.land, d: 0.1, kind: "fade"}, exit: {t: swap, d: 0.12, kind: "cut"}, grp: "m4dec." + (g === d1 ? "p1" : "p2")});
+    if (isPP) hero({key, F, x: vx, y: vy, size: Ln.vs, count: [gq.land, gq.still], color: Ln.c, molten: ember, glow: ember ? 0.3 : 0,
+      unit: "none", enter: {t: gq.land, d: 0.1, kind: "fade"}, exit: eT, grp: "m4pp." + (gq === q1 ? "p1" : "p2")});
+  });
+  // the unit sits once, right of the first lane's name
+  text({key: "r_unit", F, x: 1008, y: 300, face: "mono", size: CAP, weight: 400, color: "ash", align: "right", enter: {t: dl.land, d: 0.3, kind: "fade"}, exit: eT, grp: "m4dec.lab"});
+  // the decode tag and conditions cut out on the swap's beat; the prompt's wipe in once they are gone (one shared line)
+  const sw = {t: swap, d: 0.12, kind: "cut"}, qin = ql.land + 0.06;
+  text({key: "r_tag", F, x: 72, y: 172, face: "mono", size: CAP, weight: 500, color: "ash", track: 0.1, enter: {t: dl.land, d: 0.3, kind: "wipe"}, exit: sw, grp: "m4dec.lab"});
+  text({key: "r_cond", F, x: 72, y: 920, size: CAP, weight: 400, color: "ash", wrap: 936, lh: 1.22, enter: {t: dl.land + 0.12, d: 0.3, kind: "wipe"}, exit: sw, grp: "m4dec.lab"});
+  text({key: "q_tag", F, x: 72, y: 172, face: "mono", size: CAP, weight: 500, color: "ash", track: 0.1, enter: {t: qin, d: 0.3, kind: "wipe"}, exit: eT, grp: "m4pp.lab"});
+  text({key: "q_cond", F, x: 72, y: 920, size: CAP, weight: 400, color: "ash", wrap: 936, lh: 1.22, enter: {t: qin + 0.06, d: 0.3, kind: "wipe"}, exit: eT, grp: "m4pp.lab"});
+},
+ultras(t) {
+  const F = FA("ultras", t), gl1 = G("ultras", "line"), gc = G("ultras", "cap"), out = outOf("ultras");
+  if (!live("ultras", t, 2, 1.5)) return;
+  paleMotes(t, [-0.4, 0, 118.5], 593, firstLand("ultras") - P, out);
+  // the M5 Ultra's prompt at 4,096 ids on one file (Q4_K_M), on its own scale: bloomery's bar grows to #777's SIMD-group
+  // head (the dashed tick), then on the next beat springs to 0.3.9's neural-accelerator GEMMs. mlx-lm ran other weights,
+  // so it is words only (no bar on this scale). Both leave at full speed on the flight's beat.
+  const [v0, v1] = D.fig.ultra.m5, L1 = 720, fade = 1 - expoOut(win(t, out, out + 0.4)), a1 = gl1.land + P, fl = flick(t, 3.1);
+  const w0 = v0 / v1 * L1, wb = w0 * expoOut(win(t, gl1.land, gl1.land + 0.3));
+  const wa = t < a1 ? wb : w0 + (L1 - w0) * spring(win(t, a1, a1 + 0.6));
+  slab(F, 72, 556, wa, 40, 0.32, {fill: "ember", fillA: 0.95, edge: "core", edgeA: 0.5, edgeW: 2, alpha: fade, topGlow: 0.6 * fl, id: "ul:b", fog: 1,
+       band: {y0: 0, y1: 1, color: heat(fl), alpha: 0.9, glow: 0.55 * fl}});
+  pline(F, [[72 + w0, 542], [72 + w0, 610]], {color: "steel", w: 3, alpha: 0.7 * win(t, a1, a1 + 0.3) * fade, dash: [8, 8]});
+  const e = ex(out, 0.26);
+  text({key: "u_line", F, x: 72, y: 200, size: 64, weight: 620, track: -0.01, wrap: 936, lh: 1.14, hl: ["@avlp12", "ember"], enter: {t: gl1.land, d: 0.36, stg: 0.016, kind: "rise"}, exit: e, grp: "ultras.line"});
+  text({key: "u_m5", F, x: 72, y: 384, size: CAP, weight: 500, color: "bone", wrap: 936, lh: 1.25, enter: {t: a1, d: 0.3, kind: "wipe"}, exit: e, grp: "ultras.line"});
+  text({key: "u_q", F, x: 72, y: 534, face: "mono", size: CAP, weight: 500, color: "ash", track: 0.06, enter: {t: gl1.land, d: 0.3, kind: "wipe"}, exit: e, grp: "ultras.line"});
+  text({key: "u_na", F, x: 72, y: 660, size: CAP, weight: 400, color: "ash", enter: {t: a1 + 0.2, d: 0.3, kind: "wipe"}, exit: e, grp: "ultras.line"});
+  text({key: "u_mlx", F, x: 72, y: 800, size: CAP, weight: 400, color: "ash", wrap: 820, lh: 1.25, enter: {t: gc.land, d: 0.3, kind: "wipe"}, exit: e, grp: "ultras.cap"});
+},
+steps(t) {
+  const F = FA("steps", t), out = outOf("steps"), gs = ["s1", "s2", "s3", "s4"].map(k => G("steps", k));
+  if (!live("steps", t, 2, 1)) return;
+  // behind, a prompt's rows (out of focus): one block, then tiles, then the gaps between calls close, then dashed outlines
+  const st = gs.map(g => expoOut(win(t, g.land, g.still + 0.3)));
+  const fade = clamp((t - seg("steps").t0 + P) / 0.5) * (1 - win(t, out, out + 0.4));
+  // three prompt calls of four expert tiles each, 9 m behind the text: a block, then tiles, then the gaps close, then dashed
+  const TW = 150, tg = lerp(0, 40, st[1]), bg = lerp(190, 50, st[2]), tot = 3 * (4 * TW + 3 * tg) + 2 * bg, slide = 1400 * (1 - st[0]);
+  for (let blk = 0; blk < 3; blk++) for (let tile = 0; tile < 4; tile++) {
+    const x = 540 - tot / 2 + blk * (4 * TW + 3 * tg + bg) + tile * (TW + tg) + slide;
+    slab(FR.steps, x, 220, TW - 4, 640, 0.25, {dz: 9, fill: "steel", fillA: 0.1 + 0.1 * st[1], glass: true, edge: "steel", edgeA: 0.8 * fade, edgeW: 3, alpha: fade, fog: 1});
+    if (st[3] > 0) pline(FR.steps, [[x - 14, 206], [x + TW + 10, 206], [x + TW + 10, 874], [x - 14, 874], [x - 14, 206]],
+      {dz: 9, color: "ember", w: 4, dash: [18, 14], alpha: 0.85 * st[3] * fade, glow: 0.4});
+  }
+  const e = ex(out, 0.24), ys = [318, 468, 618, 768];
+  text({key: "p_tag", F, x: 72, y: 172, face: "mono", size: CAP, weight: 500, color: "ash", track: 0.1, enter: {t: gs[0].land, d: 0.3, kind: "wipe"}, exit: e, grp: "steps.s1"});
+  const lineTo = ys.reduce((a, y, i) => t >= gs[i].land ? lerp(a, y - 16, expoOut(win(t, gs[i].land, gs[i].land + 0.4))) : a, 250);
+  pline(F, [[96, 250], [96, lineTo]], {color: "ember", w: 3, alpha: 0.85 * (1 - win(t, out, out + 0.3)), glow: 0.5});
+  ["p_1", "p_2", "p_3", "p_4"].forEach((k, i) => {
+    const g = gs[i]; if (t < g.land) return;
+    dot(F, 96, ys[i] - 16, 12, "ember", 1 - win(t, out, out + 0.3), {glow: 0.7});
+    text({key: k, F, x: 140, y: ys[i], size: fitSize(k, "sans", 600, 54, 0, 860), weight: 600, enter: {t: g.land, d: 0.34, kind: "rise"}, exit: e, grp: "steps." + ["s1", "s2", "s3", "s4"][i]});
+  });
+  text({key: "p_4s", F, x: 140, y: 832, size: CAP, weight: 400, color: "ash", enter: {t: gs[3].land + 0.14, d: 0.3, kind: "wipe"}, exit: e, grp: "steps.s4"});
+},
+end(t) {
+  const F = FA("end", t), g = G("end", "lockup");
+  if (t < seg("end").t0 - P) return;
+  // every station's light, far down the path behind the lockup
+  const on = clamp((t - seg("end").t0 + P) / (3 * P));
+  ORDER.slice(0, -1).forEach((id, i) => { const Lp = keyLightOf(id), d = 152 - Lp[2], u = clamp(on * 1.6 - i * 0.05);
+    if (u > 0) glow([Lp[0], 0.35, Lp[2]], 0.2 + 0.014 * d, ["apple", "m4dec", "m4pp", "ultras", "steps"].includes(id) ? "pale" : "ember", 0.75 * u, 0.9); });
+  const grp = "end.lockup", land = g.land;
+  text({key: "name", F, x: 540, y: 440, size: 200, weight: 620, track: -0.035, align: "center", glow: 0.3, enter: {t: land, d: 0.4, stg: 0.03, kind: "rise"}, grp, id: "end:name"});
+  text({key: "version", F, x: 540, y: 560, face: "mono", size: 92, weight: 300, color: "ember", align: "center", glow: 0.4, molten: true, enter: {t: land + 0.1, d: 0.26, stg: 0.05, kind: "rise"}, grp, id: "end:version"});
+  text({key: "url", F, x: 540, y: 680, face: "mono", size: CAP, weight: 400, align: "center", enter: {t: land + 0.16, d: 0.26, kind: "wipe"}, grp});
+},
+};
+function m4Frame(t) {                            // the lanes' plane: the decode station's, blended into the prompt station's
+  const a = outOf("m4dec"), b = firstLand("m4pp");
+  if (t <= a) return FA("m4dec", t); if (t >= b) return FA("m4pp", t);
+  return planeOf(lerpPose(stationPose("m4dec", t), stationPose("m4pp", t), FLY(win(t, a, b))));
+}
+function keyLightOf(id) { const s = seg(id); return keyLight(s.out - 0.01); }
+function hud(t) {                                // the chapter mark, screen space
+  const marks = [["h_nv", G("bytes", "fit").land, outOf("m31"), "bytes.fit"], ["h_k", firstLand("thanks"), outOf("thanks"), "thanks.name"],
+                 ["h_ap", B(seg("apple").b0), outOf("steps"), "apple.what"]];
+  for (const [key, a, b, grp] of marks) { if (t < a || t > b + 0.3) continue;
+    const al = expoOut(win(t, a, a + 0.3)) * (1 - win(t, b, b + 0.3));
+    emit({kind: "mark", z: 0.5, layer: "HUD", draw: RASTER && (ctx => { ctx.fillStyle = rgba("ember", al); ctx.fillRect(72, 84, 24, 24); })});
+    text({key, screen: true, x: 112, y: 108, face: "mono", size: CAP, weight: 500, color: "ash", track: 0.14, alpha: al, grp, id: "hud:" + key,
+          enter: {t: a, d: 0.3, kind: "wipe"}});
+  }
+}
+function flightness(t) {                         // 0 at a station, rising to 1 mid-flight
+  for (let i = 1; i < ORDER.length; i++) { const a = seg(ORDER[i - 1]).out, b = firstLand(ORDER[i]);
+    if (t > a - 0.25 && t < b + 0.25) return Math.sin(Math.PI * clamp((t - a + 0.25) / (b - a + 0.5))); }
+  return 0;
+}
+// The flights that carry nothing of their own (title -> bytes, thanks -> apple, steps -> end): embers, in the light of the
+// station the flight leaves, hang along the camera's path and drift up, so the move reads as speed through the room.
+const SPARK_FLIGHTS = [["title", "bytes"], ["thanks", "apple"], ["steps", "end"]];
+function flightSparks(t) {
+  for (const [p, n] of SPARK_FLIGHTS) {
+    const a = seg(p).out, b = firstLand(n);
+    if (t < a || t > b + 0.6) continue;
+    const env = Math.sin(Math.PI * clamp((t - a) / (b - a + 0.6))), A = POSE[p][1].pos, Bp = POSE[n][0].pos, col = tintAt(a), r = rng(17 + ORDER.indexOf(n));
+    for (let i = 0; i < 110; i++) {            // from a fifth of the way along to half a flight past its end, so most lie ahead
+      const c = V.lerp(A, Bp, 0.2 + 1.3 * r()), side = (r() < 0.5 ? -1 : 1) * (0.4 + r() * 1.8), h = 0.2 + r() * 2.4, ph = r() * 5, sp = 0.15 + r() * 0.3;
+      glow([c[0] + side, h + (t * sp + ph) % 1.0, c[2] + (r() - 0.5) * 2], 0.025 + 0.035 * r(), col, 0.85 * env);
+    }
+  }
+}
+function drawAt(t, tf) {
+  NOW = t; TF = tf; DL = [];
+  setCam(cameraAt(t));
+  const Lk = keyLight(t), fl = flightness(t);
+  world(t, Lk, tintAt(t));
+  if (fl > 0.01) glow(Lk, 0.16, tintAt(t), fl, 1.6 * fl);
+  for (const k in SCENES) SCENES[k](t);
+  flightSparks(t);
+  hud(t);
+  return DL;
+}
+
+// ---- the GPU compositor ---------------------------------------------------------------------------------------------------
+let gl, PR = {}, FB = {}, LT = {}, LC = {}, LX = {}, QUAD;
+function glInit() {
+  const cv = document.getElementById("gl");
+  gl = cv.getContext("webgl2", {preserveDrawingBuffer: true, antialias: false, alpha: false, depth: false, stencil: false, premultipliedAlpha: false});
+  if (!gl) die("no WebGL2 context");
+  if (!gl.getExtension("EXT_color_buffer_float")) die("no EXT_color_buffer_float: the accumulation needs float targets");
+  gl.getExtension("OES_texture_float_linear");
+  const VS = `#version 300 es
+in vec2 p; out vec2 uv; void main(){ uv = p * 0.5 + 0.5; gl_Position = vec4(p, 0., 1.); }`;
+  const FS = {
+    copy: `#version 300 es
+precision highp float; in vec2 uv; out vec4 o; uniform sampler2D t; uniform float g; void main(){ o = texture(t, uv) * g; }`,
+    blur: `#version 300 es
+precision highp float; in vec2 uv; out vec4 o; uniform sampler2D t; uniform vec2 d; uniform float s;
+void main(){ vec4 a = vec4(0.); float w = 0.; float r = ceil(s * 2.6);
+  for (int k = -32; k <= 32; k++) { float i = float(k); if (abs(i) > r) continue; float q = exp(-0.5 * i * i / (s * s)); a += texture(t, uv + d * i) * q; w += q; }
+  o = a / w; }`,
+    post: `#version 300 es
+precision highp float; in vec2 uv; out vec4 o; uniform sampler2D t; uniform float seed; uniform float fade;
+float h(vec2 p){ vec3 q = fract(vec3(p.xyx) * 0.1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
+void main(){ vec2 c = uv - 0.5; float r = length(c) * 1.4142; vec2 ca = c * 0.0011;
+  vec3 col = vec3(texture(t, uv + ca).r, texture(t, uv).g, texture(t, uv - ca).b);
+  col *= mix(1.0, 0.78, smoothstep(0.35, 1.0, r));
+  vec2 px = floor(uv * 1080.);
+  float n = h(px + seed * 61.7) + h(px * 1.37 + seed * 13.1) - 1.0;
+  col = (col + n * 0.022) * fade;
+  o = vec4(clamp(col, 0., 1.), 1.); }`};
+  const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) die("shader: " + gl.getShaderInfoLog(s)); return s; };
+  for (const [k, src] of Object.entries(FS)) { const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, src));
+    gl.bindAttribLocation(p, 0, "p"); gl.linkProgram(p); if (!gl.getProgramParameter(p, gl.LINK_STATUS)) die("link: " + gl.getProgramInfoLog(p)); PR[k] = p; }
+  QUAD = gl.createVertexArray(); gl.bindVertexArray(QUAD); const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  const tex = (w, h, f16) => { const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texImage2D(gl.TEXTURE_2D, 0, f16 ? gl.RGBA16F : gl.RGBA8, w, h, 0, gl.RGBA, f16 ? gl.HALF_FLOAT : gl.UNSIGNED_BYTE, null);
+    for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+    return t; };
+  const fbo = (w, h) => { const t = tex(w, h, true), f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) die("framebuffer incomplete"); return {f, t, w, h}; };
+  for (const [k, s] of [["scene", 1], ["acc", 1], ["a", 1], ["b", 1], ["ha", 2], ["hb", 2], ["qa", 4], ["qb", 4]]) FB[k] = fbo(W / s, H / s);
+  for (const L of LAYERS) { LT[L] = tex(W, H, false); const c = document.createElement("canvas"); c.width = W; c.height = H; LC[L] = c; LX[L] = c.getContext("2d"); }
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+}
+function pass(prog, src, dst, mode, uni) {
+  gl.bindFramebuffer(gl.FRAMEBUFFER, dst ? dst.f : null); gl.viewport(0, 0, dst ? dst.w : W, dst ? dst.h : H);
+  if (mode === "over") { gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); }
+  else if (mode === "add") { gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE); } else gl.disable(gl.BLEND);
+  gl.useProgram(PR[prog]); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, src); gl.uniform1i(gl.getUniformLocation(PR[prog], "t"), 0);
+  for (const [k, v] of Object.entries(uni || {})) { const l = gl.getUniformLocation(PR[prog], k); if (Array.isArray(v)) gl.uniform2f(l, v[0], v[1]); else gl.uniform1f(l, v); }
+  gl.bindVertexArray(QUAD); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+function blur(src, sigma) {                      // a gaussian at full, half or quarter size; returns the blurred texture
+  if (sigma <= 2.4) { pass("blur", src, FB.a, "copy", {d: [1 / W, 0], s: sigma}); pass("blur", FB.a.t, FB.b, "copy", {d: [0, 1 / H], s: sigma}); return FB.b.t; }
+  if (sigma <= 7) { pass("copy", src, FB.ha, "copy", {g: 1}); const s = sigma / 2;
+    pass("blur", FB.ha.t, FB.hb, "copy", {d: [2 / W, 0], s}); pass("blur", FB.hb.t, FB.ha, "copy", {d: [0, 2 / H], s}); return FB.ha.t; }
+  pass("copy", src, FB.ha, "copy", {g: 1}); pass("copy", FB.ha.t, FB.qa, "copy", {g: 1}); const s = sigma / 4;
+  pass("blur", FB.qa.t, FB.qb, "copy", {d: [4 / W, 0], s}); pass("blur", FB.qb.t, FB.qa, "copy", {d: [0, 4 / H], s}); return FB.qa.t;
+}
+function rasterize(items) {
+  for (const L of LAYERS) { LX[L].setTransform(1, 0, 0, 1, 0, 0); LX[L].clearRect(0, 0, W, H); }
+  const used = new Set(["G"]);
+  items.slice().sort((a, b) => b.z - a.z).forEach(it => { if (!it.draw) return; used.add(it.layer); it.draw(LX[it.layer], LX.G); });
+  return used;
+}
+function composeSub(used, weight) {
+  gl.bindFramebuffer(gl.FRAMEBUFFER, FB.scene.f); gl.viewport(0, 0, W, H); gl.clearColor(7 / 255, 8 / 255, 10 / 255, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+  for (const L of ["F3", "F2", "F1", "S", "N1", "N2", "G", "HUD"]) {
+    if (!used.has(L)) continue;
+    gl.bindTexture(gl.TEXTURE_2D, LT[L]); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, LC[L]);
+    if (L === "G") { pass("copy", blur(LT.G, 3.2), FB.scene, "add", {g: 0.85}); pass("copy", blur(LT.G, 16), FB.scene, "add", {g: 0.8}); continue; }
+    pass("copy", SIGMA[L] ? blur(LT[L], SIGMA[L]) : LT[L], FB.scene, "over", {g: 1});
+  }
+  pass("copy", FB.scene.t, FB.acc, "add", {g: weight});
+}
+function post(i, t) {
+  const fade = 1 - smooth(win(t, D.timeline.T - D.timeline.fade_out_s, D.timeline.T));
+  pass("post", FB.acc.t, null, "copy", {seed: Math.floor(i / 2) % 4096, fade});
+}
+
+// ---- motion blur: the sub-frame count from how far anything moves over the shutter ---------------------------------------
+const SHUTTER = 0.5 / FPS;
+function positions(t, tf) { RASTER = false; const out = new Map(); const cam = cameraAt(t);
+  for (const it of drawAt(t, tf)) if (it.id && it.bb) out.set(it.id, [(it.bb[0] + it.bb[2]) / 2, (it.bb[1] + it.bb[3]) / 2, it.bb[2] - it.bb[0], it.bb[3] - it.bb[1]]);
+  RASTER = true; return [out, cam]; }
+function samplesAt(tc) {
+  const [a, ca] = positions(Math.max(0, tc - SHUTTER / 2), tc), [b, cb] = positions(Math.min(D.timeline.T, tc + SHUTTER / 2), tc);
+  let m = 0;
+  for (const [k, p] of a) { const q = b.get(k); if (!q) continue; m = Math.max(m, Math.hypot(p[0] - q[0], p[1] - q[1]) + Math.abs(p[2] - q[2]) / 2 + Math.abs(p[3] - q[3]) / 2); }
+  // the camera on its own: three probe points ahead of the frame's camera
+  setCam(ca); const pts = [[0, 0, 4], [1.5, -1, 8], [-2, 1, 20]].map(([x, y, z]) => V.add(CAM.pos, V.add(V.mul(CAM.right, x), V.add(V.mul(CAM.up, y), V.mul(CAM.fwd, z)))));
+  const pa = pts.map(proj); setCam(cb); const pb = pts.map(proj);
+  pa.forEach((p, i) => { if (p && pb[i]) m = Math.max(m, Math.hypot(p[0] - pb[i][0], p[1] - pb[i][1])); });
+  return Math.max(1, Math.min(16, Math.ceil(m / 2.2)));
+}
+function renderFrameAt(tc, i, K) {
+  K = K || samplesAt(tc);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, FB.acc.f); gl.viewport(0, 0, W, H); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+  for (let j = 0; j < K; j++) { const t = clamp(tc + ((j + 0.5) / K - 0.5) * SHUTTER, 0, D.timeline.T - 1e-4);
+    composeSub(rasterize(drawAt(t, tc)), 1 / K); }
+  post(i, tc);
+  return K;
+}
+
+// ---- the checks ------------------------------------------------------------------------------------------------------------
+// Settled read text: at least 44 px, inside the margins, not over another settled read box; while its group is read it
+// moves under 20 px/s and changes scale under 3 %/s.
+function checkAll(f0, f1) {
+  const errs = new Map(), note = (k, m) => { if (!errs.has(k)) errs.set(k, m); };
+  let prev = new Map(); RASTER = false;
+  for (let f = f0; f < f1; f++) {
+    const t = Math.min(D.timeline.T - 1e-4, f / FPS), items = drawAt(t, t), now = new Map(), read = [];
+    for (const it of items) {
+      if (it.kind !== "text" || it.role === "deco") continue;
+      const g = it.grp ? GRP[it.grp] : null;
+      if (it.role === "read" && !g) note("nogrp:" + it.id, `${it.id} has no group`);
+      const settled = it.role === "live" || (g && t >= g.still - 1e-6);
+      if (!settled || it.exiting || it.alpha < 0.6) continue;
+      const [x0, y0, x1, y1] = it.bb, tol = it.px >= 150 ? 12 : 4;
+      if (it.px < 44 - 0.25) note("floor:" + it.id, `${it.id} at ${t.toFixed(3)} s is ${it.px.toFixed(1)} px, under 44`);
+      if (x0 < MARGIN - tol || x1 > W - MARGIN + tol || y0 < MARGIN - tol || y1 > H - MARGIN + tol)
+        note("edge:" + it.id, `${it.id} at ${t.toFixed(3)} s is past the margin: [${it.bb.map(v => v.toFixed(0)).join(", ")}]`);
+      read.push(it);
+      if (g && it.role === "read" && t <= g.read_to) {
+        now.set(it.id, it.bb); const q = prev.get(it.id);
+        if (q) { const v = Math.hypot((x0 + x1 - q[0] - q[2]) / 2, (y0 + y1 - q[1] - q[3]) / 2) * FPS, sc = Math.abs((x1 - x0) / (q[2] - q[0] || 1) - 1) * FPS;
+          if (v > 20) note("hold:" + it.id, `${it.id} moves ${v.toFixed(1)} px/s at ${t.toFixed(3)} s while read`);
+          if (sc > 0.03) note("scale:" + it.id, `${it.id} scales ${(sc * 100).toFixed(1)} %/s at ${t.toFixed(3)} s while read`); }
+      }
+    }
+    for (let i = 0; i < read.length; i++) for (let j = i + 1; j < read.length; j++) { const a = read[i].bb, b = read[j].bb;
+      if (read[i].id === read[j].id) continue;
+      if (a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3]) note("over:" + read[i].id + "|" + read[j].id, `${read[i].id} and ${read[j].id} overlap at ${t.toFixed(3)} s`); }
+    prev = now;
+  }
+  RASTER = true;
+  return {errors: [...errs.values()], log: [...window.LOG]};
+}
+
+// ---- boot ------------------------------------------------------------------------------------------------------------------
+(async () => {
+  try {
+    const url = new URLSearchParams(location.search).get("data") || "data.json";
+    D = await (await fetch(url, {cache: "no-store"})).json();
+    if (D.film !== window.FILM) die(`data.json is for ${D.film}`);
+    P = D.timeline.period; LEAD = D.timeline.lead;
+    for (const S of D.timeline.segments) { SEG[S.id] = S; for (const g of S.groups) GRP[S.id + "." + g.name] = g; }
+    for (const id of ORDER) seg(id);
+    for (const [fam, file] of [["Geist", "fonts/Geist-Variable.ttf"], ["GeistMono", "fonts/GeistMono-Variable.ttf"]]) {
+      const ff = new FontFace(fam, `url(${file})`, {weight: "100 900"}); await ff.load(); document.fonts.add(ff); }
+    await document.fonts.ready;
+    if (!document.fonts.check("300 40px GeistMono") || !document.fonts.check("600 40px Geist")) die("the fonts did not load");
+    stations(); glInit();
+    window.T = D.timeline.T;
+    window.seek = t => { renderFrameAt(clamp(t, 0, D.timeline.T - 1e-4), Math.round(t * FPS)); };
+    window.frame = (i, K) => { const k = renderFrameAt(Math.min(i / FPS, D.timeline.T - 1e-4), i, K); return [k, document.getElementById("gl").toDataURL("image/jpeg", 0.95)]; };
+    window.samples = i => samplesAt(Math.min(i / FPS, D.timeline.T - 1e-4));
+    window.checkAll = checkAll;
+    window.ready = true;
+  } catch (e) { window.fault = window.fault || String(e); console.error("FAULT: " + window.fault); window.ready = true; }
+})();
+</script>
+</body></html>

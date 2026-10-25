@@ -1,0 +1,7 @@
+fonttools==4.67.0
+greenlet==3.5.6
+numpy==2.5.4
+pillow==13.0.0
+playwright==1.63.0
+pyee==13.0.1
+typing_extensions==4.16.0
