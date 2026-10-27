@@ -2,6 +2,18 @@
 
 여기는 **아직 할 일만** 있다. 2026-09-25 새벽에 다시 썼다 — 그 전 판(라운드 보고 절 스무 개와 09-23 GPU 선 목록의 원문, 155 KB)은 [`plan-ledger.md`](plan-ledger.md) 「plan-triage.md 2026-09-25 이전 판」에 원문 그대로 있고, 항목의 근거·수치·기제가 필요하면 거기서 찾는다. 항목은 받을 라운드별로 한 줄씩이고 크기는 XS·S·M·L이다. 착륙한 줄은 지운다(원문은 장부, 결과는 커밋 메시지와 rig-log). 수치는 `[유도]`가 아니면 실측이다.
 
+## Metal (Mac) — MLX first (the user, 2026-10-27)
+
+Metal opens mlx-community folders directly and tunes MLX affine 4-bit; GGUF on Metal stays at Q4_K_M and UD-Q4_K_XL.
+The measuring basis is the M4 Pro testbed (the user, 2026-10-27).
+
+- **Waiting on an M5 number: the routed experts' grouped GEMM on the tensor path.** In the M5 Ultra's 4K prompt pass
+  it is ~301 ms; the expected value is 165 ms `[derived]` (round a4p, from avlp12's `--pass-times` class table on
+  #593). Closing it with the delta, dense GEMM and attention terms gives 9,225 tok/s, band 7,600–10,900 `[derived]`,
+  against mlx-lm's 10,158 there. Only an M5 run can confirm it.
+- Order: the direct folder open (R1–R4), then the delta core as chunked simdgroup-MMA (M4 Pro 4K: −200 ms, band
+  −120…−260), then a 128-slot experts tile (−100…−150 ms).
+
 ## Release 0.3.9 — Muse Spark Open + MiniMax-M3.1-Flash (the user, 2026-10-23 ~11:40 KST: "muse랑 minimax지원 두개를 메인 피쳐로")
 
 The plan of record; the 0.3.3 section below is history. Headline: two new models, text path, each served by
