@@ -11,8 +11,28 @@ The measuring basis is the M4 Pro testbed (the user, 2026-10-27).
   it is ~301 ms; the expected value is 165 ms `[derived]` (round a4p, from avlp12's `--pass-times` class table on
   #593). Closing it with the delta, dense GEMM and attention terms gives 9,225 tok/s, band 7,600–10,900 `[derived]`,
   against mlx-lm's 10,158 there. Only an M5 run can confirm it.
-- Order: the direct folder open (R1–R4), then the delta core as chunked simdgroup-MMA (M4 Pro 4K: −200 ms, band
-  −120…−260), then a 128-slot experts tile (−100…−150 ms).
+- Order: the direct folder open (R1–R4, landed #880), then ~~the delta core as chunked simdgroup-MMA (M4 Pro 4K: −200
+  ms, band −120…−260)~~ (measured +1.39 % slower, dropped), then ~~a 128-slot experts tile (−100…−150 ms)~~ (measured
+  +100 ms, threadgroup memory cuts occupancy). A bit-exact delta trim measured +0.86 % (±0.46 %) and is parked. The cost
+  model was revised (a4p-rev): the M4 Pro prompt stack left is −158 ms (−114…−204) `[derived]`, and the Ultra figure is
+  ~~9,225~~ 8,620 (7,390–9,960) `[derived]`. On the M4 Pro, Qwen3.6 leads mlx-lm 0.32.0 on prompt (1,081 vs 1,029 at
+  4K) and decode (~+10 % best-vs-best at depth 6/1K/4K). Qwen3-Coder-30B-A3B runs (#886); its tool calls are #887.
+- **Dense Qwen3.8-27B on Metal (user 10-28: yes, two stages; design `d27`).** Opens mlx-community and
+  lmstudio-community 27B-4bit (881k + 3.59M downloads, same bytes) and 3.6-27B.
+  Stage (a), parity, 8.1 rounds: A1 `d27map` (dense trunk map, 0.8) ‖ A2 `d27delta` (48 value heads, 0.8)
+  ‖ A3 `d27flash` (flash gqa 4/6/8 + dec4's decode-flash redesign, 2.5; 35B A/B at depth 4K)
+  → A4 `d27dense` (dense route + 27B instance + `qwen35` fixture and refs, 3.0) → A5 `d27claim` (1.0).
+  Prediction [derived]: decode 16.3 / 16.0 / 15.6 tok/s at depth 6 / 1K / 4K (bands 15.1–17.0,
+  14.8–16.8, 14.4–16.3), mlx-lm's own M4 Pro baseline 15.7 (PR #990); pp4096 134 (128–137) vs
+  mlx-lm 125–131. Parity line: paired 95 % interval of ours / mlx-lm above 0.98 at all three depths.
+  Stage (b), 7.5 rounds: B1 `d27pp` GEMM tile (+1 %, ceiling +15 %) ‖ B2 `mtplift` (MTP window from
+  `app` to `runtime`, move class) → B3 `d27verify` (Metal Verify/Tapped, M-row mat-vec, k+2 delta
+  lanes) → B4 `d27mtp` (draft layer; dense in-file rule, also opens it on CUDA) → B5 `d27mtpclaim`.
+  MTP prediction: WIDTH 1 ×1.68 (1.49–1.76), WIDTH 2 ×2.08 (1.85–2.24); least-trusted term the
+  M-row verify cost, closed by one M4 probe before B3.
+  Correction: CUDA has no 27B MTP (registry `qwen35` draft no); the donor is Body35's in-file layer.
+  Open for the user: D2 MTP weights for MLX folders (range-fetch BF16 shard 18 and quantize vs wait
+  for PR #990), D4 the mlx-lm MTP comparator (55.6 GB conversion), D1 the 24 GB cap.
 
 ## Release 0.3.9 — Muse Spark Open + MiniMax-M3.1-Flash (the user, 2026-10-23 ~11:40 KST: "muse랑 minimax지원 두개를 메인 피쳐로")
 
