@@ -1,0 +1,15 @@
+# The box's cells for a bloomery release sitting (tools/release/sitting.sh in the bloomery tree documents the columns).
+# Copy it per release as cells-<version>.tsv, edit the files, and name the copy to sit.sh (--cells).
+#
+# One row is one served configuration: the model profile and file, the placement, the cards, the timed depths and
+# round 1's first-request checks (pass_checks.py arguments). `a` is the RTX 3090 alone and `bp` both cards (the A6000
+# `a` rows of earlier releases are dropped). ctx is empty everywhere: the serving default, the largest step the machine
+# holds, read back from the plan record into every row label. The cells of one file sit together, `bp` before `a`.
+#
+# load_s, pp and tg only price the predicted wall: the means of 0.3.10's own rows (two rounds, D 512 and 4096, ctx 4300)
+# [measured]; a load at the unset context may differ. Flint has no model profile (tools/ref/models/), so it has no cell.
+file/profile	place	cards	ctx	D	checks	load_s	pp	tg
+minimax-m3=/models/MiniMax-M3.1-Flash-GGUF/UD-Q2_K_XL/MiniMax-M3.1-Flash-UD-Q2_K_XL-00001-of-00004.gguf	bp	both		512,4096	--client toktape --tag m31-gguf-bp	50	163	29
+minimax-m3=/models/MiniMax-M3.1-Flash-GGUF/UD-Q2_K_XL/MiniMax-M3.1-Flash-UD-Q2_K_XL-00001-of-00004.gguf	a	3090		512,4096	--client toktape --tag m31-gguf-3090	21	98	21
+minimax-m3=/models/MiniMax-M3.1-Flash	bp	both		512,4096	--client toktape --tag m31-nvfp4-bp	49	130	20
+nanbeige43=/models/Nanbeige4.3-33B/Nanbeige_Nanbeige4.3-33B-Q4_K_M.gguf	a	3090		512,4096	--client toktape --tag nanbeige-3090	5	720	24
