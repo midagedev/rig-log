@@ -17,6 +17,16 @@ The measuring basis is the M4 Pro testbed (the user, 2026-10-27).
   model was revised (a4p-rev): the M4 Pro prompt stack left is −158 ms (−114…−204) `[derived]`, and the Ultra figure is
   ~~9,225~~ 8,620 (7,390–9,960) `[derived]`. On the M4 Pro, Qwen3.6 leads mlx-lm 0.32.0 on prompt (1,081 vs 1,029 at
   4K) and decode (~+10 % best-vs-best at depth 6/1K/4K). Qwen3-Coder-30B-A3B runs (#886); its tool calls are #887.
+- **LFM3 Metal speed, after #972 (2026-10-30).** LFM3-1.7B MLX 4-bit on an M1 Pro decodes ~140 tok/s (main
+  before: 92.6; mlx-vlm 0.7.11: ~120) and prefills pp512 1225 / pp4096 1138 (mlx-vlm 916 / 912). The decode step is
+  ~7.15 ms against a 5.59 ms DRAM line. The 1.6 ms gap is latency across the 171 dispatch groups, not mat-vec bytes:
+  the geometry scan and a weights touch both measured worse (round lfm3stream). Open:
+  - a pass gate for an all-F32 P1 with finite activations past the half range (the #972 review). No supported file
+    has that shape today;
+  - the one-pass flash by key head, so a GQA group shares its K/V loads (predicted for depth 8K–16K, not the
+    short-depth headline);
+  - the half-activation path is in; the next prefill term is the MMA issue itself (75 % of a K step at 4.54 TFLOPS
+    peak, round lfm3gemm).
 - **Dense Qwen3.8-27B on Metal (user 10-28: yes, two stages; design `d27`).** Opens mlx-community and
   lmstudio-community 27B-4bit (881k + 3.59M downloads, same bytes) and 3.6-27B.
   Stage (a), parity, 8.1 rounds: A1 `d27map` (dense trunk map, 0.8) ‖ A2 `d27delta` (48 value heads, 0.8)
