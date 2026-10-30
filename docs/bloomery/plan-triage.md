@@ -45,6 +45,15 @@ The measuring basis is the M4 Pro testbed (the user, 2026-10-27).
     short-depth headline);
   - the half-activation path is in; the next prefill term is the MMA issue itself (75 % of a K step at 4.54 TFLOPS
     peak, round lfm3gemm).
+- **Metal decode at depth (rounds mdecode, mflash, 2026-10-30).** Qwen3-Coder-30B-A3B MLX 4-bit on an M1 Pro decodes
+  56.0 / 36.0 / 13.1 / 7.9 ids/s at D = 512 / 4K / 16K / 32K, and decode equals a prefill re-run 32/32 at every depth.
+  mflash rewrote the decode flash after MLX's `sdpa_vector_2pass`: no per-key 32-lane butterfly, the softmax rescale
+  once per 4-key chunk, no barriers. The prediction was 1.9× at 16K and 2.1× at 32K `[derived]`; it measured 0.94 /
+  0.96 / 0.99 / 1.02× (two samples an arm, interleaved). So the per-key latency terms were not the bound. What the
+  two loops share is the next suspect: the (KV head × segment) grid streaming 2 KB per layer-position in 32-B
+  per-thread loads, and the new loop's register load `[derived]`. Not landed (−6 % at D = 512); the diff and report
+  are the lead's `specs/mflash/out/`. Next: a probe that varies only the K/V load width at 32K before any rewrite;
+  the LFM3 item above (one-pass flash by key head, a GQA group sharing its K/V loads) is the same lever.
 - **Dense Qwen3.8-27B on Metal (user 10-28: yes, two stages; design `d27`).** Opens mlx-community and
   lmstudio-community 27B-4bit (881k + 3.59M downloads, same bytes) and 3.6-27B.
   Stage (a), parity, 8.1 rounds: A1 `d27map` (dense trunk map, 0.8) ‖ A2 `d27delta` (48 value heads, 0.8)
