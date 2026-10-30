@@ -2,6 +2,24 @@
 
 여기는 **아직 할 일만** 있다. 2026-09-25 새벽에 다시 썼다 — 그 전 판(라운드 보고 절 스무 개와 09-23 GPU 선 목록의 원문, 155 KB)은 [`plan-ledger.md`](plan-ledger.md) 「plan-triage.md 2026-09-25 이전 판」에 원문 그대로 있고, 항목의 근거·수치·기제가 필요하면 거기서 찾는다. 항목은 받을 라운드별로 한 줄씩이고 크기는 XS·S·M·L이다. 착륙한 줄은 지운다(원문은 장부, 결과는 커밋 메시지와 rig-log). 수치는 `[유도]`가 아니면 실측이다.
 
+## CUDA flow audit (cflow) — 0.3.12 speed (lead, 2026-10-30)
+
+The audit's measurement sitting (cflmeas, RTX A6000, 2026-10-29; cards `docs/cards/cflow-m*.card` in bloomery) settled
+which rows open:
+- **T3, Q4_K/Q5_K decode gemvs on 128-bit loads: open.** ncu `q4k_gemv_sel` at the Qwen3.6 decode shape: DRAM 44.2 %
+  of peak, issue active 64.7 %, 13.2 cycles per issued instruction. Issue-bound, so the card's rule opens it.
+  Predicted +0 … +8 % decode on Qwen3.6 whole-card `[derived]`. Bits unchanged (load width only). Round `cflv4` (GLM).
+- **T2, V4.1/GLM prompt card experts on the grouped IMMA GEMM: open, smaller.** nsys V4.1 prose P 4096: the two tile
+  kernels are 28.55 % of card kernel time (2,559.56 of 8,963.94 ms), duty 0.811. Below the card's 38 % line, so the
+  gain scales to +0 … +4.9 % pp4096 `[derived]`. The user's 10-29 decision lets the batch = step bit clause become a
+  band. Design round `cflt2d` (GLM) first.
+- **T5, sm_86 BF16 prompt sites on tensor cores: small.** Qwen3.8 P 4096: `bf16_tile_gemm` + `f32_tile_gemm` are
+  3.92 % of kernel time, so +~2 % pp at most `[derived]`. Behind T2 and T3.
+- **T4, Qwen3.8 card serial gaps: closed.** M3 measured 0.9 µs a join (plain) and 7.4 µs (verify), far under the 80 µs
+  line. No card-latency round.
+- M4 (page cache after a restart): Qwen3-30B-A3B read cold 5.1 s, warm 2.0 s, file 100 % resident after the first
+  load. M5 (host DRAM idle under attention): no counter read it; H1 stays unpriced.
+
 ## Metal (Mac) — MLX first (the user, 2026-10-27)
 
 Metal opens mlx-community folders directly and tunes MLX affine 4-bit; GGUF on Metal stays at Q4_K_M and UD-Q4_K_XL.
