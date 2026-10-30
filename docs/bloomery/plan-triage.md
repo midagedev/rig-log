@@ -12,8 +12,7 @@ which rows open:
   depth-qwen3moe `bin:` arms against base ffe7d04e8): `U32x4` loads +0.34 % ± 0.15 at d 6 and +0.34 % ± 0.10 at d 4096
   (6 rounds); with `launch_bounds(256, 5)` (the v4 loads took `q4k_gemv_sel` from 48 to 64 registers, 5 → 4 blocks
   a SM) +0.55 and +0.62 % in two rounds before a peer's serve took the card. Below the band either way, so the card's
-  rule drops it. The wider load did not move a kernel that ncu reads issue-bound: the issue slots it saves go to the
-  extra registers' lost occupancy. Branch `cflv4` kept for reference, not landed.
+  rule drops it. Why the issue-bound kernel did not move is not measured (no ncu of the v4 build). Branch `cflv4` kept for reference, not landed.
 - **T2, V4.1/GLM prompt card experts on the grouped IMMA GEMM: open, smaller.** nsys V4.1 prose P 4096: the two tile
   kernels are 28.55 % of card kernel time (2,559.56 of 8,963.94 ms), duty 0.811. Below the card's 38 % line, so the
   gain scales to +0 … +4.9 % pp4096 `[derived]`. The user's 10-29 decision lets the batch = step bit clause become a
