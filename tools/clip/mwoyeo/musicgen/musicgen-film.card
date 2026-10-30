@@ -1,0 +1,18 @@
+# Round m1-film-music: music candidates for the Mwoyeo film (the translation-method film for X). ACE-Step 1.5 (MIT), the
+# XL-sft DiT with the 4B 5 Hz LM, on the RTX A6000 only: three genre prompts (118, 124 and 128 BPM, each with a two bar
+# stop-time break) x 8 seeds of 64 s (the film is 98 beats, 45.9-49.8 s, and the fit chooses where it opens inside the
+# clip), one process, weights loaded once from /root/musicgen. Settings are release-034's: 50 steps, shift 1.0,
+# guidance 7.0, batch 4, backend pt. Nothing is timed; the files are the output.
+# Minutes [derived] from release-034's measured run (rig-log release-034 DESIGN.md Music: 24 clips x 48 s, lease held
+# 446 s, load 43 s with the weights in the page cache, a batch of 4 took 67 s, 16.8 s a clip, peak 21.7 GB):
+#   DiT, LM codes (5 per second) and VAE decode are linear in the clip's length; attention is the one quadratic term
+#   and is ~5 % of a layer's FLOPs at 800 patch tokens and d ~ 2,500, so it adds ~2 % to the 4/3 length ratio:
+#   16.8 s x 64/48 x 1.02 = 22.8 s a clip, x 24 = 548 s; + load 43 s + imports and CUDA init ~10 s = ~600 s = 10 min.
+#   A cold page cache (the box held 236 GB of buff/cache on 2026-10-19) would add the 38 GB read, +1..2 min. Peak card
+#   memory: 19 GB of weights + 2.7 GB x 4/3 of activations = ~23 GB; the A6000 has 48 GB, ~11 GB of it in use by
+#   another process at the probe.
+kind: exclusive
+reason: generation fills the A6000 (weights ~19 GB, peak ~23 GB) and reads ~38 GB of weights through the page
+  cache, so it holds the lease instead of running beside a timed run or a gate batch; why now: the user asked for
+  the Mwoyeo film's music to be generated on the box (2026-10-19), and the film's build round is cut to its beat grid
+minutes: 9..14
