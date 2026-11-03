@@ -11,7 +11,7 @@
 # the GPU's allocations). The lease is tools/quiet/lease.sh with QUIET_LEASE=/root/spark-lease.
 # A running model fetch is paused (SIGSTOP on the spark-fetch and spark-fetch2 units) for the takes and resumed on every exit path, and
 # the row records that it did. Sentinel TAKE_DONE / TAKE_FAILED.
-# usage: SERVE='...' PORT=8000 ENGINE='bloomery 0.3.12' [MODEL_ID=..] [CONTAINER=<docker name>] take.sh <tag>
+# usage: SERVE='...' PORT=8000 ENGINE='bloomery 0.3.12' [MODEL_ID=..] [CONTAINER=<docker name>] [PROBE=<cmd>] take.sh <tag>
 set -u
 TAG=${1:?tag}; PORT=${PORT:?PORT}; SERVE=${SERVE:?SERVE}; URL=http://127.0.0.1:$PORT
 H=/root/health; OUT=/root/takes/$TAG; TT=/opt/engines/toktape-v0.8.0/toktape; P=$H/prompts
@@ -81,6 +81,9 @@ for i in $(seq 180); do
 done
 wit settled
 [ "${SMOKE_ONLY:-0}" = 1 ] && finish 0
+# PROBE: a command run instead of the four takes, as `$PROBE <url> <out dir>` (e.g. ids-probe.py), witnessed the same
+if [ -n "${PROBE:-}" ]; then wit probe; $PROBE "$URL" "$OUT" > "$OUT/probe.log" 2>&1; rc=$?; wit probe-end
+  say "probe rc $rc: $(tail -1 "$OUT/probe.log")"; finish $rc; fi
 rc=0
 for k in decode-code decode-prose pp512 pp4096; do
   case $k in decode-*) n=256;; *) n=32;; esac
