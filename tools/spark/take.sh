@@ -51,6 +51,8 @@ DRV=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1)
 [ -n "${CONTAINER:-}" ] && docker ps -q --filter "name=^$CONTAINER\$" | grep -q . && { say "refused: container $CONTAINER exists"; echo TAKE_FAILED; exit 1; }
 ss -ltn | grep -q ":$PORT " && { say "refused: port $PORT already has a listener"; echo TAKE_FAILED; exit 1; }
 [ "$(gpuapps)" = 0 ] || { say "refused: GPU compute apps running"; echo TAKE_FAILED; exit 1; }
+# an image pull keeps the link and the disk busy and SIGSTOP on the docker client does not stop the daemon's
+systemctl is-active -q spark-pulls && { say "refused: spark-pulls is pulling images"; echo TAKE_FAILED; exit 1; }
 QUIET_LEASE_PID=$$ "$H/lease.sh" acquire "take $TAG" || { echo TAKE_FAILED; exit 1; }
 export QUIET_LEASE_PID=$$
 fetch_pause
