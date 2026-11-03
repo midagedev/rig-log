@@ -17,5 +17,5 @@ case ${1:?qwen36|iq3s} in
   *) echo "unknown $1"; exit 1;;
 esac
 ./setup.sh --setup "${a[@]}" --context 65536 --vision no --yes --no-start --data-dir "$D"; rc=$?
-echo "configs: $(ls -t "$D"/strata-*.json ~/.strata*/strata-*.json 2>/dev/null | head -3 | tr '\n' ' ')"
+echo "run scripts: $(ls -t "$S"/run-*.sh 2>/dev/null | tr "\n" " ")"
 echo "STRATA_SETUP_DONE rc=$rc"
