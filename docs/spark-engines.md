@@ -456,3 +456,14 @@ Atlas `:dev`, Qwen3.6 NVIDIA NVFP4, 산문 요청 하나, 128토큰이다(nsys�
 결정적인 차이는 헤드다. Atlas nomtp의 lm_head(`w4a16_gemv`, 4비트)는 스텝당 1회, 1.11 ms다. rec에서는 따로 보이지 않는다. 한 번 더 도는 `w4a16_gemv_batch2`(창당 111회 대 110회)에 두 행이 함께 들어간다.
 bloomery 창은 Q6_K 검증 헤드(`qwen3moe_head_q6k_argmax_prefetch`)와 드래프트 헤드(`q6k_gemv_prefetch`)를 따로 읽는다. 둘이 창 시간의 24 %(nsys 아래 약 7 ms)다.
 그러니 제안 ③a(검증 헤드를 한 번 읽어 두 행에 쓰기)와 ③b(드래프트 헤드를 줄이기)가 Atlas가 실제로 하는 일이다. 창 비율 1.63 → 1.36이면 bloomery Qwen3.6 rec 코드는 73.7 → 약 88이다(창 25.0 → 20.8 ms, 같은 수락률 가정, 계산값). 폭 2–3(③)은 그 위에 더해진다.
+
+## bloomery 리드의 검토(11-04 06:10 KST)
+
+제안 파일이 모두 juliankang4가 지난 일주일 동안 고친 파일이라, 리드가 직접 고치지 않고 [#1152](https://github.com/midagedev/bloomery/issues/1152)에 한 번에 넘겼다.
+
+- ② `DELTA_VERIFY_ROWS` 4→6: 이슈화. code는 +8.6 %, prose는 −2.5 %로 부호가 갈리고, 이 결정을 내리는 측정 기준이 Julian의 Spark FP4-Local이다. sm_86 비용은 리드가 A/B로 재 주겠다고 제안했다.
+- ⑦ `MTP_STORE_ROWS` 64→512: 이슈화. pp4096 MTP-on +2.6 %, decode는 그대로다. 늘어나는 store 메모리는 아직 재지 않았다.
+- ④ Qwen3.6 MTP 창의 head 두 번 읽기: 이슈화, 계산값이다. 측정은 변경을 가진 쪽이 한다.
+- ① Qwen3.6 MTP store walk가 행마다 gemv: 이슈화, 계산값(MTP-on pp −42 %, GEMM으로 바꾸면 +65 % 추정). 제안 중 효과가 가장 크다.
+- 포맷 공백(IQ3_S의 shared expert `iq4_nl`, Qwen3.6 NVFP4/FP8/MLX 폴더): 이슈에 같이 적었다.
+- GB10 아카이브에 `prepare`가 없음: 보류. Linux 아카이브는 의도적으로 `bloomery-serve` 하나만 싣는다(`tools/release/build.sh` BINS). Spark에서 어떤 명령이 `prepare`를 찾았는지 알아야 결함인지 판단할 수 있다.
