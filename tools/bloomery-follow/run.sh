@@ -5,11 +5,12 @@
 # tools/gate-batch.sh (the lead's ledger is that machine's file) and reaches the box through tools/box.sh.
 #
 #   run.sh [--dry-run [--tree DIR]] [--list FILE]
+#   run.sh --tarballs VERSION      the archives of W, as tools/release/pick.sh's PICK_TARBALLS hook reads them (step 8)
 #   run.sh --self-test
 #
 # One call is at most one pass. launchd calls it every half hour (configs/dev.midage.bloomery-follow.plist); a call with nothing to
-# do (the box busy, W already at origin/main, another pass running) ends at once, and a pass that was cut short by a sitting (its
-# items yielded) leaves W where it was, so the next idle call runs the rest: the items already green are ledger skips.
+# do (the box busy, W already at origin/main with its archives, another pass running) ends at once, and a pass that was cut short by a
+# sitting (its items yielded) leaves W where it was, so the next idle call runs the rest: the items already green are ledger skips.
 #
 # Steps:
 #   1. State lock (one pass at a time; a dead pid's lock is taken over). Fetch; the target commit is $BLOOMERY_FOLLOW_REF (origin/main).
@@ -28,20 +29,45 @@
 #   6. The verdict, from the batch's run.log: green when the batch ended 0, its DONE line has red=0, no yielded=, and no item's
 #      ledger state is changed, unkeyed or append-failed. Green writes W (below) at the target; anything else leaves W as it was.
 #   7. The report, at most 15 lines: $STATE/report.txt and stdout.
+#   8. The release archives at W (after a green pass wrote W, and on a later call while W is current and has none): the box is
+#      asked for idle again (the same probe; a hold, the lease or a compute process ends it as "deferred": nothing is built and the
+#      next idle call tries). The Mac-side checks of `just release-build` that still apply to a watermark run in the worktree (no
+#      uncommitted change; tools/release/carry.sh); the README check does not (main's README names the published release), and
+#      the box-side `build.sh --stage w` checks the crate versions instead. Then, for sm_86 and sm_120a at once, from the worktree,
+#      through tools/box.sh with BLOOMERY_ARCH, the follower's remote directory, BLOOMERY_BOX_WAIT=0 (a hold that goes up in the
+#      gap is rc 75, not a wait) and no BLOOMERY_HOLD_OWNER: `timeout --kill-after=10 <bound> bash tools/release/build.sh --stage w
+#      <W's serve crate version> <W's 12-digit commit>`; tools/release/build.sh gives each archive its own target and PTX directory.
+#      Each build is bounded ($BLOOMERY_FOLLOW_BUILD_BOUND, default 1800 s: the box's own timeout, and TERM to its captured pid
+#      $BLOOMERY_FOLLOW_BUILD_GRACE, default 60 s, later). Both built: the names
+#      and sha256 of the archives (read from the build logs' last lines) are written to W.archives. A build that fails, ends past
+#      its bound or leaves no sha256 line for the archive it was to make fails the step: W stands (the pass was green), the report
+#      names the failure and the log, and the next call tries again up to $BLOOMERY_FOLLOW_BUILD_TRIES (default 2) times for that
+#      commit; after that archives.fail stands and nothing is retried until it is removed or W moves. The Mac archive is not built
+#      here (it needs the signing identity on the lead's Mac). --dry-run runs each build's `build.sh --dry-run` on the box instead
+#      (the tree check and the directories; nothing is built).
 #
 # State, $STATE (default ~/.cache/bloomery/follow; BLOOMERY_FOLLOW_HOME):
 #   W          commit= (full sha), epoch=, date=, list= (the batch's total), skipped=, deferred= and never= (items the ledger could
 #              not hold: ledger=never), pass= (the batch's directory); written atomically, only by a green pass
 #   W.log      one line per write
-#   report.txt the last pass's report; status.txt the last call's one line
-#   runs/      one directory a pass (the newest $BLOOMERY_FOLLOW_KEEP, default 14, stay), tree/, lock.d/
+#   W.archives commit= (full sha), version=, epoch=, date=, remote= and dist= (where the archives are on the box), then one line
+#              each: `sm86 <sha256> <name>` and `sm120a <sha256> <name>`; written atomically, only when both were built at that
+#              commit. It is removed when a build starts (the box's archives are then being replaced) and stays absent after a
+#              failure. The release flow reads the archives at <remote>/<dist>: BLOOMERY_REMOTE=<remote> for pick.sh's default
+#              read of the box, or PICK_TARBALLS='bash <this script> --tarballs' for the record (lines `<arch> <sha256> <commit>`,
+#              or `<arch> absent` for another version)
+#   W.archives.log one line per write; archives.fail the last failed build (commit=, tries=, reason=, date=)
+#   report.txt the last pass's report (a call that only built the archives writes its own); status.txt the last call's one line
+#   runs/      one directory a pass or an archive build (the newest $BLOOMERY_FOLLOW_KEEP, default 14, stay), tree/, lock.d/
 #
 # Environment: BLOOMERY_FOLLOW_HOME, _REPO (default ~/repo/bloomery: the clone the worktree is added to), _REF (origin/main), _REMOTE,
-# _STUB_LIST, _KEEP. The box is tools/box.sh's: BLOOMERY_BOX names it. The ledger is gate-batch.sh's (BLOOMERY_GATE_LEDGER).
-# Exit: 0 a green pass, W current, or a dry run that ended 0; 1 a pass with a red gate, or one whose items ran green but were not
-# all recorded; 75 the box busy, another pass running, the batch refused to start on a hold, or a pass cut short by one (items
-# yielded: the next idle call continues); 64 usage; 66 no list, no ref or a path that is not the follower's worktree; 70 the box
-# could not be probed or the tree would not clean; 143 stopped by INT or TERM.
+# _STUB_LIST, _KEEP, _BUILD_BOUND, _BUILD_GRACE, _BUILD_TRIES, _POLL (seconds between looks at the builds, default 5). The
+# box is tools/box.sh's: BLOOMERY_BOX names it. The ledger is gate-batch.sh's (BLOOMERY_GATE_LEDGER).
+# Exit: 0 a green pass with its archives built, W current with its archives (or with archives that failed their tries), or a dry run
+# that ended 0; 1 a pass with a red gate, one whose items ran green but were not all recorded, or an archive build that failed;
+# 75 the box busy (also at the archives step: W is written, the next idle call builds), another pass running, the batch refused to
+# start on a hold, or a pass cut short by one (items yielded: the next idle call continues); 64 usage; 66 no list, no ref or a path
+# that is not the follower's worktree; 70 the box could not be probed or the tree would not clean; 143 stopped by INT or TERM.
 set -uo pipefail
 
 SELF=$(cd "$(dirname "$0")" && pwd -P)/$(basename "$0")
@@ -51,8 +77,12 @@ REF=${BLOOMERY_FOLLOW_REF:-origin/main}
 REMOTE=${BLOOMERY_FOLLOW_REMOTE:-'~/repo/bloomery-follow'}
 STUB_LIST=${BLOOMERY_FOLLOW_STUB_LIST:-$STATE/list.stub}
 KEEP=${BLOOMERY_FOLLOW_KEEP:-14}
+BUILD_BOUND=${BLOOMERY_FOLLOW_BUILD_BOUND:-1800}
+BUILD_GRACE=${BLOOMERY_FOLLOW_BUILD_GRACE:-60}
+BUILD_TRIES=${BLOOMERY_FOLLOW_BUILD_TRIES:-2}
+POLL=${BLOOMERY_FOLLOW_POLL:-5}
 
-usage() { echo "usage: run.sh [--dry-run [--tree DIR]] [--list FILE] | --self-test" >&2; }
+usage() { echo "usage: run.sh [--dry-run [--tree DIR]] [--list FILE] | --tarballs VERSION | --self-test" >&2; }
 die() { # <rc> <message>: the call's one status line, then out
   echo "run.sh: $2" >&2
   [ -d "$STATE" ] && printf '%s %s\n' "$(date '+%F %T')" "$2" > "$STATE/status.txt" 2> /dev/null
@@ -177,6 +207,184 @@ write_w() { # <commit> <run.log> <out dir>
   echo "$(date '+%F %T') $1 list=$(done_field "$2" total) pass=$3" >> "$STATE/W.log"
 }
 
+# --- the release archives at W (step 8) ---
+
+# wa_get <key>: a value of the W.archives file ('' when there is none or no such key).
+wa_get() { sed -n "s/^$1=//p" "$STATE/W.archives" 2> /dev/null | head -1; }
+
+# archives_ready <commit>: 0 when W.archives names this commit with both x86-64 archives.
+archives_ready() {
+  [ -f "$STATE/W.archives" ] || return 1
+  [ "$(wa_get commit)" = "$1" ] || return 1
+  grep -q '^sm86 ' "$STATE/W.archives" && grep -q '^sm120a ' "$STATE/W.archives"
+}
+
+# tarballs <version>: pick.sh's PICK_TARBALLS hook — `<arch> <sha256> <commit>` for each x86-64 archive W.archives holds for that
+# version, else `<arch> absent`. It reads the record and asks nothing of the box.
+tarballs() {
+  local v=$1 a sha
+  [ -n "$v" ] || { usage; return 64; }
+  for a in sm86 sm120a; do
+    sha=$(awk -v a="$a" '$1 == a { print $2; exit }' "$STATE/W.archives" 2> /dev/null)
+    if [ -n "$sha" ] && [ "$(wa_get version)" = "$v" ]; then echo "$a $sha $(wa_get commit)"; else echo "$a absent"; fi
+  done
+}
+
+# fail_get <key>: a value of archives.fail ('' when there is none).
+fail_get() { sed -n "s/^$1=//p" "$STATE/archives.fail" 2> /dev/null | head -1; }
+
+# serve_version <tree> <commit>: the serve crate's version at that commit, the one the build is given.
+serve_version() { git -C "$1" show "$2:crates/serve/Cargo.toml" 2> /dev/null | awk -F'"' '/^version = "/ { print $2; exit }'; }
+
+# build_archives <tree> <commit>: sm_86 and sm_120a at once, bounded. ARCH_STATE is built, deferred, failed or gaveup, ARCH_NOTE says
+# why, ARCH_DIR is the directory of the build logs (when any build started) and ARCH_VER and ARCH_C12 name what was built.
+BUILD_PIDS='' ARCH_STATE='' ARCH_NOTE='' ARCH_DIR='' ARCH_VER='' ARCH_C12=''
+build_archives() {
+  local tree=$1 commit=$2 arch name i rc line t0 live n log bad='' defer='' dir carry
+  local -a pids=() names=() rows=() timed=()
+  ARCH_STATE=failed ARCH_NOTE='' ARCH_DIR='' ARCH_VER='' ARCH_C12=$(git -C "$tree" rev-parse --short=12 "$commit" 2> /dev/null || echo "${commit:0:12}")
+  if [ "$(fail_get commit)" = "$commit" ] && [ "$(fail_get tries)" -ge "$BUILD_TRIES" ] 2> /dev/null; then
+    ARCH_STATE=gaveup ARCH_NOTE="failed $(fail_get tries) time(s) at this commit, not tried again (last: $(fail_get reason)); remove $STATE/archives.fail to try"
+    return
+  fi
+  ARCH_VER=$(serve_version "$tree" "$commit")
+  if [ -z "$ARCH_VER" ]; then
+    bad="cannot read the serve crate's version at $ARCH_C12"
+  elif [ "$(git -C "$tree" rev-parse HEAD 2> /dev/null)" != "$commit" ]; then
+    bad="the worktree is not at $ARCH_C12"
+  elif [ -n "$(git -C "$tree" status --porcelain --untracked-files=no 2> /dev/null)" ]; then
+    bad="the worktree has uncommitted changes"
+  elif ! carry=$(cd "$tree" && ./tools/release/carry.sh 2>&1); then
+    bad="carry.sh refused: $(printf '%s\n' "$carry" | grep -v '^[[:space:]]*$' | head -1 | cut -c1-160)"
+  fi
+  if [ -z "$bad" ]; then
+    box_idle "$tree"
+    rc=$?
+    if [ "$rc" != 0 ]; then
+      ARCH_STATE=deferred ARCH_NOTE="the box is not idle ($IDLE_WHY)"
+      return
+    fi
+    dir=$STATE/runs/build-$(date '+%Y%m%d-%H%M%S')-$$
+    mkdir -p "$dir" || die 70 "cannot make $dir"
+    ARCH_DIR=$dir
+    rm -f "$STATE/W.archives" # the box's archives are replaced from here on: the record would name files that are gone
+    for arch in sm_86 sm_120a; do
+      (cd "$tree" && exec env -u BLOOMERY_HOLD_OWNER BLOOMERY_REMOTE="$REMOTE" BLOOMERY_ARCH="$arch" BLOOMERY_BOX_WAIT=0 tools/box.sh "timeout --kill-after=10 $BUILD_BOUND bash tools/release/build.sh --stage w $ARCH_VER $ARCH_C12") > "$dir/build-$arch.log" 2>&1 < /dev/null &
+      pids+=($!)
+      names+=("$arch")
+      timed+=(0)
+    done
+    BUILD_PIDS="${pids[*]}"
+    trap 'kill -TERM $BUILD_PIDS 2> /dev/null; wait $BUILD_PIDS 2> /dev/null; echo "run.sh: interrupted: the archive builds (pids $BUILD_PIDS) were signalled" >&2; exit 143' INT TERM
+    t0=$SECONDS
+    while :; do
+      live=0
+      for i in "${!pids[@]}"; do kill -0 "${pids[$i]}" 2> /dev/null && live=$((live + 1)); done
+      [ "$live" != 0 ] || break
+      if [ $((SECONDS - t0)) -ge $((BUILD_BOUND + BUILD_GRACE)) ]; then
+        for i in "${!pids[@]}"; do
+          if kill -0 "${pids[$i]}" 2> /dev/null; then
+            timed[$i]=1
+            kill -TERM "${pids[$i]}" 2> /dev/null
+          fi
+        done
+        n=0
+        while [ "$n" -lt 40 ]; do
+          live=0
+          for i in "${!pids[@]}"; do kill -0 "${pids[$i]}" 2> /dev/null && live=$((live + 1)); done
+          [ "$live" != 0 ] || break
+          sleep 0.5
+          n=$((n + 1))
+        done
+        for i in "${!pids[@]}"; do kill -0 "${pids[$i]}" 2> /dev/null && kill -KILL "${pids[$i]}" 2> /dev/null; done
+        break
+      fi
+      sleep "$POLL"
+    done
+    for i in "${!pids[@]}"; do
+      arch=${names[$i]}
+      name=bloomery-$ARCH_VER-linux-x86_64-cuda-${arch/_/}.tar.gz
+      log=$dir/build-$arch.log
+      rc=0
+      wait "${pids[$i]}" 2> /dev/null || rc=$?
+      if [ "${timed[$i]}" = 1 ]; then
+        bad="$bad${bad:+; }$arch: no end in $((BUILD_BOUND + BUILD_GRACE)) s, stopped"
+      elif [ "$rc" = 75 ]; then
+        defer="$defer${defer:+, }$arch"
+      elif [ "$rc" = 124 ] || [ "$rc" = 137 ]; then
+        bad="$bad${bad:+; }$arch: no end in $BUILD_BOUND s (the box's timeout, rc $rc)"
+      elif [ "$rc" != 0 ]; then
+        bad="$bad${bad:+; }$arch: rc $rc: $(grep -v '^[[:space:]]*$' "$log" | tail -1 | cut -c1-160)"
+      else
+        line=$(sed -n -E 's/^([0-9a-f]{64})  (bloomery-.*\.tar\.gz)$/\1 \2/p' "$log" | tail -1)
+        if [ "${line#* }" = "$name" ]; then
+          rows+=("${arch/_/} $line")
+        else
+          bad="$bad${bad:+; }$arch: built, but its log has no sha256 line for $name"
+        fi
+      fi
+    done
+    trap - INT TERM
+    BUILD_PIDS=''
+  fi
+  if [ -n "$bad" ]; then
+    n=1
+    [ "$(fail_get commit)" != "$commit" ] || n=$(($(fail_get tries) + 1))
+    printf 'commit=%s\ntries=%s\nreason=%s\ndate=%s\n' "$commit" "$n" "$bad" "$(date '+%Y-%m-%dT%H:%M:%S%z')" > "$STATE/archives.fail"
+    ARCH_STATE=failed ARCH_NOTE="try $n of $BUILD_TRIES: $bad"
+  elif [ -n "$defer" ]; then
+    ARCH_STATE=deferred ARCH_NOTE="the box turned busy ($defer: rc 75)"
+  else
+    {
+      echo "commit=$commit"
+      echo "version=$ARCH_VER"
+      echo "epoch=$(date +%s)"
+      echo "date=$(date '+%Y-%m-%dT%H:%M:%S%z')"
+      echo "remote=$REMOTE"
+      echo "dist=target/release-dist"
+      printf '%s\n' "${rows[@]}"
+    } > "$STATE/W.archives.tmp.$$" && mv "$STATE/W.archives.tmp.$$" "$STATE/W.archives" || die 70 "cannot write $STATE/W.archives"
+    echo "$(date '+%F %T') $commit v$ARCH_VER ${rows[*]}" >> "$STATE/W.archives.log"
+    rm -f "$STATE/archives.fail"
+    ARCH_STATE=built ARCH_NOTE=$(printf '%s' "${rows[*]}" | awk '{ for (i = 1; i <= NF; i += 3) printf "%s%s %s", (i > 1 ? ", " : ""), $i, substr($(i + 1), 1, 12) }')
+  fi
+}
+
+# archive_lines: the report's lines for ARCH_STATE (none when no step ran).
+archive_lines() {
+  case $ARCH_STATE in
+    built) echo "archives: $ARCH_NOTE at ${ARCH_C12} v$ARCH_VER in $REMOTE/target/release-dist (W.archives)" ;;
+    deferred) echo "archives NOT built: $ARCH_NOTE; the next idle call builds them" ;;
+    failed) echo "ARCHIVES FAILED at ${ARCH_C12}: $ARCH_NOTE (W stands); logs: ${ARCH_DIR:-none}" ;;
+    gaveup) echo "ARCHIVES NOT BUILT at ${ARCH_C12}: $ARCH_NOTE" ;;
+  esac
+}
+
+# archives_exit: the call's exit code for ARCH_STATE.
+archives_exit() {
+  case $ARCH_STATE in
+    built | gaveup) return 0 ;;
+    deferred) return 75 ;;
+    *) return 1 ;;
+  esac
+}
+
+# archives_dry <tree>: each archive's `build.sh --dry-run` on the box (the tree check and the directories; nothing is built); rc 0 when
+# both ended 0.
+archives_dry() {
+  local tree=$1 v c12 arch rc=0 r out
+  v=$(serve_version "$tree" HEAD)
+  c12=$(git -C "$tree" rev-parse --short=12 HEAD 2> /dev/null)
+  if [ -z "$v" ] || [ -z "$c12" ]; then echo "run.sh: dry run: cannot read the serve crate's version or HEAD in $tree"; return 66; fi
+  for arch in sm_86 sm_120a; do
+    r=0
+    out=$(cd "$tree" && env -u BLOOMERY_HOLD_OWNER BLOOMERY_REMOTE="$REMOTE" BLOOMERY_ARCH="$arch" BLOOMERY_BOX_WAIT=0 tools/box.sh "bash tools/release/build.sh --dry-run --stage w $v $c12" 2>&1 < /dev/null) || r=$?
+    printf '%s\n' "$out" | sed "s/^/[$arch] /"
+    [ "$r" = 0 ] || rc=$r
+  done
+  return "$rc"
+}
+
 # report <verdict> <commit> <run.log> <out dir> <old W commit>: at most 15 lines to $STATE/report.txt and stdout.
 report() {
   local verdict=$1 commit=$2 log=$3 out=$4 old=$5 reds=0 shown=0 line attr y
@@ -189,6 +397,7 @@ report() {
   else
     lines+=("W stays unset: no pass has been green yet")
   fi
+  [ -z "$ARCH_STATE" ] || lines+=("$(archive_lines)")
   if [ -f "$log" ] && grep -q '^DONE ' "$log"; then
     lines+=("$(grep '^DONE ' "$log" | head -1 | cut -c1-200)")
   fi
@@ -218,7 +427,7 @@ prune_runs() {
 }
 
 run_main() {
-  local dry=0 tree_arg='' list_file out stamp rc=0 pid old mode='' batch_args=()
+  local dry=0 tree_arg='' list_file out stamp rc=0 drc pid old mode='' batch_args=()
   LIST_ARG=''
   while [ $# -gt 0 ]; do
     case $1 in
@@ -241,8 +450,19 @@ run_main() {
     prepare_tree
   fi
   if [ "$dry" = 0 ] && [ -n "$old" ] && [ "$old" = "$TARGET" ]; then
-    status "W is at $REF (${TARGET:0:12}): nothing to do"
-    exit 0
+    if archives_ready "$old"; then
+      status "W is at $REF (${TARGET:0:12}): nothing to do"
+      exit 0
+    fi
+    build_archives "$WT" "$TARGET" # W is current and has no archives yet: a call that only builds them
+    case $ARCH_STATE in
+      built | failed)
+        { echo "bloomery-follow $(date '+%F %H:%M'): archives at W ${TARGET:0:12}: $ARCH_STATE"; archive_lines; } | head -15 | tee "$STATE/report.txt"
+        prune_runs ;;
+    esac
+    status "W is at $REF (${TARGET:0:12}): archives ${ARCH_STATE/gaveup/not built}${ARCH_NOTE:+ ($ARCH_NOTE)}"
+    archives_exit
+    exit $?
   fi
   box_idle "$WT"
   rc=$?
@@ -270,6 +490,9 @@ run_main() {
   tail -5 "$STATE/batch.out"
   if [ "$dry" = 1 ]; then
     status "dry run of pass at ${TARGET:0:12} ended rc $rc (output $STATE/batch.out)"
+    drc=0
+    archives_dry "$WT" || drc=$?
+    [ "$rc" != 0 ] || rc=$drc
     exit "$rc"
   fi
   verdict "$out/run.log" "$rc"
@@ -279,12 +502,13 @@ run_main() {
   fi
   if [ "$VERDICT" = GREEN ]; then
     write_w "$TARGET" "$out/run.log" "$out"
+    build_archives "$WT" "$TARGET"
   fi
   report "$VERDICT" "$TARGET" "$out/run.log" "$out" "$old"
   prune_runs
-  status "pass at ${TARGET:0:12} ended $VERDICT"
+  status "pass at ${TARGET:0:12} ended $VERDICT${ARCH_STATE:+, archives $ARCH_STATE}"
   case $VERDICT in
-    GREEN) exit 0 ;;
+    GREEN) archives_exit; exit $? ;;
     YIELDED) exit 75 ;;
     *) exit 1 ;;
   esac
@@ -305,14 +529,41 @@ self_test() {
   fail() { n=$((n + 1)); bad=$((bad + 1)); echo "FAIL $1: $2"; }
   mkdir -p "$fx" "$t/origin/tools"
   # The stubs. They answer from the fixture directory ($FX), set per call: box.state (idle | lease | down | nodir), batch.mode
-  # (green | red | manyred | yield | unrecorded | refuse | slow), follow.mode (ok | missing).
+  # (green | greenlease | red | manyred | yield | unrecorded | refuse | slow), follow.mode (ok | missing), build.mode (ok | fail120 | to120 | hang86 |
+  # defer | nosha), build.hang (seconds hang86 sleeps) and carry.mode (ok | fail); batch.mode greendirty is green with a tracked file edited.
   cat > "$t/origin/tools/box.sh" << 'EOF'
 #!/usr/bin/env bash
 echo "$BLOOMERY_REMOTE ro=${BLOOMERY_BOX_READONLY:-0} wait=${BLOOMERY_BOX_WAIT:-} $1" | cut -c1-120 >> "$FX/box.calls"
-case "$(cat "$FX/box.state" 2> /dev/null || echo idle)" in
-  idle) echo idle ;;
+[ -z "${BLOOMERY_ARCH-}" ] || echo "$BLOOMERY_ARCH $1" >> "$FX/box.arch"
+state=$(cat "$FX/box.state" 2> /dev/null || echo idle)
+case "$state" in
   lease) echo "[guard]   the timing lease /root/bloomery-cpu.lock is held (a sitting runs); its holders:" >&2; echo "busy: the timing lease or a sitting hold is up"; exit 75 ;;
   down) echo "ssh: connect failed" >&2; exit 255 ;;
+esac
+case "$1" in
+  *"build.sh --dry-run"*) echo "release: dry run (stub)"; exit 0 ;;
+  *"tools/release/build.sh "*)
+    # the archive build: logs the call, then ends as FX/build.mode says; the archive's sha256 is that of its arch's name
+    arch=${BLOOMERY_ARCH:-}
+    sp=''
+    trap '[ -z "$sp" ] || kill "$sp" 2> /dev/null; exit 143' TERM
+    v=$(awk '{ print $(NF - 1) }' <<< "$1")
+    echo "arch=$arch cmd=$1 remote=${BLOOMERY_REMOTE:-} wait=${BLOOMERY_BOX_WAIT-unset} hold=${BLOOMERY_HOLD_OWNER-unset} cwd=$(pwd -P) head=$(git rev-parse --short=12 HEAD)" >> "$FX/build.calls"
+    echo $$ > "$FX/build.pid.$arch"
+    name=bloomery-$v-linux-x86_64-cuda-${arch/_/}.tar.gz
+    case "$(cat "$FX/build.mode" 2> /dev/null || echo ok):$arch" in
+      fail120:sm_120a) echo "release: sm_120a: the build broke" >&2; exit 3 ;;
+      to120:sm_120a) exit 124 ;;
+      hang86:sm_86) sleep "$(cat "$FX/build.hang" 2> /dev/null || echo 30)" & sp=$!; wait "$sp" ;;
+      defer:*) echo "[guard] the timing lease /root/bloomery-cpu.lock is held" >&2; exit 75 ;;
+      nosha:*) echo "release: built, and nothing else said"; exit 0 ;;
+    esac
+    echo "release: /root/repo/bloomery-follow/target/release-dist/$name 4242 bytes"
+    echo "$(printf '%s' "$arch" | shasum -a 256 | cut -d' ' -f1)  $name"
+    exit 0 ;;
+esac
+case "$state" in
+  idle) echo idle ;;
   nodir) if [ "${BLOOMERY_BOX_READONLY:-0}" = 1 ] && [ ! -e "$FX/dir-made" ]; then echo "box.sh: no such remote directory" >&2; exit 66; fi
          [ "${BLOOMERY_BOX_READONLY:-0}" = 1 ] || : > "$FX/dir-made"
          echo idle ;;
@@ -335,7 +586,7 @@ echo $$ > "$FX/batch.pid"
 {
   echo "plan laneA=1s laneB=1s wall=1s defaults=0 (predicted)"
   case $mode in
-    green) printf 'gate-a rc=0 5s try=1 lane=A tier=real ledger=pending\ngate-b rc=skip green-at=abc 2026-11-03T00:00:00+0900 lane=B tier=real\nledger gate-a recorded\nDONE total=5 red=0 tier=real skipped=3 wall=9s plan=8s laneA=5s laneB=0s\n' ;;
+    green | greenlease | greendirty) printf 'gate-a rc=0 5s try=1 lane=A tier=real ledger=pending\ngate-b rc=skip green-at=abc 2026-11-03T00:00:00+0900 lane=B tier=real\nledger gate-a recorded\nDONE total=5 red=0 tier=real skipped=3 wall=9s plan=8s laneA=5s laneB=0s\n' ;;
     red) printf 'gate-a rc=0 5s try=1 lane=A tier=real ledger=pending\nplain-any rc=1 12s try=1 lane=B tier=real ledger=red last_green=aaaaaaaaaaaa@2026-11-02T09:00:00+0900 tier=real card=3090 range=aaaaaaaaaaaa..bbbbbbbbbbbb commits=2 touching=[1234567 Dave; 89abcde Erin Fox] item=plain-any@X=1\nledger gate-a recorded\nDONE total=2 red=1 tier=real skipped=0 wall=17s plan=8s laneA=5s laneB=12s\n' ;;
     manyred) for i in 1 2 3 4 5 6 7 8 9 10; do printf 'gate-r%s rc=1 1s try=1 lane=A tier=real ledger=red last_green=none range=none\n' "$i"; done; printf 'DONE total=10 red=10 tier=real skipped=0 wall=10s plan=8s laneA=10s laneB=0s\n' ;;
     yield) printf 'gate-a rc=0 5s try=1 lane=A tier=real ledger=pending\ngate-y rc=yield held by timing-lease: not retried (the follower yields; the next pass runs it again) 1s try=1 lane=B tier=real ledger=yield\nledger gate-a recorded\nDONE total=2 red=0 tier=real skipped=0 yielded=1 wall=6s plan=8s laneA=5s laneB=1s\n' ;;
@@ -343,6 +594,8 @@ echo $$ > "$FX/batch.pid"
     slow) printf 'gate-a rc=0 5s try=1 lane=A tier=real ledger=pending\n' ;;
   esac
 } > "$out/run.log"
+[ "$mode" != greenlease ] || echo lease > "$FX/box.state" # a hold goes up while the pass ends
+[ "$mode" != greendirty ] || echo '# edit' >> tools/rotation.py # the pass leaves a tracked file edited
 if [ "$mode" = slow ]; then sleep 20 & sp=$!; wait $sp; exit 0; fi
 case $mode in red | manyred) exit 1 ;; *) exit 0 ;; esac
 EOF
@@ -356,6 +609,18 @@ print("# the follower's list (stub)")
 print("gate-a")
 print("gate-b")
 EOF
+  mkdir -p "$t/origin/crates/serve"
+  printf '[package]\nname = "bloomery-serve"\nversion = "0.0.1"\n' > "$t/origin/crates/serve/Cargo.toml"
+  # tools/release/carry.sh: the Mac-side carry check of a release build, ending as FX/carry.mode says
+  mkdir -p "$t/origin/tools/release"
+  cat > "$t/origin/tools/release/carry.sh" << 'EOF'
+#!/usr/bin/env bash
+echo "carry $*" >> "$FX/carry.calls"
+[ "$(cat "$FX/carry.mode" 2> /dev/null || echo ok)" != fail ] || { echo "release-build: HEAD lacks a fix tools/release/carry.tsv lists" >&2; exit 1; }
+echo "release-build: HEAD carries all rows"
+EOF
+  chmod +x "$t/origin/tools/release/carry.sh"
+  export BLOOMERY_FOLLOW_POLL=0.1 BLOOMERY_FOLLOW_BUILD_BOUND=1800 BLOOMERY_FOLLOW_BUILD_GRACE=0 BLOOMERY_FOLLOW_BUILD_TRIES=2
   echo ok > "$fx/follow.mode"
   chmod +x "$t/origin/tools/box.sh" "$t/origin/tools/gate-batch.sh" "$t/origin/tools/rotation.py"
   git init -q -b main "$t/origin" && git -C "$t/origin" add -A \
@@ -381,6 +646,19 @@ EOF
     first=$(git -C "$t/origin" rev-parse HEAD)
   }
   w_commit() { sed -n 's/^commit=//p' "$st/W" 2> /dev/null; }
+  wa_commit() { sed -n 's/^commit=//p' "$st/W.archives" 2> /dev/null; }
+  alive() { [ "${1:-0}" -gt 0 ] 2> /dev/null && kill -0 "$1" 2> /dev/null; } # a captured pid that is there; never pid 0, which kill -0 and -TERM read as the whole process group
+  build_ok() { # <version> <head12>: both archives were asked for once, as step 8 says: stage w, W's version and commit, no wait, no hold owner, the worktree at W
+    [ "$(grep -c . "$fx/build.calls" 2> /dev/null)" = 2 ] || return 1
+    local a
+    for a in sm_86 sm_120a; do
+      grep -q "^arch=$a cmd=timeout --kill-after=10 1800 bash tools/release/build.sh --stage w $1 $2 remote=~/repo/bloomery-follow wait=0 hold=unset cwd=$st/tree head=$2\$" "$fx/build.calls" || return 1
+    done
+  }
+  local sha86 sha120
+  sha86=$(printf '%s' sm_86 | shasum -a 256 | cut -d' ' -f1)
+  sha120=$(printf '%s' sm_120a | shasum -a 256 | cut -d' ' -f1)
+  unset BLOOMERY_ARCH BLOOMERY_HOLD_OWNER BLOOMERY_BOX_WAIT # a case that wants one sets it; the caller's own must not reach the stubs
   local c1 c2
   c1=$(git -C "$t/origin" rev-parse HEAD)
   # 1. a sitting's lease: the box is busy, nothing starts
@@ -401,15 +679,26 @@ EOF
        && grep -q "^remote: ~/repo/bloomery-follow cwd: $st/tree head: $c1 dirty: 0\$" "$fx/batch.calls"; echo $?)" "$(cat "$fx/batch.calls")"
   expect '  … on the list rotation.py follow-list gave' "$(grep -q '^gate-a$' "$fx/batch.list"; echo $?)" "$(cat "$fx/batch.list" 2>&1)"
   expect '  … and the report is at most 15 lines and says GREEN with the W move' "$([ "$(wc -l < "$st/report.txt")" -le 15 ] && grep -q 'GREEN' "$st/report.txt" && grep -q "^W: ${c1:0:12} (list 5, 3 skipped" "$st/report.txt"; echo $?)" "$(cat "$st/report.txt")"
+  expect 'archives: a green pass builds sm_86 and sm_120a at W (the recipe, the serve crate'"'"'s version, no wait, no hold owner, from the worktree at the target)' \
+    "$(build_ok 0.0.1 "${c1:0:12}"; echo $?)" "$(cat "$fx/build.calls" 2>&1)"
+  expect '  … W.archives names both with their sha256, the commit, the version and where they are on the box' \
+    "$(grep -q "^commit=$c1\$" "$st/W.archives" && grep -q '^version=0.0.1$' "$st/W.archives" && grep -q '^remote=~/repo/bloomery-follow$' "$st/W.archives" \
+       && grep -q "^sm86 $sha86 bloomery-0.0.1-linux-x86_64-cuda-sm86.tar.gz\$" "$st/W.archives" && grep -q "^sm120a $sha120 bloomery-0.0.1-linux-x86_64-cuda-sm120a.tar.gz\$" "$st/W.archives" \
+       && [ ! -e "$st/archives.fail" ]; echo $?)" "$(cat "$st/W.archives" 2>&1)"
+  expect '  … the report names them in its second block, within its 15 lines' \
+    "$(grep -q "^archives: sm86 ${sha86:0:12}, sm120a ${sha120:0:12} at ${c1:0:12} v0.0.1 in ~/repo/bloomery-follow/target/release-dist" "$st/report.txt"; echo $?)" "$(cat "$st/report.txt")"
+  tb=$(env BLOOMERY_FOLLOW_HOME="$st" bash "$runsh" --tarballs 0.0.1 2>&1); tb2=$(env BLOOMERY_FOLLOW_HOME="$st" bash "$runsh" --tarballs 0.0.2 2>&1)
+  expect '  … --tarballs gives pick.sh'"'"'s hook lines for that version and `absent` for another' \
+    "$([ "$tb" = "$(printf 'sm86 %s %s\nsm120a %s %s' "$sha86" "$c1" "$sha120" "$c1")" ] && [ "$tb2" = "$(printf 'sm86 absent\nsm120a absent')" ]; echo $?)" "$tb | $tb2"
   # 3. W at origin/main: nothing to do
-  rm -f "$fx/batch.calls"
+  rm -f "$fx/batch.calls" "$fx/build.calls"
   step current -- 
-  expect 'current: W at origin/main ends 0 and starts nothing' "$([ "$rc" = 0 ] && grep -q 'nothing to do' <<< "$out" && [ ! -e "$fx/batch.calls" ]; echo $?)" "rc=$rc $out"
+  expect 'current: W at origin/main with its archives ends 0 and starts nothing (no batch, no build)' "$([ "$rc" = 0 ] && grep -q 'nothing to do' <<< "$out" && [ ! -e "$fx/batch.calls" ] && [ ! -e "$fx/build.calls" ]; echo $?)" "rc=$rc $out"
   # 4. a new commit and a red pass: W stays, the report names the red with its range
   origin_commit two; c2=$first
-  echo red > "$fx/batch.mode"; w_before=$(cat "$st/W")
+  echo red > "$fx/batch.mode"; w_before=$(cat "$st/W"); rm -f "$fx/build.calls"
   step red -- 
-  expect 'red: the pass ends 1 and leaves W as it was' "$([ "$rc" = 1 ] && [ "$(cat "$st/W")" = "$w_before" ]; echo $?)" "rc=$rc"
+  expect 'red: the pass ends 1, leaves W as it was and builds no archives' "$([ "$rc" = 1 ] && [ "$(cat "$st/W")" = "$w_before" ] && [ ! -e "$fx/build.calls" ]; echo $?)" "rc=$rc"
   expect '  … the report names the red with its last green and range' \
     "$(grep -q '^RED plain-any rc=1: last_green=aaaaaaaaaaaa@2026-11-02T09:00:00+0900 tier=real card=3090 range=aaaaaaaaaaaa..bbbbbbbbbbbb commits=2 touching=\[1234567 Dave; 89abcde Erin Fox\]$' "$st/report.txt" \
        && grep -q "pass at ${c2:0:12}" "$st/report.txt" && grep -q "^W stays at ${c1:0:12}" "$st/report.txt"; echo $?)" "$(cat "$st/report.txt")"
@@ -450,8 +739,8 @@ EOF
   origin_commit four; rm -f "$fx/box.calls" "$fx/dir-made" "$fx/batch.calls"
   echo nodir > "$fx/box.state"
   step nodir -- 
-  expect 'probe: a remote directory that is not there yet is made by one plain call, then probed again' \
-    "$([ "$rc" = 0 ] && [ "$(grep -c . "$fx/box.calls")" = 3 ] && sed -n 2p "$fx/box.calls" | grep -q 'ro=0 wait=0 true'; echo $?)" "rc=$rc $(cat "$fx/box.calls")"
+  expect 'probe: a remote directory that is not there yet is made by one plain call, then probed again (and once more before the archives, which add their own two calls)' \
+    "$([ "$rc" = 0 ] && [ "$(grep -vc 'build.sh --stage w' "$fx/box.calls")" = 4 ] && sed -n 2p "$fx/box.calls" | grep -q 'ro=0 wait=0 true'; echo $?)" "rc=$rc $(cat "$fx/box.calls")"
   origin_commit five; rm -f "$fx/batch.calls"
   echo down > "$fx/box.state"
   step down -- 
@@ -470,10 +759,12 @@ EOF
   # 10. options
   step treeopt -- --tree "$t/repo"
   expect 'usage: --tree without --dry-run is 64' "$([ "$rc" = 64 ]; echo $?)" "rc=$rc"
-  rm -f "$fx/batch.calls"; origin_commit six; w_dry=$(cat "$st/W"); r_dry=$(cat "$st/report.txt")
+  rm -f "$fx/batch.calls" "$fx/box.arch" "$fx/build.calls"; origin_commit six; w_dry=$(cat "$st/W"); r_dry=$(cat "$st/report.txt")
   step dry -- --dry-run --tree "$t/repo"
   expect 'dry run: the batch gets --dry-run, and W and the report stay as they were' \
     "$([ "$rc" = 0 ] && grep -q '^args: .*--dry-run' "$fx/batch.calls" && [ "$(cat "$st/W")" = "$w_dry" ] && [ "$(cat "$st/report.txt")" = "$r_dry" ]; echo $?)" "rc=$rc $(cat "$fx/batch.calls" 2>&1)"
+  expect '  … and each archive'"'"'s build.sh --dry-run runs on the box (serve version, tree commit) while nothing is built' \
+    "$([ "$(grep -c . "$fx/box.arch")" = 2 ] && grep -q "^sm_86 bash tools/release/build.sh --dry-run --stage w 0.0.1 ${c1:0:12}\$" "$fx/box.arch" && grep -q "^sm_120a bash tools/release/build.sh --dry-run --stage w 0.0.1 ${c1:0:12}\$" "$fx/box.arch" && [ ! -e "$fx/build.calls" ]; echo $?)" "$(cat "$fx/box.arch" 2>&1) | $(cat "$fx/build.calls" 2>&1)"
   # 11. a stop signals the batch's pid and nothing else
   echo slow > "$fx/batch.mode"; rm -f "$fx/batch.pid"
   env FX="$fx" BLOOMERY_FOLLOW_HOME="$st" BLOOMERY_FOLLOW_REPO="$t/repo" bash "$runsh" > "$t/out-term.log" 2>&1 < /dev/null &
@@ -482,8 +773,93 @@ EOF
   bpid=$(cat "$fx/batch.pid" 2> /dev/null || echo 0)
   kill -TERM "$rpid" 2> /dev/null
   rc=0; wait "$rpid" 2> /dev/null || rc=$?
-  k=0; while kill -0 "$bpid" 2> /dev/null && [ "$k" -lt 50 ]; do sleep 0.1; k=$((k + 1)); done
-  expect 'stop: TERM to the script ends it 143, signals the batch it started, and frees the lock' "$([ "$rc" = 143 ] && ! kill -0 "$bpid" 2> /dev/null && [ ! -e "$st/lock.d" ]; echo $?)" "rc=$rc batch pid $bpid alive: $(kill -0 "$bpid" 2>&1 && echo yes)"
+  k=0; while alive "$bpid" && [ "$k" -lt 50 ]; do sleep 0.1; k=$((k + 1)); done
+  expect 'stop: TERM to the script ends it 143, signals the batch it started, and frees the lock' "$([ "$rc" = 143 ] && [ "$bpid" != 0 ] && ! alive "$bpid" && [ ! -e "$st/lock.d" ]; echo $?)" "rc=$rc batch pid $bpid alive: $(alive "$bpid" && echo yes)"
+  # 12. the release archives (step 8): after a green pass, and on a later call while W has none
+  echo idle > "$fx/box.state"; echo ok > "$fx/build.mode"
+  origin_commit seven; c7=$first
+  echo greenlease > "$fx/batch.mode"; rm -f "$fx/build.calls"; : > "$fx/box.calls"; local wa_before
+  wa_before=$(wa_commit)
+  step arch-busy -- 
+  expect 'archives: a hold that goes up as the pass ends: W moves, no build starts (rc 75), and the report says the next idle call builds' \
+    "$([ "$rc" = 75 ] && [ "$(w_commit)" = "$c7" ] && [ ! -e "$fx/build.calls" ] && ! grep -q 'build.sh --stage w' "$fx/box.calls" && grep -q '^archives NOT built: the box is not idle' "$st/report.txt" && grep -q 'the next idle call builds them' "$st/report.txt"; echo $?)" "rc=$rc $(cat "$st/report.txt" 2>&1)"
+  expect '  … and the record of the older build stays, naming its own commit' "$([ -n "$wa_before" ] && [ "$(wa_commit)" = "$wa_before" ] && [ "$wa_before" != "$c7" ]; echo $?)" "W.archives: $(wa_commit) (before: $wa_before)"
+  echo idle > "$fx/box.state"; echo green > "$fx/batch.mode"; rm -f "$fx/batch.calls"
+  step arch-retry -- 
+  expect 'archives: W current and its archives missing: the next idle call builds them without a pass (rc 0), and the report says so' \
+    "$([ "$rc" = 0 ] && build_ok 0.0.1 "${c7:0:12}" && [ "$(wa_commit)" = "$c7" ] && [ ! -e "$fx/batch.calls" ] && grep -q "^bloomery-follow .*: archives at W ${c7:0:12}: built\$" "$st/report.txt" && grep -q '^archives: sm86 ' "$st/report.txt"; echo $?)" "rc=$rc $out | $(cat "$st/report.txt" 2>&1)"
+  origin_commit eight; c8=$first
+  echo fail120 > "$fx/build.mode"; rm -f "$fx/build.calls" "$fx/batch.calls"
+  step arch-fail -- 
+  expect 'archives: a failed build leaves W standing at the new commit with no record (rc 1), and the report names the archive, the failure and the logs' \
+    "$([ "$rc" = 1 ] && [ "$(w_commit)" = "$c8" ] && [ ! -e "$st/W.archives" ] && [ "$(sed -n 's/^tries=//p' "$st/archives.fail")" = 1 ] \
+       && grep -q "^ARCHIVES FAILED at ${c8:0:12}: try 1 of 2: sm_120a: rc 3: release: sm_120a: the build broke (W stands); logs: .*/runs/build-" "$st/report.txt" && [ "$(grep -c . "$fx/build.calls")" = 2 ]; echo $?)" "rc=$rc $(cat "$st/report.txt" 2>&1)"
+  rm -f "$fx/build.calls" "$fx/batch.calls"
+  step arch-fail2 -- 
+  expect '  … the next call tries again (W is current, no pass runs) and the second failure counts' \
+    "$([ "$rc" = 1 ] && [ "$(grep -c . "$fx/build.calls")" = 2 ] && [ "$(sed -n 's/^tries=//p' "$st/archives.fail")" = 2 ] && [ ! -e "$fx/batch.calls" ]; echo $?)" "rc=$rc $(cat "$st/archives.fail" 2>&1)"
+  rm -f "$fx/build.calls"
+  step arch-gaveup -- 
+  expect '  … after BLOOMERY_FOLLOW_BUILD_TRIES failures at a commit nothing is started (rc 0) and the status names the way out' \
+    "$([ "$rc" = 0 ] && [ ! -e "$fx/build.calls" ] && grep -q 'not tried again' "$st/status.txt" && grep -q 'remove .*archives.fail' "$st/status.txt"; echo $?)" "rc=$rc $(cat "$st/status.txt" 2>&1)"
+  echo ok > "$fx/build.mode"; rm -f "$st/archives.fail" "$fx/build.calls"
+  step arch-fixed -- 
+  expect '  … with the failure gone the next call builds, writes the record and leaves no archives.fail' \
+    "$([ "$rc" = 0 ] && build_ok 0.0.1 "${c8:0:12}" && [ "$(wa_commit)" = "$c8" ] && [ ! -e "$st/archives.fail" ]; echo $?)" "rc=$rc $out"
+  origin_commit nine; c9=$first
+  echo defer > "$fx/build.mode"; rm -f "$fx/build.calls" "$fx/batch.calls"
+  step arch-defer -- 
+  expect 'archives: a build that finds the box busy (box.sh rc 75) is deferred, not failed: rc 75, no archives.fail, no record, W at the new commit' \
+    "$([ "$rc" = 75 ] && [ "$(w_commit)" = "$c9" ] && [ ! -e "$st/archives.fail" ] && [ ! -e "$st/W.archives" ] && grep -q '^archives NOT built: the box turned busy (sm_86, sm_120a: rc 75)' "$st/report.txt"; echo $?)" "rc=$rc $(cat "$st/report.txt" 2>&1)"
+  origin_commit ten
+  echo nosha > "$fx/build.mode"; rm -f "$fx/build.calls"
+  step arch-nosha -- 
+  expect 'archives: a build that ends 0 but leaves no sha256 line for the archive it was to make fails the step by name (rc 1, no record)' \
+    "$([ "$rc" = 1 ] && [ ! -e "$st/W.archives" ] && grep -q 'sm_86: built, but its log has no sha256 line for bloomery-0.0.1-linux-x86_64-cuda-sm86.tar.gz' "$st/report.txt"; echo $?)" "rc=$rc $(cat "$st/report.txt" 2>&1)"
+  origin_commit carry
+  echo fail > "$fx/carry.mode"; echo ok > "$fx/build.mode"; rm -f "$fx/build.calls"; : > "$fx/box.calls"
+  step arch-carry -- 
+  expect 'archives: a carry.sh refusal (a fix tools/release/carry.tsv lists is missing) fails the step by name before the box is asked: rc 1, no build call, no record' \
+    "$([ "$rc" = 1 ] && [ ! -e "$st/W.archives" ] && ! grep -q 'build.sh --stage w' "$fx/box.calls" && grep -q 'ARCHIVES FAILED at .*: try 1 of 2: carry.sh refused: release-build: HEAD lacks a fix tools/release/carry.tsv lists' "$st/report.txt"; echo $?)" "rc=$rc $(cat "$st/report.txt" 2>&1)"
+  echo ok > "$fx/carry.mode"; rm -f "$fx/build.calls"
+  step arch-carry-ok -- 
+  expect '  … and once the commit carries it the next call builds (rc 0)' "$([ "$rc" = 0 ] && build_ok 0.0.1 "$(git -C "$st/tree" rev-parse --short=12 HEAD)"; echo $?)" "rc=$rc $out"
+  origin_commit dirty
+  echo greendirty > "$fx/batch.mode"; rm -f "$fx/build.calls"; : > "$fx/box.calls"
+  step arch-dirty -- 
+  expect 'archives: a worktree the pass left edited is not built from: rc 1, named, no build call' \
+    "$([ "$rc" = 1 ] && ! grep -q 'build.sh --stage w' "$fx/box.calls" && grep -q 'ARCHIVES FAILED at .*: try 1 of 2: the worktree has uncommitted changes' "$st/report.txt"; echo $?)" "rc=$rc $(cat "$st/report.txt" 2>&1)"
+  echo green > "$fx/batch.mode"
+  step arch-dirty-ok -- 
+  expect '  … and the next call resets the worktree to W and builds (rc 0)' "$([ "$rc" = 0 ] && build_ok 0.0.1 "$(git -C "$st/tree" rev-parse --short=12 HEAD)"; echo $?)" "rc=$rc $out"
+  origin_commit to120
+  echo to120 > "$fx/build.mode"; rm -f "$fx/build.calls"
+  step arch-timeout -- 
+  expect 'archives: the box'"'"'s own timeout (rc 124) is named as the bound hit, not as a plain failure' \
+    "$([ "$rc" = 1 ] && [ ! -e "$st/W.archives" ] && grep -q "sm_120a: no end in 1800 s (the box.s timeout, rc 124)" "$st/report.txt"; echo $?)" "rc=$rc $(cat "$st/report.txt" 2>&1)"
+  echo ok > "$fx/build.mode"
+  origin_commit eleven
+  echo hang86 > "$fx/build.mode"; echo 5 > "$fx/build.hang"; rm -f "$fx/build.calls" "$fx/build.pid.sm_86"
+  step arch-bound BLOOMERY_FOLLOW_BUILD_BOUND=2 -- 
+  expect 'archives: a build that does not end in BLOOMERY_FOLLOW_BUILD_BOUND is signalled (its captured pid) and fails the step by name (rc 1, no record)' \
+    "$([ "$rc" = 1 ] && [ ! -e "$st/W.archives" ] && grep -q 'sm_86: no end in 2 s, stopped' "$st/report.txt" && [ -s "$fx/build.pid.sm_86" ] && ! alive "$(cat "$fx/build.pid.sm_86")"; echo $?)" "rc=$rc $(cat "$st/report.txt" 2>&1)"
+  origin_commit twelve; c12=$first
+  echo 8 > "$fx/build.hang"; rm -f "$fx/build.calls" "$fx/build.pid.sm_86"
+  env FX="$fx" BLOOMERY_FOLLOW_HOME="$st" BLOOMERY_FOLLOW_REPO="$t/repo" bash "$runsh" > "$t/out-termb.log" 2>&1 < /dev/null &
+  rpid=$! k=0
+  while [ ! -s "$fx/build.pid.sm_86" ] && [ "$k" -lt 150 ]; do sleep 0.1; k=$((k + 1)); done
+  bpid=$(cat "$fx/build.pid.sm_86" 2> /dev/null || echo 0)
+  kill -TERM "$rpid" 2> /dev/null
+  rc=0; wait "$rpid" 2> /dev/null || rc=$?
+  k=0; while alive "$bpid" && [ "$k" -lt 50 ]; do sleep 0.1; k=$((k + 1)); done
+  expect 'archives: TERM to the script while the builds run ends it 143, signals the builds it started and frees the lock' \
+    "$([ "$rc" = 143 ] && [ "$bpid" != 0 ] && ! alive "$bpid" && [ ! -e "$st/lock.d" ]; echo $?)" "rc=$rc build pid $bpid alive: $(alive "$bpid" && echo yes)"
+  echo ok > "$fx/build.mode"; rm -f "$fx/build.calls"
+  step arch-after-term -- 
+  expect '  … and the next call builds the archives at the W that call had written' "$([ "$rc" = 0 ] && build_ok 0.0.1 "${c12:0:12}" && [ "$(wa_commit)" = "$c12" ]; echo $?)" "rc=$rc $out"
+  rm -f "$st/W.archives"
+  tb=$(env BLOOMERY_FOLLOW_HOME="$st" bash "$runsh" --tarballs 0.0.1 2>&1)
+  expect 'tarballs: with no record every archive is absent' "$([ "$tb" = "$(printf 'sm86 absent\nsm120a absent')" ]; echo $?)" "$tb"
   # mutants (FAIL-first): one line of the script changed, the defect it prevents shows
   mutant() { # <tag> <sed expr> <ERE proving the sed applied>
     sed "$2" "$runsh" > "$t/run-$1.sh"
@@ -495,14 +871,30 @@ EOF
   mutant no-yield 's/--ledger --yield --list/--ledger --list/' 'tier real --ledger --list'
   mutant stamp-reuse 's/^  stamp=.*$/  stamp=fixed/' '^  stamp=fixed$'
   mutant no-kill 's/^  trap .kill -TERM "\$pid" 2> \/dev\/null; wait/  trap '"'"':; wait/' "trap ':; wait"
+  mutant no-build 's/^    build_archives "\$WT" "\$TARGET"$/    true/' '^    true$'
+  mutant no-retry 's/^    build_archives "\$WT" "\$TARGET" # W is current.*$/    true/' '^    true$'
+  mutant no-probe 's/^    box_idle "\$tree"$/    true/' '^    true$'
+  mutant waits 's/ BLOOMERY_BOX_WAIT=0 tools\/box.sh "timeout/ tools\/box.sh "timeout/' '"[$]arch" tools/box.sh "timeout'
+  mutant partial 's/^  if \[ -n "\$bad" \]; then$/  if false; then/' '^  if false; then$'
+  mutant no-bound 's/^      if \[ \$((SECONDS - t0)) -ge .*; then$/      if false; then/' '^      if false; then$'
+  mutant no-kill-builds 's/trap .kill -TERM \$BUILD_PIDS 2> \/dev\/null; wait/trap '"'"':; wait/' "trap ':; wait"
+  mutant no-sha 's/^        if \[ "\${line#\* }" = "\$name" \]; then$/        if true; then/' '^        if true; then$'
+  mutant 75-fails 's/^      elif \[ "\$rc" = 75 \]; then$/      elif false; then/' '^      elif false; then$'
+  mutant no-tries 's/-ge "\$BUILD_TRIES" \]/-ge 99 ]/' '-ge 99 \]'
+  mutant no-carry 's/^  elif ! carry=.*; then$/  elif false; then/' '^  elif false; then$'
+  mutant no-dirty 's/^  elif \[ -n "\$(git -C "\$tree" status --porcelain.*; then$/  elif false; then/' '^  elif false; then$'
+  mutant rc124 's/^      elif \[ "\$rc" = 124 \] || \[ "\$rc" = 137 \]; then$/      elif false; then/' '^      elif false; then$'
+  mutant no-stage 's/build.sh --stage w \$ARCH_VER/build.sh $ARCH_VER/' 'build.sh [$]ARCH_VER'
+  mutant no-dry-build 's/^    archives_dry "\$WT" || drc=\$?$/    true/' '^    true$'
   # state for the mutant cases: a fresh W at c1-equivalent is not needed; each starts from its own state directory
   echo red > "$fx/batch.mode"; echo lease > "$fx/box.state"; rm -rf "$st" "$fx/batch.calls"
   RUNSH=$t/run-no-idle.sh step m-noidle -- 
   expect 'mutant no-idle: a lease up no longer stops the pass (the batch runs)' "$([ -e "$fx/batch.calls" ]; echo $?)" "rc=$rc $out"
   echo idle > "$fx/box.state"; rm -rf "$st"; echo green > "$fx/batch.mode"
   echo red > "$fx/batch.mode"
+  rm -f "$fx/build.calls"
   RUNSH=$t/run-w-on-red.sh step m-wred -- 
-  expect 'mutant w-on-red: a red pass moves W' "$([ -e "$st/W" ]; echo $?)" "rc=$rc"
+  expect 'mutant w-on-red: a red pass moves W and builds archives for it' "$([ -e "$st/W" ] && [ -e "$fx/build.calls" ]; echo $?)" "rc=$rc"
   rm -rf "$st"; echo green > "$fx/batch.mode"; rm -f "$fx/batch.calls"
   step m-seed -- 
   echo '# edit' >> "$st/tree/tools/gate-batch.sh"; rm -f "$st/W"; rm -f "$fx/batch.calls"
@@ -525,14 +917,86 @@ EOF
   bpid=$(cat "$fx/batch.pid" 2> /dev/null || echo 0)
   kill -TERM "$rpid" 2> /dev/null
   sleep 1
-  expect 'mutant no-kill: without the signal the batch outlives the script' "$(kill -0 "$bpid" 2> /dev/null; echo $?)" "batch pid $bpid is gone"
-  kill -TERM "$bpid" 2> /dev/null
+  expect 'mutant no-kill: without the signal the batch outlives the script' "$(alive "$bpid"; echo $?)" "batch pid $bpid is gone"
+  ! alive "$bpid" || kill -TERM "$bpid" 2> /dev/null
   wait "$rpid" 2> /dev/null || true
+  # the archives' mutants: each runs its scenario on a fresh state directory
+  mrun() { # <mutant> <tag> <env…>: the mutant script, one step, in a fresh state; the stubs' files are the caller's
+    rm -rf "$st"; rm -f "$fx/build.calls" "$fx/batch.calls" "$fx/box.arch"; : > "$fx/box.calls"
+    RUNSH=$t/run-$1.sh step "$2" "${@:3}" -- 
+  }
+  echo ok > "$fx/build.mode"; echo green > "$fx/batch.mode"; echo idle > "$fx/box.state"
+  mrun no-build m-nobuild
+  expect 'mutant no-build: a green pass writes W and builds nothing' "$([ -e "$st/W" ] && [ ! -e "$fx/build.calls" ] && [ ! -e "$st/W.archives" ]; echo $?)" "rc=$rc"
+  echo defer > "$fx/build.mode"; rm -rf "$st"
+  step m-seed-retry -- 
+  echo ok > "$fx/build.mode"; rm -f "$fx/build.calls"
+  RUNSH=$t/run-no-retry.sh step m-noretry -- 
+  expect 'mutant no-retry: a current W without archives is left without (nothing built, rc 0)' "$([ ! -e "$fx/build.calls" ] && [ ! -e "$st/W.archives" ]; echo $?)" "rc=$rc $out"
+  echo greenlease > "$fx/batch.mode"
+  mrun no-probe m-noprobe
+  echo idle > "$fx/box.state"
+  expect 'mutant no-probe: without the second look at the box the builds start under the hold that went up' "$(grep -q 'build.sh --stage w' "$fx/box.calls"; echo $?)" "rc=$rc"
+  echo green > "$fx/batch.mode"
+  mrun waits m-waits
+  expect 'mutant waits: without BLOOMERY_BOX_WAIT=0 the build would wait out a hold (the call carries no wait)' "$(grep -q 'wait=unset' "$fx/build.calls"; echo $?)" "$(cat "$fx/build.calls" 2>&1)"
+  echo fail120 > "$fx/build.mode"
+  mrun partial m-partial
+  expect 'mutant partial: a failed archive no longer fails the step: a record with the one archive that was built is written' "$([ -e "$st/W.archives" ] && ! grep -q '^sm120a ' "$st/W.archives"; echo $?)" "rc=$rc $(cat "$st/W.archives" 2>&1)"
+  echo hang86 > "$fx/build.mode"; echo 5 > "$fx/build.hang"
+  mrun no-bound m-nobound BLOOMERY_FOLLOW_BUILD_BOUND=2
+  expect 'mutant no-bound: a build that outlasts its bound is waited for to its end (rc 0, a record)' "$([ "$rc" = 0 ] && [ -e "$st/W.archives" ]; echo $?)" "rc=$rc $(cat "$st/report.txt" 2>&1)"
+  echo 8 > "$fx/build.hang"; rm -f "$fx/build.pid.sm_86"
+  rm -rf "$st"
+  env FX="$fx" BLOOMERY_FOLLOW_HOME="$st" BLOOMERY_FOLLOW_REPO="$t/repo" bash "$t/run-no-kill-builds.sh" > "$t/out-term3.log" 2>&1 < /dev/null &
+  rpid=$! k=0
+  while [ ! -s "$fx/build.pid.sm_86" ] && [ "$k" -lt 150 ]; do sleep 0.1; k=$((k + 1)); done
+  bpid=$(cat "$fx/build.pid.sm_86" 2> /dev/null || echo 0)
+  kill -TERM "$rpid" 2> /dev/null
+  sleep 1
+  expect 'mutant no-kill-builds: without the signal the build outlives the script' "$(alive "$bpid"; echo $?)" "build pid $bpid is gone"
+  ! alive "$bpid" || kill -TERM "$bpid" 2> /dev/null
+  wait "$rpid" 2> /dev/null || true
+  echo nosha > "$fx/build.mode"
+  mrun no-sha m-nosha
+  expect 'mutant no-sha: an archive with no sha256 line in its log is recorded all the same' "$([ -e "$st/W.archives" ]; echo $?)" "rc=$rc"
+  echo defer > "$fx/build.mode"
+  mrun 75-fails m-75fails
+  expect 'mutant 75-fails: a build that found the box busy is counted as a failed one (rc 1, archives.fail)' "$([ "$rc" = 1 ] && [ -e "$st/archives.fail" ]; echo $?)" "rc=$rc"
+  echo fail120 > "$fx/build.mode"
+  rm -rf "$st"; step m-seed-tries -- 
+  step m-seed-tries2 -- 
+  rm -f "$fx/build.calls"
+  RUNSH=$t/run-no-tries.sh step m-notries -- 
+  expect 'mutant no-tries: a third try is made at a commit that failed BLOOMERY_FOLLOW_BUILD_TRIES times' "$([ -e "$fx/build.calls" ]; echo $?)" "rc=$rc $out"
+  echo ok > "$fx/build.mode"; echo fail > "$fx/carry.mode"
+  mrun no-carry m-nocarry
+  echo ok > "$fx/carry.mode"
+  expect 'mutant no-carry: a commit that lacks a listed fix is built all the same' "$([ -e "$fx/build.calls" ]; echo $?)" "rc=$rc"
+  echo greendirty > "$fx/batch.mode"
+  mrun no-dirty m-nodirty
+  echo green > "$fx/batch.mode"
+  expect 'mutant no-dirty: a worktree with uncommitted changes is built from' "$([ -e "$fx/build.calls" ]; echo $?)" "rc=$rc"
+  echo to120 > "$fx/build.mode"
+  mrun rc124 m-rc124
+  expect 'mutant rc124: the box'"'"'s timeout is reported as a plain failure (rc 124: …)' "$(grep -q 'sm_120a: rc 124' "$st/report.txt"; echo $?)" "$(cat "$st/report.txt" 2>&1)"
+  echo ok > "$fx/build.mode"
+  mrun no-stage m-nostage
+  expect 'mutant no-stage: the box build runs without --stage w (main'"'"'s README would refuse it)' "$([ -e "$fx/build.calls" ] && ! grep -q -- '--stage w' "$fx/build.calls"; echo $?)" "$(cat "$fx/build.calls" 2>&1)"
+  echo ok > "$fx/build.mode"
+  rm -f "$fx/box.arch" "$fx/build.calls"; rm -rf "$st"
+  RUNSH=$t/run-no-dry-build.sh step m-nodry -- --dry-run --tree "$t/repo"
+  expect 'mutant no-dry-build: a dry run no longer asks the box for each archive'"'"'s build.sh --dry-run' "$([ ! -e "$fx/box.arch" ]; echo $?)" "rc=$rc"
   echo "run.sh self-test: $((n - bad)) of $n ok"
   [ "$bad" = 0 ]
 }
 if [ "${1:-}" = --self-test ]; then
   self_test
+  exit $?
+fi
+if [ "${1:-}" = --tarballs ]; then
+  [ $# = 2 ] || { usage; exit 64; }
+  tarballs "$2"
   exit $?
 fi
 run_main "$@"
