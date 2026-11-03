@@ -1,6 +1,6 @@
 # rig-log
 
-한 워크스테이션의 빌드 로그다. 이 하드웨어로 실제로 무엇을 할 수 있는지, 측정한 것만 적는다. 대규모 언어 모델이 먼저고 영상·이미지·오디오가 뒤따른다.
+워크스테이션 한 대와 DGX Spark 한 대의 빌드 로그다. 이 하드웨어로 실제로 무엇을 할 수 있는지, 측정한 것만 적는다. 대규모 언어 모델이 먼저고 영상·이미지·오디오가 뒤따른다.
 
 숫자는 전부 이 기계에서, 적힌 날짜에 잰 것이다. 도출한 값은 도출했다고 밝히고, 틀린 기록은 지우지 않고 선을 그어 정정한다. 미출시 모델을 맞지 않는 하드웨어에서 돌리면 남이 테스트하지 않은 경로를 밟게 되는데, 그렇게 찾은 결함을 업스트림에 돌려보내는 것이 이 로그의 나머지 절반이다([`docs/upstream-contributions.md`](docs/upstream-contributions.md)).
 
@@ -12,7 +12,9 @@
 
 ## 기계
 
-현재 상태다. 바뀐 이력은 [`docs/machine-changes.md`](docs/machine-changes.md)에 있다.
+현재 상태다. 바뀐 이력은 [`docs/machine-changes.md`](docs/machine-changes.md)에 있다. 두 기계의 수치는 한 표에 섞지 않는다. 표가 기계를 밝히지 않으면 워크스테이션이다.
+
+### 워크스테이션
 
 | | |
 |---|---|
@@ -23,7 +25,7 @@
 | GPU 1 | NVIDIA GeForce RTX 3090, 24 GB, bus 41 |
 | Device order | **By UUID, never by slot.** Runners source [`configs/gpu-order.env`](configs/gpu-order.env) so CUDA0 is the 48 GB card; `nvidia-smi` ignores it and takes `-i <UUID>` |
 | Board | ASUS Pro WS WRX80E-SAGE SE WIFI |
-| Storage | Samsung 980 PRO 2 TB NVMe (root) + Phison E18 4 TB NVMe (`/models`) |
+| Storage | Samsung 980 PRO 2 TB NVMe (root) + Phison E18 4 TB NVMe (`/models`) + Seagate Exos X18 18 TB 7200 rpm SATA HDD (`/data`, used: 28,870 power-on hours at install) |
 | Case / Power | 3RSYS T840 / Super Flower Leadex Platinum SF-2000F14HP, 2000 W |
 | Cooling | ARCTIC Freezer 4U-M on CPU_FAN. Case fans are wired to the PSU, so all six `CHA_FAN` channels read `Disabled`; fan RPM and slot temperatures only via the BMC (`ipmitool sdr type fan`, `sdr type temperature`) |
 | OS | Ubuntu 24.04, kernel parameter `pci=realloc=off` |
@@ -34,9 +36,25 @@
 
 3090은 부하 중 버스에서 떨어진다(`Xid 79`). NCCL DDP로 133초 만에 재현되고 양 카드를 250 W로 묶으면 같은 DDP가 900초 동안 깨끗하지만, 이것은 동작하는 설정이지 원인 규명이 아니다([재현](log/2026-09-18.md#b-the-fault-reproduced)). 2026-09-22에 하루 두 번 떨어져서 그날부터 시간 측정은 A6000에서 하고, 3090은 게이트·빌드용으로 ~~300 W~~ 250 W 캡을 걸어 쓴다(2026-09-23에 바꿨다 — [기록](log/2026-09-23.md#machine-0923))([기록](log/2026-09-22.md#g-the-3090-fell-twice-so-the-clock-moved-to-the-a6000)).
 
+### DGX Spark
+
+2026-11-03에 들어왔다(중고). 사무실 네트워크에 있고 Tailscale SSH로 붙는다. [도착과 점검](log/2026-11-03.md#spark-arrival)
+
+| | |
+|---|---|
+| SoC | NVIDIA GB10: Cortex-X925 10 + Cortex-A725 10 (SMT 없음), GPU `sm_121` |
+| Memory | 128 GB LPDDR5x unified, `MemTotal` 127.6 GB. 헤드리스에서 `MemAvailable` **125.2 GB**. `nvidia-smi`는 메모리를 `Not Supported`로 보이니 `/proc/meminfo`로 읽는다 |
+| Measured memory read | GPU **259.0 GB/s** (16 GiB, 스펙 273의 95 %), CPU 20스레드 105.8 GB/s. 둘이 같이 읽으면 합이 GPU 혼자일 때와 같다([점검](log/2026-11-03.md#spark-health)) |
+| GEMM | cuBLAS 8192³ BF16 105.2 / FP16 105.8 / TF32 44.4 TFLOP/s |
+| Storage | Samsung MZALC4T0HBL1 4 TB NVMe, PCIe Gen5 x4. fio 순차 읽기 **14.89 GB/s**, 4K QD32 585k IOPS([측정](log/2026-11-03.md#spark-nvme-read)) |
+| Network | Realtek 10GbE가 **1 Gb/s로 링크**(HF 다운로드 실측 101–117 MB/s). ConnectX-7 두 포트는 케이블이 없어 내려가 있다 |
+| OS | DGX OS 7.6.0, Ubuntu 24.04.4, 커널 7.0.0-1024-nvidia, 드라이버 580.178.04, CUDA 13.0. 헤드리스(`multi-user.target`), 절전 타깃 mask |
+
+함정이 셋 있다. 케이블 없는 ConnectX-7은 부팅 직후 `cx7-pcie-hotplug`가 버스에서 내리고 그때 PCIe 정정 오류 8건이 찍힌다(부하로 늘지 않는다). unified memory라 페이지 캐시가 GPU 할당과 다투므로 모델 로드 전에 `drop_caches`를 한다. 드라이버는 공식 업데이트 경로상 580이고, bloomery의 Spark 문서 수치는 595.84에서 쟀다.
+
 ## 속도
 
-전부 이 상자에서 잰 값이다. 전체 표는 [`docs/engine-rates.md`](docs/engine-rates.md).
+워크스테이션에서 잰 값이다. 전체 표는 [`docs/engine-rates.md`](docs/engine-rates.md).
 
 | 모델 | 조건 | 디코드 | 기록 |
 |---|---|---:|---|
@@ -86,12 +104,14 @@
 | [10-11](log/2026-10-11.md) | Qwen3.8 프롬프트를 두 단위로 나눠 걸어 P 4096 +26 %(예측 +36…+47 %, 빗나간 항은 카드 꼬리). MiMo 카드 전문가로 디코드 20.07 → 25.31 tok/s. NVMe O_DIRECT 읽기는 큐 깊이 16에서 6.77 GB/s |
 | [10-12](log/2026-10-12.md) | Qwen3.8 NVMe 티어(20 GiB 아레나)의 refill 경로 수정으로 디코드 39.43 → 42.21 tok/s, +7.1 %(예측 +3…+13 %). 채우기 한 번의 단축은 도출보다 작다 |
 | [10-13](log/2026-10-13.md) | Qwen3.8 MTP 드래프트를 강제 id 스트림으로 A/B: 페이지드 16 GiB 플랜에서 폭 선택기 +5.6 %, 고정 4행 +0.9 %, 흐름 모델 두 번 닫힘. churn 풀을 호스트에 안 올리는 규칙은 −37.5 % |
+| [10-25](log/2026-10-25.md) | M4 Pro Mac 한 시팅에서 bloomery Metal이 같은 가중치로 mlx-lm보다 프롬프트 +3.7 %·디코드 +8.8 %, llama.cpp보다 +26.6 %·+29 %(`[dev]`) |
+| [11-03](log/2026-11-03.md) | DGX Spark(중고) 도착. GPU 읽기 259 GB/s, CPU와 GPU가 한 대역폭을 나눈다. NVMe 순차 읽기 14.89 GB/s로 워크스테이션의 2.1–2.5배. 워크스테이션에 18 TB HDD |
 
 09-22까지는 실험당 한 파일이었고, 날짜 파일로 합치며 줄였다. 옛 파일명과 새 위치의 대응은 [`log/moved.tsv`](log/moved.tsv)에 있고, 옛 원문은 커밋 `c27c3a7`(09-11–09-21)과 `d62f650`(09-22)에 그대로 남아 있다. 새 기록의 형식은 커밋 훅 [`tools/check-log.py`](tools/check-log.py)가 잰다.
 
 ## 다음
 
-다음 과제는 이 기계에서 뮤직비디오를 만드는 것이고, 그 비용에 대한 질문이 큐의 대부분이다. 목록은 [`docs/v41-experiment-plan.md`](docs/v41-experiment-plan.md)와 트래커(WKS)에 있다.
+~~다음 과제는 이 기계에서 뮤직비디오를 만드는 것이고, 그 비용에 대한 질문이 큐의 대부분이다.~~ 2026-11-03 선 그음: Spark가 들어왔다. 다음 과제는 Spark 한 대에서 bloomery와 경쟁 엔진(Flare, Atlas, Strata, vLLM, SGLang, llama.cpp, sparkinfer)을 같은 모델로 재는 것이다. 엔진마다 기본 설정과 커뮤니티 최고 레시피 두 줄을 잰다. 모델은 Qwen3.8-Flash-Next(FP4-Local, NVFP4, GGUF)와 Qwen3.6-35B-A3B다. 목록은 [`docs/v41-experiment-plan.md`](docs/v41-experiment-plan.md)와 트래커(WKS)에 있다.
 
 ## Layout
 
@@ -108,7 +128,9 @@ CLAUDE.md   이 리포에서 일하는 에이전트용 컨텍스트
 
 ## 이 로그가 낳은 프로젝트
 
-측정하다 도구가 없어서 만든 것이 두 개 있다. 둘 다 MIT이고 포크가 아니다.
+측정하다 도구가 없어서 만든 것이 셋 있다. 셋 다 MIT이고 포크가 아니다.
+
+- **[bloomery](https://github.com/midagedev/bloomery)**: GPU보다 큰 MoE 모델용 추론 서버, Rust로 HTTP부터 CUDA 커널까지. `llama-server`를 대신해 꽂는다. NVIDIA 카드, DGX Spark, Apple Silicon(Metal)에서 돈다. 09-19에 첫 토큰을 골랐다([기록](log/2026-09-19.md)).
 
 - **[toktape](https://github.com/midagedev/toktape)**: 로컬 LLM 서빙용 블랙박스 테이프. 돌고 있는 `llama-server`에 붙어 한 실행을 `.tape`에 담고, 모델 위치와 실제 속도를 카드에 찍는다. 이 README의 클립이 이것으로 녹화됐다. 증인 없는 tok/s는 일주일 뒤 저자 본인도 검증하지 못한다.
 - **[exl3-serve](https://github.com/midagedev/exl3-serve)**: [ExLlamaV3](https://github.com/turboderp-org/exllamav3)용 `llama-server` 호환 HTTP 앞단. ExLlamaV3에는 서버가 없어서 `llama-server`용 도구가 EXL3 모델을 못 돌렸다([맞추는 데 든 값](log/2026-09-15.md#exl3-serve-and-tabbyapi-timings)).
