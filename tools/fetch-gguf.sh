@@ -67,13 +67,19 @@ CURL=(curl); [ -n "$CURLRC" ] && CURL=(curl -K "$CURLRC")
 # curl exits 0 on a connection the server closes early (measured 2026-09-15: a
 # chunk came back 365 MB of 3.66 GB with rc 0), so a worker is not done when
 # curl returns -- it is done when the bytes are there.
+# A connection that stays open but stops delivering never returns at all: measured 2026-11-03 on
+# the DGX Spark, one range of eight crawled at ~80 KB/s for 7 minutes (56 MB of 619 MB) while the
+# other seven had finished, so the whole fetch waited on it. --speed-limit/--speed-time make curl
+# give up below 1 MB/s for 60 s and the loop below resumes the range on a new connection; killing
+# that curl by hand moved the file on at full rate again.
 range_worker(){
   local w=$1 i=$2 s=$3 e=$4 u=$5 want=$(( $4 - $3 + 1 )) got attempt
   for attempt in 1 2 3 4 5 6; do
     got=$(stat -c%s "$w/c$i" 2>/dev/null || echo 0)
     [ "$got" = "$want" ] && return 0
     if [ "$got" -gt "$want" ]; then echo "chunk $i overshot: $got > $want"; return 1; fi
-    "${CURL[@]}" -sfL --retry 5 --retry-delay 2 -r $(( s + got ))-$e "$u" >> "$w/c$i" || true
+    "${CURL[@]}" -sfL --retry 5 --retry-delay 2 --speed-limit 1000000 --speed-time 60 \
+      -r $(( s + got ))-$e "$u" >> "$w/c$i" || true
   done
   got=$(stat -c%s "$w/c$i" 2>/dev/null || echo 0)
   [ "$got" = "$want" ]
