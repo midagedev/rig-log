@@ -25,11 +25,13 @@ if [ -f /models/Qwen3.6-35B-A3B-LMS-GGUF/.fetch-verified ]; then
   job ./rows-gguf.sh q36lms-q4km $LMS bloomery-default llamacpp-default
 fi
 job ./gpu-job.sh bench-q8gemv /root/health/bench/q8gemv-bench 300
-# the same variants under Nsight Compute: DRAM throughput, occupancy and L1 traffic of a GDN qkv (8192 x 2048) and a
-# shared-expert gate (512 x 2048) launch of each variant (the bench's first graph replay of each)
-job ./gpu-job.sh ncu-q8gemv /usr/local/cuda/bin/ncu --graph-profiling node -k regex:"gemv_[abc]" --launch-count 400 \
-  --section SpeedOfLight --section MemoryWorkloadAnalysis --section Occupancy --section LaunchStats \
-  -o /root/takes/ncu-q8gemv/q8gemv -f /root/health/bench/q8gemv-bench 1
+# the same variants under Nsight Compute: DRAM throughput, occupancy and L1 traffic of one token's launches of each
+# (the first graph replay: 160 launches of A and B, 120 of C's fused F are not needed here)
+for k in a b c; do
+  job ./gpu-job.sh ncu-q8gemv-$k /usr/local/cuda/bin/ncu --graph-profiling node -k regex:"gemv_$k" --launch-count 160 \
+    --section SpeedOfLight --section MemoryWorkloadAnalysis --section Occupancy --section LaunchStats \
+    -o /root/takes/ncu-q8gemv-$k/q8gemv -f /root/health/bench/q8gemv-bench 1
+done
 job ./gpu-job.sh strata-setup-iq3s ./strata-setup.sh iq3s
 run=$(ls /opt/engines/strata-src-v0.2.10/run-iq3_s.sh 2>/dev/null)
 [ -n "$run" ] && job ./rows-strata.sh q38-iq3s "$run" strata-default strata-nomtp
