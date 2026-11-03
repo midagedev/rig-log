@@ -309,3 +309,14 @@ bloomery rec의 `mtp width` 기록에서 코드 요청은 폭 3(최대)을 고�
 **제안 7(새로).** `DELTA_VERIFY_ROWS`를 6으로 올리고 폭 선택기를 5까지 넓힌다. 검증 기록은 행당 `3·state` f32라 늘어나는 메모리는 작다.
 폭 1→2→3의 창 비용 증가가 약 8 → 7 → 5 ms이니 폭 5를 약 64 ms로 잡는다. 수락률 0.95가 이어지면 e ≈ 5.3이고, 코드 디코드는 약 64 → 83 tok/s(+30 %)다. 산문은 선택기가 폭 2를 고르니 그대로다.
 값싼 확인으로 `BLOOMERY_MTP_HEAD_ROWS=full`과 `BLOOMERY_MTP_WIDTH=fixed` 행을 큐에 넣었다(`queue-night6.sh`).
+
+## SGLang의 Qwen3.8 한 대 셀(11-04 02:05 KST)
+
+`lmsysorg/sglang:dev-qwen38-next-local`(4ccff141db), NVIDIA `Qwen3.8-Flash-Next-NVFP4`(ModelOpt MIXED_PRECISION), 쿡북의 한 대 셀 그대로다(`rows-sglang-q38.sh`). N-gram 표 47.7 GiB는 NVMe 파일에 두고 부팅마다 새로 만든다. 부팅은 11–13분 걸렸고, 부하 중 MemAvailable은 15–20 GB였다.
+
+| 행 | 코드 | 산문 | pp512 | pp4096 |
+|---|---:|---:|---:|---:|
+| SGLang MTP(NEXTN 3단, 4 드래프트) | 30.2 | 21.5 | 560 | 1598 |
+| SGLang MTP 없음 | 15.2 | 14.9 | 633 | 1561 |
+
+쿡북의 측정(MTP 27.5, 없음 15.9 tok/s 한 요청)과 맞는다. 한 대에서는 표를 NVMe에서 읽느라 bloomery FP4-Local(rec 63.9 / 42.9, nomtp 29.6)의 절반이다. 수락 길이는 2.2–3.8이었다.
