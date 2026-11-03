@@ -35,9 +35,13 @@ def complete(ids, n=128):
             "first_token_ms": round((first - t0) * 1000, 1) if first else None}
 
 texts = [json.loads(l)["prompt"] for l in open(src) if l.strip()]
-ids = [post("/tokenize", {"content": x}).read() for x in texts]
-ids = [json.loads(b)["tokens"] for b in ids]
-assert all(len(x) >= 4096 for x in ids), [len(x) for x in ids]
+# The three passages tokenize to 4,188 / 3,581 / 4,494 ids on their own (measured 11-03: a passage cut for the chat
+# takes is not 4,096 ids without its template), so the three prompts are cut from the passages laid end to end,
+# starting 4,000 ids apart: different texts for every request, each exactly 4,096 (or 512) ids.
+pool = []
+for x in texts: pool += json.loads(post("/tokenize", {"content": x}).read())["tokens"]
+assert len(pool) >= 2 * 4000 + 4096, len(pool)
+ids = [pool[k * 4000:k * 4000 + 4096] for k in range(3)]
 for i in range(2): complete(ids[0][:512], 32)              # the README's two warm-ups
 with open(f"{out}/ids-probe.jsonl", "w") as f:
     for size in (512, 4096):
