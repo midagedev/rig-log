@@ -7,6 +7,9 @@
 #   ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF IQ3_S (2 shards, 83.6 GB) at the revision Strata's setup.py pins —
 #     Strata's own Qwen3.8 weights, and the same file through llama.cpp (and bloomery, if it loads) for the
 #     same-GGUF pairing the user asked for
+#   TensorFold/Qwen3.6-35B-A3B-MLX-4bit-MTP @81169a9b (20.9 GB), the revision TensorFold's README pins, and
+#   TensorFold/Qwen3.8-Flash-Next-MLX-4bit-MTP @2b170fa6 (113.2 GB by the tree API; the README says 73.3 GiB), TensorFold's
+#     own formats for the two boards (user's yes 11-03 22:12 KST)
 #   lmsysorg/sglang:dev-qwen38-next-local, the image SGLang's cookbook names for Qwen3.8 on a DGX Spark (CUDA 13.0.3)
 # usage (root, beside fetch-gguf.sh): fetch-models-2.sh   sentinel FETCH2_DONE rc=<n>
 set -u
@@ -25,5 +28,15 @@ N=8 REV=$REV DEST=/models/Qwen3.8-Flash-Next-GSQ-RCO-GGUF ./fetch-gguf.sh $REPO 
   IQ3_S/Qwen3.8-Flash-Next-GSQ-RCO-IQ3_S-00001-of-00002.gguf IQ3_S/Qwen3.8-Flash-Next-GSQ-RCO-IQ3_S-00002-of-00002.gguf \
   > fetch-gsq-iq3s.log 2>&1 || rc=1
 say "done $REPO rc=$rc $(du -sb /models/Qwen3.8-Flash-Next-GSQ-RCO-GGUF | cut -f1) B"
+tree(){ # repo rev dest — the whole repo, kept as a tree
+  local files; files=$(curl -s "https://huggingface.co/api/models/$1/tree/$2?recursive=1" | jq -r '.[]|select(.type=="file")|.path')
+  [ -n "$files" ] || { say "FAIL $1: empty file list"; rc=1; return; }
+  say "start $1 @${2:0:8} ($(echo "$files" | wc -l) files)"
+  # shellcheck disable=SC2086
+  N=8 REV=$2 DEST=/models/$3 KEEP_TREE=1 ./fetch-gguf.sh "$1" $files > "fetch-$3.log" 2>&1 || rc=1
+  say "done $1 rc=$rc $(du -sb --exclude=.fetch /models/$3 | cut -f1) B"
+}
+tree TensorFold/Qwen3.6-35B-A3B-MLX-4bit-MTP 81169a9bc511a27c1b4eedb77a2cd98ced431847 Qwen3.6-35B-A3B-MLX-4bit-MTP
+tree TensorFold/Qwen3.8-Flash-Next-MLX-4bit-MTP 2b170fa6309d5d1ee380b35636075fac7945f286 Qwen3.8-Flash-Next-MLX-4bit-MTP
 say "pull lmsysorg/sglang:dev-qwen38-next-local"; docker pull -q lmsysorg/sglang:dev-qwen38-next-local || rc=1
 echo "FETCH2_DONE rc=$rc"
