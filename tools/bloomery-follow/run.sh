@@ -46,6 +46,16 @@
 #      here (it needs the signing identity on the lead's Mac). --dry-run runs each build's `build.sh --dry-run` on the box instead
 #      (the tree check and the directories; nothing is built).
 #
+#   8b. The GB10 archive, after the x86-64 archives are built at W (or already are: a call with W current builds what is missing): on our DGX
+#      Spark, natively, by spark-box.sh beside this script (rsync of the worktree, the bench protocol of docs/spark-hold.md, tools/release/
+#      build.sh --stage w <version> <commit> there under tools/box.sh's local mode). No wait for a bench: a Spark whose bench hold is up
+#      (spark-box.sh rc 75) is "deferred" and the next idle call tries again, like a busy box. The call is bounded as an x86-64 build is
+#      ($BLOOMERY_FOLLOW_BUILD_BOUND, the Spark's own timeout inside it). Built: the line `gb10 <sha256> <name>` joins W.archives, with
+#      gb10_host= and gb10_remote= (where the archive is, for publish.sh's BLOOMERY_GB10_BOX and BLOOMERY_GB10_REMOTE). A build that fails,
+#      ends past its bound or leaves no sha256 line fails the step: W and the x86-64 record stand, the report names it (`GB10 ARCHIVE FAILED`),
+#      gb10.fail counts the tries at that commit ($BLOOMERY_FOLLOW_BUILD_TRIES) and after them nothing is retried until it is removed or W moves.
+#      BLOOMERY_FOLLOW_GB10=0 leaves the step out. --dry-run runs the Spark's `build.sh --dry-run` the same way.
+#
 # State, $STATE (default ~/.cache/bloomery/follow; BLOOMERY_FOLLOW_HOME):
 #   W          commit= (full sha), epoch=, date=, list= (the batch's total), skipped=, deferred= and never= (items the ledger could
 #              not hold: ledger=never), pass= (the batch's directory); written atomically, only by a green pass
@@ -56,12 +66,17 @@
 #              failure. The release flow reads the archives at <remote>/<dist>: BLOOMERY_REMOTE=<remote> for pick.sh's default
 #              read of the box, or PICK_TARBALLS='bash <this script> --tarballs' for the record (lines `<arch> <sha256> <commit>`,
 #              or `<arch> absent` for another version)
-#   W.archives.log one line per write; archives.fail the last failed build (commit=, tries=, reason=, date=)
+#              and, once the GB10 archive is built at that commit: gb10_host=, gb10_remote= and the row `gb10 <sha256> <name>` (the Spark's
+#              directory holds target/release-dist like the box's; the x86-64 rows are not touched by that step)
+#   W.archives.log one line per write; archives.fail the last failed x86-64 build, gb10.fail the last failed GB10 build (commit=, tries=,
+#              reason=, date=)
 #   report.txt the last pass's report (a call that only built the archives writes its own); status.txt the last call's one line
 #   runs/      one directory a pass or an archive build (the newest $BLOOMERY_FOLLOW_KEEP, default 14, stay), tree/, lock.d/
 #
 # Environment: BLOOMERY_FOLLOW_HOME, _REPO (default ~/repo/bloomery: the clone the worktree is added to), _REF (origin/main), _REMOTE,
-# _STUB_LIST, _KEEP, _BUILD_BOUND, _BUILD_GRACE, _BUILD_TRIES, _POLL (seconds between looks at the builds, default 5). The
+# _STUB_LIST, _KEEP, _BUILD_BOUND, _BUILD_GRACE, _BUILD_TRIES, _POLL (seconds between looks at the builds, default 5), _GB10 (1: build the
+# GB10 archive on the Spark, 0: not; default 1), _GB10_SLACK (seconds past the bound before the call stops the build: the sync, default 120), _GB10_HOST (the ssh host, spark), _GB10_REMOTE (the Spark's tree, /root/bloomery-gb10),
+# _SPARK_BOX (the runner, spark-box.sh beside this script; the self-test's stub). The
 # box is tools/box.sh's: BLOOMERY_BOX names it. The ledger is gate-batch.sh's (BLOOMERY_GATE_LEDGER).
 # Exit: 0 a green pass with its archives built, W current with its archives (or with archives that failed their tries), or a dry run
 # that ended 0; 1 a pass with a red gate, one whose items ran green but were not all recorded, or an archive build that failed;
@@ -77,6 +92,11 @@ REF=${BLOOMERY_FOLLOW_REF:-origin/main}
 REMOTE=${BLOOMERY_FOLLOW_REMOTE:-'~/repo/bloomery-follow'}
 STUB_LIST=${BLOOMERY_FOLLOW_STUB_LIST:-$STATE/list.stub}
 KEEP=${BLOOMERY_FOLLOW_KEEP:-14}
+GB10_SLACK=${BLOOMERY_FOLLOW_GB10_SLACK:-120}
+GB10_ON=${BLOOMERY_FOLLOW_GB10:-1}
+GB10_HOST=${BLOOMERY_FOLLOW_GB10_HOST:-spark}
+GB10_REMOTE=${BLOOMERY_FOLLOW_GB10_REMOTE:-/root/bloomery-gb10}
+SPARK_BOX=${BLOOMERY_FOLLOW_SPARK_BOX:-$(dirname "$SELF")/spark-box.sh}
 BUILD_BOUND=${BLOOMERY_FOLLOW_BUILD_BOUND:-1800}
 BUILD_GRACE=${BLOOMERY_FOLLOW_BUILD_GRACE:-60}
 BUILD_TRIES=${BLOOMERY_FOLLOW_BUILD_TRIES:-2}
@@ -212,19 +232,34 @@ write_w() { # <commit> <run.log> <out dir>
 # wa_get <key>: a value of the W.archives file ('' when there is none or no such key).
 wa_get() { sed -n "s/^$1=//p" "$STATE/W.archives" 2> /dev/null | head -1; }
 
-# archives_ready <commit>: 0 when W.archives names this commit with both x86-64 archives.
-archives_ready() {
+# x86_ready <commit>: 0 when W.archives names this commit with both x86-64 archives.
+x86_ready() {
   [ -f "$STATE/W.archives" ] || return 1
   [ "$(wa_get commit)" = "$1" ] || return 1
   grep -q '^sm86 ' "$STATE/W.archives" && grep -q '^sm120a ' "$STATE/W.archives"
 }
 
+# gb10_sha: the GB10 archive's sha256 in W.archives ('' when there is none).
+gb10_sha() { awk '$1 == "gb10" { print $2; exit }' "$STATE/W.archives" 2> /dev/null; }
+
+# gb10_gaveup <commit>: 0 when gb10.fail names this commit with BUILD_TRIES failures.
+gb10_gaveup() {
+  [ "$(sed -n 's/^commit=//p' "$STATE/gb10.fail" 2> /dev/null | head -1)" = "$1" ] \
+    && [ "$(sed -n 's/^tries=//p' "$STATE/gb10.fail" 2> /dev/null | head -1)" -ge "$BUILD_TRIES" ] 2> /dev/null
+}
+
+# archives_ready <commit>: 0 when the x86-64 archives are built at it and the GB10 archive is too, or is left out or given up on.
+archives_ready() {
+  x86_ready "$1" || return 1
+  [ "$GB10_ON" != 1 ] || [ -n "$(gb10_sha)" ] || gb10_gaveup "$1"
+}
+
 # tarballs <version>: pick.sh's PICK_TARBALLS hook — `<arch> <sha256> <commit>` for each x86-64 archive W.archives holds for that
-# version, else `<arch> absent`. It reads the record and asks nothing of the box.
+# version, else `<arch> absent`, and the same for gb10 while the GB10 step is on. It reads the record and asks nothing of the box.
 tarballs() {
   local v=$1 a sha
   [ -n "$v" ] || { usage; return 64; }
-  for a in sm86 sm120a; do
+  for a in sm86 sm120a $([ "$GB10_ON" != 1 ] || echo gb10); do
     sha=$(awk -v a="$a" '$1 == a { print $2; exit }' "$STATE/W.archives" 2> /dev/null)
     if [ -n "$sha" ] && [ "$(wa_get version)" = "$v" ]; then echo "$a $sha $(wa_get commit)"; else echo "$a absent"; fi
   done
@@ -236,27 +271,38 @@ fail_get() { sed -n "s/^$1=//p" "$STATE/archives.fail" 2> /dev/null | head -1; }
 # serve_version <tree> <commit>: the serve crate's version at that commit, the one the build is given.
 serve_version() { git -C "$1" show "$2:crates/serve/Cargo.toml" 2> /dev/null | awk -F'"' '/^version = "/ { print $2; exit }'; }
 
-# build_archives <tree> <commit>: sm_86 and sm_120a at once, bounded. ARCH_STATE is built, deferred, failed or gaveup, ARCH_NOTE says
+# build_problem <tree> <commit>: why the worktree cannot be built from, in BAD (empty when it can); ARCH_VER is the serve crate's version at
+# the commit, ARCH_C12 its 12-digit id, both for the build that follows. Every archive of W is built from the same worktree, checked the same way.
+BAD='' ARCH_VER='' ARCH_C12=''
+build_problem() {
+  local tree=$1 commit=$2 carry
+  BAD=''
+  ARCH_C12=$(git -C "$tree" rev-parse --short=12 "$commit" 2> /dev/null || echo "${commit:0:12}")
+  ARCH_VER=$(serve_version "$tree" "$commit")
+  if [ -z "$ARCH_VER" ]; then
+    BAD="cannot read the serve crate's version at $ARCH_C12"
+  elif [ "$(git -C "$tree" rev-parse HEAD 2> /dev/null)" != "$commit" ]; then
+    BAD="the worktree is not at $ARCH_C12"
+  elif [ -n "$(git -C "$tree" status --porcelain --untracked-files=no 2> /dev/null)" ]; then
+    BAD="the worktree has uncommitted changes"
+  elif ! carry=$(cd "$tree" && ./tools/release/carry.sh 2>&1); then
+    BAD="carry.sh refused: $(printf '%s\n' "$carry" | grep -v '^[[:space:]]*$' | head -1 | cut -c1-160)"
+  fi
+}
+
+# build_x86 <tree> <commit>: sm_86 and sm_120a at once, bounded. ARCH_STATE is built, deferred, failed or gaveup, ARCH_NOTE says
 # why, ARCH_DIR is the directory of the build logs (when any build started) and ARCH_VER and ARCH_C12 name what was built.
-BUILD_PIDS='' ARCH_STATE='' ARCH_NOTE='' ARCH_DIR='' ARCH_VER='' ARCH_C12=''
-build_archives() {
-  local tree=$1 commit=$2 arch name i rc line t0 live n log bad='' defer='' dir carry
+BUILD_PIDS='' ARCH_STATE='' ARCH_NOTE='' ARCH_DIR=''
+build_x86() {
+  local tree=$1 commit=$2 arch name i rc line t0 live n log bad='' defer='' dir
   local -a pids=() names=() rows=() timed=()
-  ARCH_STATE=failed ARCH_NOTE='' ARCH_DIR='' ARCH_VER='' ARCH_C12=$(git -C "$tree" rev-parse --short=12 "$commit" 2> /dev/null || echo "${commit:0:12}")
+  ARCH_STATE=failed ARCH_NOTE='' ARCH_DIR='' ARCH_C12=$(git -C "$tree" rev-parse --short=12 "$commit" 2> /dev/null || echo "${commit:0:12}")
   if [ "$(fail_get commit)" = "$commit" ] && [ "$(fail_get tries)" -ge "$BUILD_TRIES" ] 2> /dev/null; then
     ARCH_STATE=gaveup ARCH_NOTE="failed $(fail_get tries) time(s) at this commit, not tried again (last: $(fail_get reason)); remove $STATE/archives.fail to try"
     return
   fi
-  ARCH_VER=$(serve_version "$tree" "$commit")
-  if [ -z "$ARCH_VER" ]; then
-    bad="cannot read the serve crate's version at $ARCH_C12"
-  elif [ "$(git -C "$tree" rev-parse HEAD 2> /dev/null)" != "$commit" ]; then
-    bad="the worktree is not at $ARCH_C12"
-  elif [ -n "$(git -C "$tree" status --porcelain --untracked-files=no 2> /dev/null)" ]; then
-    bad="the worktree has uncommitted changes"
-  elif ! carry=$(cd "$tree" && ./tools/release/carry.sh 2>&1); then
-    bad="carry.sh refused: $(printf '%s\n' "$carry" | grep -v '^[[:space:]]*$' | head -1 | cut -c1-160)"
-  fi
+  build_problem "$tree" "$commit"
+  bad=$BAD
   if [ -z "$bad" ]; then
     box_idle "$tree"
     rc=$?
@@ -350,23 +396,135 @@ build_archives() {
   fi
 }
 
-# archive_lines: the report's lines for ARCH_STATE (none when no step ran).
+# gb10_fail_get <key>: a value of gb10.fail ('' when there is none).
+gb10_fail_get() { sed -n "s/^$1=//p" "$STATE/gb10.fail" 2> /dev/null | head -1; }
+
+# wa_drop_gb10: W.archives without its GB10 lines (the Spark's archive is being replaced); the x86-64 lines are the box's and stay.
+wa_drop_gb10() {
+  [ -f "$STATE/W.archives" ] || return 0
+  { grep -v '^gb10' "$STATE/W.archives" || true; } > "$STATE/W.archives.tmp.$$" && mv "$STATE/W.archives.tmp.$$" "$STATE/W.archives" || die 70 "cannot write $STATE/W.archives"
+}
+
+# build_gb10 <tree> <commit>: the GB10 archive on the Spark, bounded, once the x86-64 archives stand at that commit. GB10_STATE is built,
+# ready (already in W.archives), deferred, failed, gaveup or off; GB10_NOTE says why and GB10_DIR is the log directory (when a build started).
+GB10_STATE='' GB10_NOTE='' GB10_DIR=''
+build_gb10() {
+  local tree=$1 commit=$2 name rc=0 line t0 pid dir bad='' timed=0 log n sha=''
+  GB10_STATE=off GB10_NOTE='' GB10_DIR=''
+  [ "$GB10_ON" = 1 ] || return 0
+  GB10_STATE=failed
+  if [ -n "$(gb10_sha)" ] && [ "$(wa_get commit)" = "$commit" ]; then
+    GB10_STATE=ready GB10_NOTE="gb10 $(gb10_sha | cut -c1-12)"
+    return 0
+  fi
+  if gb10_gaveup "$commit"; then
+    GB10_STATE=gaveup GB10_NOTE="failed $(gb10_fail_get tries) time(s) at this commit, not tried again (last: $(gb10_fail_get reason)); remove $STATE/gb10.fail to try"
+    return 0
+  fi
+  build_problem "$tree" "$commit"
+  bad=$BAD
+  if [ -z "$bad" ]; then
+    dir=$STATE/runs/build-gb10-$(date '+%Y%m%d-%H%M%S')-$$
+    mkdir -p "$dir" || die 70 "cannot make $dir"
+    GB10_DIR=$dir log=$dir/build-gb10.log
+    wa_drop_gb10
+    (cd "$tree" && exec env -u BLOOMERY_HOLD_OWNER BLOOMERY_SPARK="$GB10_HOST" BLOOMERY_SPARK_REMOTE="$GB10_REMOTE" bash "$SPARK_BOX" --tree "$tree" --wait 0 --bound "$BUILD_BOUND" --reason "follower: the GB10 archive at $ARCH_C12" -- "bash tools/release/build.sh --stage w $ARCH_VER $ARCH_C12") > "$log" 2>&1 < /dev/null &
+    pid=$!
+    BUILD_PIDS=$pid
+    trap 'kill -TERM $BUILD_PIDS 2> /dev/null; wait $BUILD_PIDS 2> /dev/null; echo "run.sh: interrupted: the GB10 build (pid $BUILD_PIDS) was signalled" >&2; exit 143' INT TERM
+    t0=$SECONDS
+    while kill -0 "$pid" 2> /dev/null; do
+      if [ $((SECONDS - t0)) -ge $((BUILD_BOUND + BUILD_GRACE + GB10_SLACK)) ]; then # the Spark's own timeout (BUILD_BOUND) and the sync come first
+        timed=1
+        kill -TERM "$pid" 2> /dev/null
+        n=0
+        while [ "$n" -lt 40 ] && kill -0 "$pid" 2> /dev/null; do sleep 0.5; n=$((n + 1)); done
+        ! kill -0 "$pid" 2> /dev/null || kill -KILL "$pid" 2> /dev/null
+        break
+      fi
+      sleep "$POLL"
+    done
+    wait "$pid" 2> /dev/null || rc=$?
+    trap - INT TERM
+    BUILD_PIDS=''
+    name=bloomery-$ARCH_VER-linux-aarch64-cuda-sm121a.tar.gz
+    if [ "$timed" = 1 ]; then
+      bad="no end in $((BUILD_BOUND + BUILD_GRACE + GB10_SLACK)) s, stopped"
+    elif [ "$rc" = 75 ]; then
+      GB10_STATE=deferred GB10_NOTE="the Spark is busy (rc 75): $( { grep -m1 '^spark-box: busy:' "$log" || grep -v '^[[:space:]]*$' "$log" | tail -1; } | cut -c1-150)"
+      return 0
+    elif [ "$rc" = 124 ] || [ "$rc" = 137 ]; then
+      bad="no end in $BUILD_BOUND s (the Spark's timeout, rc $rc)"
+    elif [ "$rc" != 0 ]; then
+      bad="rc $rc: $(grep -v '^[[:space:]]*$' "$log" | tail -1 | cut -c1-160)"
+    else
+      line=$(sed -n -E 's/^([0-9a-f]{64})  (bloomery-.*\.tar\.gz)$/\1 \2/p' "$log" | tail -1)
+      if [ "${line#* }" = "$name" ]; then
+        sha=${line%% *}
+      else
+        bad="built, but its log has no sha256 line for $name"
+      fi
+    fi
+  fi
+  if [ -n "$bad" ]; then
+    n=1
+    [ "$(gb10_fail_get commit)" != "$commit" ] || n=$(($(gb10_fail_get tries) + 1))
+    printf 'commit=%s\ntries=%s\nreason=%s\ndate=%s\n' "$commit" "$n" "$bad" "$(date '+%Y-%m-%dT%H:%M:%S%z')" > "$STATE/gb10.fail"
+    GB10_STATE=failed GB10_NOTE="try $n of $BUILD_TRIES: $bad"
+  else
+    {
+      cat "$STATE/W.archives"
+      echo "gb10_host=$GB10_HOST"
+      echo "gb10_remote=$GB10_REMOTE"
+      echo "gb10 $sha $name"
+    } > "$STATE/W.archives.tmp.$$" && mv "$STATE/W.archives.tmp.$$" "$STATE/W.archives" || die 70 "cannot write $STATE/W.archives"
+    echo "$(date '+%F %T') $commit v$ARCH_VER gb10 $sha $name" >> "$STATE/W.archives.log"
+    rm -f "$STATE/gb10.fail"
+    GB10_STATE=built GB10_NOTE="gb10 ${sha:0:12}"
+  fi
+}
+
+# build_archives <tree> <commit>: the x86-64 archives, then the GB10 one. ARCH_STATE is build_x86's, or `ready` when W.archives already
+# holds both at the commit; GB10_STATE is build_gb10's, and that step runs only when the x86-64 archives stand.
+build_archives() {
+  local tree=$1 commit=$2
+  GB10_STATE='' GB10_NOTE='' GB10_DIR=''
+  if x86_ready "$commit"; then
+    ARCH_STATE=ready ARCH_DIR='' ARCH_VER=$(wa_get version) ARCH_C12=$(git -C "$tree" rev-parse --short=12 "$commit" 2> /dev/null || echo "${commit:0:12}")
+    ARCH_NOTE=$(awk '$1 == "sm86" || $1 == "sm120a" { printf "%s%s %s", (n++ ? ", " : ""), $1, substr($2, 1, 12) }' "$STATE/W.archives")
+  else
+    build_x86 "$tree" "$commit"
+  fi
+  case $ARCH_STATE in built | ready) build_gb10 "$tree" "$commit" ;; esac
+}
+
+# archive_lines: the report's lines for ARCH_STATE and GB10_STATE (none when no step ran).
 archive_lines() {
   case $ARCH_STATE in
-    built) echo "archives: $ARCH_NOTE at ${ARCH_C12} v$ARCH_VER in $REMOTE/target/release-dist (W.archives)" ;;
+    built | ready) echo "archives: $ARCH_NOTE at ${ARCH_C12} v$ARCH_VER in $REMOTE/target/release-dist (W.archives)" ;;
     deferred) echo "archives NOT built: $ARCH_NOTE; the next idle call builds them" ;;
     failed) echo "ARCHIVES FAILED at ${ARCH_C12}: $ARCH_NOTE (W stands); logs: ${ARCH_DIR:-none}" ;;
     gaveup) echo "ARCHIVES NOT BUILT at ${ARCH_C12}: $ARCH_NOTE" ;;
   esac
+  case $GB10_STATE in
+    built | ready) echo "GB10 archive: $GB10_NOTE at ${ARCH_C12} built natively on $GB10_HOST, in $GB10_REMOTE/target/release-dist (W.archives)" ;;
+    deferred) echo "GB10 archive NOT built: $GB10_NOTE; the next idle call builds it" ;;
+    failed) echo "GB10 ARCHIVE FAILED at ${ARCH_C12}: $GB10_NOTE (W and the x86-64 archives stand); logs: ${GB10_DIR:-none}" ;;
+    gaveup) echo "GB10 ARCHIVE NOT BUILT at ${ARCH_C12}: $GB10_NOTE" ;;
+  esac
 }
 
-# archives_exit: the call's exit code for ARCH_STATE.
+# archives_exit: the call's exit code for ARCH_STATE and GB10_STATE.
 archives_exit() {
   case $ARCH_STATE in
-    built | gaveup) return 0 ;;
     deferred) return 75 ;;
-    *) return 1 ;;
+    failed) return 1 ;;
   esac
+  case $GB10_STATE in
+    deferred) return 75 ;;
+    failed) return 1 ;;
+  esac
+  return 0
 }
 
 # archives_dry <tree>: each archive's `build.sh --dry-run` on the box (the tree check and the directories; nothing is built); rc 0 when
@@ -382,6 +540,12 @@ archives_dry() {
     printf '%s\n' "$out" | sed "s/^/[$arch] /"
     [ "$r" = 0 ] || rc=$r
   done
+  if [ "$GB10_ON" = 1 ]; then
+    r=0
+    out=$(cd "$tree" && env -u BLOOMERY_HOLD_OWNER BLOOMERY_SPARK="$GB10_HOST" BLOOMERY_SPARK_REMOTE="$GB10_REMOTE" bash "$SPARK_BOX" --tree "$tree" --wait 0 --bound 300 --reason "follower: dry run" -- "bash tools/release/build.sh --dry-run --stage w $v $c12" 2>&1 < /dev/null) || r=$?
+    printf '%s\n' "$out" | sed "s/^/[gb10] /"
+    [ "$r" = 0 ] || rc=$r
+  fi
   return "$rc"
 }
 
@@ -451,16 +615,16 @@ run_main() {
   fi
   if [ "$dry" = 0 ] && [ -n "$old" ] && [ "$old" = "$TARGET" ]; then
     if archives_ready "$old"; then
-      status "W is at $REF (${TARGET:0:12}): nothing to do"
+      status "W is at $REF (${TARGET:0:12}): nothing to do$(! gb10_gaveup "$old" || echo " (the GB10 archive failed $(gb10_fail_get tries) time(s) at this commit and is not tried again; remove $STATE/gb10.fail to try)")"
       exit 0
     fi
     build_archives "$WT" "$TARGET" # W is current and has no archives yet: a call that only builds them
-    case $ARCH_STATE in
-      built | failed)
-        { echo "bloomery-follow $(date '+%F %H:%M'): archives at W ${TARGET:0:12}: $ARCH_STATE"; archive_lines; } | head -15 | tee "$STATE/report.txt"
+    case "$ARCH_STATE $GB10_STATE" in
+      *built* | *failed*)
+        { echo "bloomery-follow $(date '+%F %H:%M'): archives at W ${TARGET:0:12}: $ARCH_STATE${GB10_STATE:+, gb10 $GB10_STATE}"; archive_lines; } | head -15 | tee "$STATE/report.txt"
         prune_runs ;;
     esac
-    status "W is at $REF (${TARGET:0:12}): archives ${ARCH_STATE/gaveup/not built}${ARCH_NOTE:+ ($ARCH_NOTE)}"
+    status "W is at $REF (${TARGET:0:12}): archives ${ARCH_STATE/gaveup/not built}${GB10_STATE:+, gb10 ${GB10_STATE/gaveup/not built}}${ARCH_NOTE:+ ($ARCH_NOTE)}"
     archives_exit
     exit $?
   fi
@@ -506,7 +670,7 @@ run_main() {
   fi
   report "$VERDICT" "$TARGET" "$out/run.log" "$out" "$old"
   prune_runs
-  status "pass at ${TARGET:0:12} ended $VERDICT${ARCH_STATE:+, archives $ARCH_STATE}"
+  status "pass at ${TARGET:0:12} ended $VERDICT${ARCH_STATE:+, archives $ARCH_STATE}${GB10_STATE:+, gb10 $GB10_STATE}"
   case $VERDICT in
     GREEN) archives_exit; exit $? ;;
     YIELDED) exit 75 ;;
@@ -620,6 +784,30 @@ echo "carry $*" >> "$FX/carry.calls"
 echo "release-build: HEAD carries all rows"
 EOF
   chmod +x "$t/origin/tools/release/carry.sh"
+  # tools/bloomery-follow/spark-box.sh stands in as a stub that logs its call and ends as FX/spark.mode says: ok | hold (the bench is up: rc 75) |
+  # fail (rc 3) | to (rc 124) | nosha (rc 0, no sha256 line) | hang (spark.hang seconds, then built); its --dry-run is an rc 0.
+  cat > "$t/spark-box.stub" << 'EOF'
+#!/usr/bin/env bash
+sp=''
+trap '[ -z "$sp" ] || kill "$sp" 2> /dev/null; exit 143' TERM
+cmd=${!#}
+echo "host=${BLOOMERY_SPARK-unset} remote=${BLOOMERY_SPARK_REMOTE-unset} cwd=$(pwd -P) head=$(git rev-parse --short=12 HEAD) args=$*" >> "$FX/spark.calls"
+case "$cmd" in *"--dry-run"*) echo "release: dry run (spark stub)"; exit 0 ;; esac
+echo $$ > "$FX/spark.pid"
+v=$(awk '{ print $(NF - 1) }' <<< "$cmd")
+name=bloomery-$v-linux-aarch64-cuda-sm121a.tar.gz
+case "$(cat "$FX/spark.mode" 2> /dev/null || echo ok)" in
+  hold) echo "spark-box: busy: the bench hold /root/spark-bench.hold: owner=bench since=1 until=9999999999 reason=stub" >&2; echo "spark-box: the bench is still up after 0 s: nothing was synced or run" >&2; exit 75 ;;
+  fail) echo "release: the GB10 build broke" >&2; exit 3 ;;
+  to) exit 124 ;;
+  nosha) echo "release: built, and nothing else said"; exit 0 ;;
+  hang) sleep "$(cat "$FX/spark.hang" 2> /dev/null || echo 30)" & sp=$!; wait "$sp" ;;
+esac
+echo "release: /root/bloomery-gb10/target/release-dist/$name 4242 bytes"
+echo "$(printf '%s' gb10 | shasum -a 256 | cut -d' ' -f1)  $name"
+EOF
+  chmod +x "$t/spark-box.stub"
+  export BLOOMERY_FOLLOW_SPARK_BOX="$t/spark-box.stub"
   export BLOOMERY_FOLLOW_POLL=0.1 BLOOMERY_FOLLOW_BUILD_BOUND=1800 BLOOMERY_FOLLOW_BUILD_GRACE=0 BLOOMERY_FOLLOW_BUILD_TRIES=2
   echo ok > "$fx/follow.mode"
   chmod +x "$t/origin/tools/box.sh" "$t/origin/tools/gate-batch.sh" "$t/origin/tools/rotation.py"
@@ -655,7 +843,8 @@ EOF
       grep -q "^arch=$a cmd=timeout --kill-after=10 1800 bash tools/release/build.sh --stage w $1 $2 remote=~/repo/bloomery-follow wait=0 hold=unset cwd=$st/tree head=$2\$" "$fx/build.calls" || return 1
     done
   }
-  local sha86 sha120
+  local sha86 sha120 shag
+  shag=$(printf '%s' gb10 | shasum -a 256 | cut -d' ' -f1)
   sha86=$(printf '%s' sm_86 | shasum -a 256 | cut -d' ' -f1)
   sha120=$(printf '%s' sm_120a | shasum -a 256 | cut -d' ' -f1)
   unset BLOOMERY_ARCH BLOOMERY_HOLD_OWNER BLOOMERY_BOX_WAIT # a case that wants one sets it; the caller's own must not reach the stubs
@@ -689,7 +878,7 @@ EOF
     "$(grep -q "^archives: sm86 ${sha86:0:12}, sm120a ${sha120:0:12} at ${c1:0:12} v0.0.1 in ~/repo/bloomery-follow/target/release-dist" "$st/report.txt"; echo $?)" "$(cat "$st/report.txt")"
   tb=$(env BLOOMERY_FOLLOW_HOME="$st" bash "$runsh" --tarballs 0.0.1 2>&1); tb2=$(env BLOOMERY_FOLLOW_HOME="$st" bash "$runsh" --tarballs 0.0.2 2>&1)
   expect '  … --tarballs gives pick.sh'"'"'s hook lines for that version and `absent` for another' \
-    "$([ "$tb" = "$(printf 'sm86 %s %s\nsm120a %s %s' "$sha86" "$c1" "$sha120" "$c1")" ] && [ "$tb2" = "$(printf 'sm86 absent\nsm120a absent')" ]; echo $?)" "$tb | $tb2"
+    "$([ "$tb" = "$(printf 'sm86 %s %s\nsm120a %s %s\ngb10 %s %s' "$sha86" "$c1" "$sha120" "$c1" "$shag" "$c1")" ] && [ "$tb2" = "$(printf 'sm86 absent\nsm120a absent\ngb10 absent')" ]; echo $?)" "$tb | $tb2"
   # 3. W at origin/main: nothing to do
   rm -f "$fx/batch.calls" "$fx/build.calls"
   step current -- 
@@ -787,7 +976,7 @@ EOF
   echo idle > "$fx/box.state"; echo green > "$fx/batch.mode"; rm -f "$fx/batch.calls"
   step arch-retry -- 
   expect 'archives: W current and its archives missing: the next idle call builds them without a pass (rc 0), and the report says so' \
-    "$([ "$rc" = 0 ] && build_ok 0.0.1 "${c7:0:12}" && [ "$(wa_commit)" = "$c7" ] && [ ! -e "$fx/batch.calls" ] && grep -q "^bloomery-follow .*: archives at W ${c7:0:12}: built\$" "$st/report.txt" && grep -q '^archives: sm86 ' "$st/report.txt"; echo $?)" "rc=$rc $out | $(cat "$st/report.txt" 2>&1)"
+    "$([ "$rc" = 0 ] && build_ok 0.0.1 "${c7:0:12}" && [ "$(wa_commit)" = "$c7" ] && [ ! -e "$fx/batch.calls" ] && grep -q "^bloomery-follow .*: archives at W ${c7:0:12}: built, gb10 built\$" "$st/report.txt" && grep -q '^archives: sm86 ' "$st/report.txt"; echo $?)" "rc=$rc $out | $(cat "$st/report.txt" 2>&1)"
   origin_commit eight; c8=$first
   echo fail120 > "$fx/build.mode"; rm -f "$fx/build.calls" "$fx/batch.calls"
   step arch-fail -- 
@@ -857,9 +1046,90 @@ EOF
   echo ok > "$fx/build.mode"; rm -f "$fx/build.calls"
   step arch-after-term -- 
   expect '  … and the next call builds the archives at the W that call had written' "$([ "$rc" = 0 ] && build_ok 0.0.1 "${c12:0:12}" && [ "$(wa_commit)" = "$c12" ]; echo $?)" "rc=$rc $out"
+  # 13. the GB10 archive (step 8b), built on the Spark after the x86-64 archives
+  echo ok > "$fx/build.mode"; echo green > "$fx/batch.mode"; echo ok > "$fx/spark.mode"; echo idle > "$fx/box.state"
+  gb_ok() { # <version> <head12>: the Spark was asked once for the GB10 archive, as step 8b says
+    [ "$(grep -c . "$fx/spark.calls" 2> /dev/null)" = 1 ] \
+      && grep -q "^host=spark remote=/root/bloomery-gb10 cwd=$st/tree head=$2 args=--tree $st/tree --wait 0 --bound 1800 --reason follower: the GB10 archive at $2 -- bash tools/release/build.sh --stage w $1 $2\$" "$fx/spark.calls"
+  }
+  gb_row() { awk '$1 == "gb10" { print $2 }' "$st/W.archives" 2> /dev/null; }
+  origin_commit gb1; cg1=$first; rm -f "$fx/spark.calls" "$fx/build.calls" "$fx/spark.pid"
+  step gb-green --
+  expect 'gb10: a green pass builds the x86-64 archives, then the GB10 one on the Spark (host, remote directory, the worktree, no wait, the bound, stage w, version, commit)' \
+    "$([ "$rc" = 0 ] && build_ok 0.0.1 "${cg1:0:12}" && gb_ok 0.0.1 "${cg1:0:12}"; echo $?)" "rc=$rc $(cat "$fx/spark.calls" 2>&1) | $out"
+  expect '  … W.archives gains the gb10 row, its host and its directory, and keeps the x86-64 rows' \
+    "$(grep -q "^gb10 $shag bloomery-0.0.1-linux-aarch64-cuda-sm121a.tar.gz\$" "$st/W.archives" && grep -q '^gb10_host=spark$' "$st/W.archives" && grep -q '^gb10_remote=/root/bloomery-gb10$' "$st/W.archives" \
+       && grep -q "^sm86 $sha86 " "$st/W.archives" && grep -q "^sm120a $sha120 " "$st/W.archives" && [ ! -e "$st/gb10.fail" ]; echo $?)" "$(cat "$st/W.archives" 2>&1)"
+  expect '  … the report names it, and with the pass stays within 15 lines' \
+    "$([ "$(wc -l < "$st/report.txt")" -le 15 ] && grep -q "^GB10 archive: gb10 ${shag:0:12} at ${cg1:0:12} built natively on spark, in /root/bloomery-gb10/target/release-dist" "$st/report.txt"; echo $?)" "$(cat "$st/report.txt")"
+  expect '  … and --tarballs gives pick.sh a gb10 row' "$(env BLOOMERY_FOLLOW_HOME="$st" bash "$runsh" --tarballs 0.0.1 | grep -qx "gb10 $shag $cg1"; echo $?)" "$(env BLOOMERY_FOLLOW_HOME="$st" bash "$runsh" --tarballs 0.0.1)"
+  # a bench hold on the Spark: deferred, never failed; the next idle call builds only the GB10 archive
+  origin_commit gb2; cg2=$first; echo hold > "$fx/spark.mode"; rm -f "$fx/spark.calls" "$fx/build.calls"
+  step gb-hold --
+  expect 'gb10: a bench hold up on the Spark (rc 75) defers the GB10 build: rc 75, W moves, the x86-64 record stands, no gb10 row, no gb10.fail' \
+    "$([ "$rc" = 75 ] && [ "$(w_commit)" = "$cg2" ] && [ "$(wa_commit)" = "$cg2" ] && grep -q '^sm86 ' "$st/W.archives" && [ -z "$(gb_row)" ] && [ ! -e "$st/gb10.fail" ] && [ "$(grep -c . "$fx/spark.calls")" = 1 ]; echo $?)" "rc=$rc $(cat "$st/W.archives" 2>&1) $out"
+  expect '  … the report says it is the Spark that is busy and that the next idle call builds it' \
+    "$(grep -q '^GB10 archive NOT built: the Spark is busy (rc 75): spark-box: busy: the bench hold' "$st/report.txt" && grep -q 'the next idle call builds it' "$st/report.txt"; echo $?)" "$(cat "$st/report.txt" 2>&1)"
+  echo ok > "$fx/spark.mode"; rm -f "$fx/spark.calls" "$fx/build.calls" "$fx/batch.calls"
+  step gb-retry --
+  expect '  … the next idle call (W current, the x86-64 archives built) builds only the GB10 one: no batch, no x86-64 build, one Spark call, the gb10 row is recorded' \
+    "$([ "$rc" = 0 ] && [ ! -e "$fx/batch.calls" ] && [ ! -e "$fx/build.calls" ] && gb_ok 0.0.1 "${cg2:0:12}" && [ "$(gb_row)" = "$shag" ] && grep -q "^bloomery-follow .*: archives at W ${cg2:0:12}: ready, gb10 built\$" "$st/report.txt"; echo $?)" "rc=$rc $out | $(cat "$st/report.txt" 2>&1)"
+  rm -f "$fx/spark.calls"
+  step gb-current --
+  expect '  … and with the gb10 row in place a current W has nothing to do (no Spark call)' "$([ "$rc" = 0 ] && grep -q 'nothing to do' <<< "$out" && [ ! -e "$fx/spark.calls" ]; echo $?)" "rc=$rc $out"
+  # a failure: W and the x86-64 record stand, the tries count, then it gives up
+  origin_commit gb3; cg3=$first; echo fail > "$fx/spark.mode"; rm -f "$fx/spark.calls" "$fx/build.calls"
+  step gb-fail --
+  expect 'gb10: a failed GB10 build leaves W and the x86-64 record standing (rc 1), counts the try, and the report names it' \
+    "$([ "$rc" = 1 ] && [ "$(w_commit)" = "$cg3" ] && [ "$(wa_commit)" = "$cg3" ] && [ -z "$(gb_row)" ] && [ "$(sed -n 's/^tries=//p' "$st/gb10.fail")" = 1 ] \
+       && grep -q "^GB10 ARCHIVE FAILED at ${cg3:0:12}: try 1 of 2: rc 3: release: the GB10 build broke (W and the x86-64 archives stand); logs: .*/runs/build-gb10-" "$st/report.txt"; echo $?)" "rc=$rc $(cat "$st/report.txt" 2>&1)"
+  rm -f "$fx/build.calls"
+  step gb-fail2 --
+  expect '  … the next call tries once more (no x86-64 build, no pass) and counts the second failure' \
+    "$([ "$rc" = 1 ] && [ "$(sed -n 's/^tries=//p' "$st/gb10.fail")" = 2 ] && [ "$(grep -c . "$fx/spark.calls")" = 2 ] && [ ! -e "$fx/build.calls" ]; echo $?)" "rc=$rc $(cat "$st/gb10.fail" 2>&1)"
+  step gb-gaveup --
+  expect '  … after BLOOMERY_FOLLOW_BUILD_TRIES failures at the commit nothing is started (rc 0) and the status names the way out' \
+    "$([ "$rc" = 0 ] && [ "$(grep -c . "$fx/spark.calls")" = 2 ] && grep -q 'not tried again' "$st/status.txt" && grep -q 'remove .*gb10.fail' "$st/status.txt"; echo $?)" "rc=$rc $(cat "$st/status.txt" 2>&1)"
+  echo ok > "$fx/spark.mode"; rm -f "$st/gb10.fail" "$fx/spark.calls"
+  step gb-fixed --
+  expect '  … with the failure gone the next call builds it and leaves no gb10.fail' "$([ "$rc" = 0 ] && [ "$(gb_row)" = "$shag" ] && [ ! -e "$st/gb10.fail" ]; echo $?)" "rc=$rc $out"
+  # no sha256 line, the Spark's own timeout, a call that outlasts its bound
+  origin_commit gb4; echo nosha > "$fx/spark.mode"
+  step gb-nosha --
+  expect 'gb10: a build that ends 0 with no sha256 line for its archive fails the step by name (rc 1, no row)' \
+    "$([ "$rc" = 1 ] && [ -z "$(gb_row)" ] && grep -q 'try 1 of 2: built, but its log has no sha256 line for bloomery-0.0.1-linux-aarch64-cuda-sm121a.tar.gz' "$st/report.txt"; echo $?)" "rc=$rc $(cat "$st/report.txt" 2>&1)"
+  origin_commit gb5; echo to > "$fx/spark.mode"
+  step gb-to --
+  expect 'gb10: the Spark'"'"'s own timeout (rc 124) is named as the bound hit' "$([ "$rc" = 1 ] && grep -q "no end in 1800 s (the Spark's timeout, rc 124)" "$st/report.txt"; echo $?)" "rc=$rc $(cat "$st/report.txt" 2>&1)"
+  origin_commit gb6; echo hang > "$fx/spark.mode"; echo 5 > "$fx/spark.hang"; rm -f "$fx/spark.pid"
+  step gb-bound BLOOMERY_FOLLOW_BUILD_BOUND=1 BLOOMERY_FOLLOW_GB10_SLACK=0 --
+  expect 'gb10: a call that does not end in its bound is signalled (its captured pid) and fails the step by name (rc 1, no row)' \
+    "$([ "$rc" = 1 ] && [ -z "$(gb_row)" ] && grep -q 'try 1 of 2: no end in 1 s, stopped' "$st/report.txt" && [ -s "$fx/spark.pid" ] && ! alive "$(cat "$fx/spark.pid")"; echo $?)" "rc=$rc $(cat "$st/report.txt" 2>&1)"
+  # a TERM while the Spark build runs stops it and frees the lock
+  origin_commit gb7; echo 8 > "$fx/spark.hang"; rm -f "$fx/spark.pid"
+  env FX="$fx" BLOOMERY_FOLLOW_HOME="$st" BLOOMERY_FOLLOW_REPO="$t/repo" bash "$runsh" > "$t/out-termg.log" 2>&1 < /dev/null &
+  rpid=$! k=0
+  while [ ! -s "$fx/spark.pid" ] && [ "$k" -lt 150 ]; do sleep 0.1; k=$((k + 1)); done
+  bpid=$(cat "$fx/spark.pid" 2> /dev/null || echo 0)
+  kill -TERM "$rpid" 2> /dev/null
+  rc=0; wait "$rpid" 2> /dev/null || rc=$?
+  k=0; while alive "$bpid" && [ "$k" -lt 50 ]; do sleep 0.1; k=$((k + 1)); done
+  expect 'gb10: TERM to the script while the Spark build runs ends it 143, signals that build and frees the lock' \
+    "$([ "$rc" = 143 ] && [ "$bpid" != 0 ] && ! alive "$bpid" && [ ! -e "$st/lock.d" ]; echo $?)" "rc=$rc spark pid $bpid alive: $(alive "$bpid" && echo yes)"
+  # left out: BLOOMERY_FOLLOW_GB10=0 asks the Spark nothing and records no row; --tarballs then has no gb10 row
+  origin_commit gb8; echo ok > "$fx/spark.mode"; rm -f "$fx/spark.calls" "$fx/build.calls"
+  step gb-off BLOOMERY_FOLLOW_GB10=0 --
+  expect 'gb10: BLOOMERY_FOLLOW_GB10=0 builds the x86-64 archives and asks the Spark nothing' \
+    "$([ "$rc" = 0 ] && [ -e "$fx/build.calls" ] && [ ! -e "$fx/spark.calls" ] && [ -z "$(gb_row)" ] && [ -e "$st/W.archives" ]; echo $?)" "rc=$rc $out"
+  expect '  … and its --tarballs has the x86-64 rows alone' "$([ "$(env BLOOMERY_FOLLOW_GB10=0 BLOOMERY_FOLLOW_HOME="$st" bash "$runsh" --tarballs 0.0.1 | wc -l | tr -d ' ')" = 2 ]; echo $?)" "$(env BLOOMERY_FOLLOW_GB10=0 BLOOMERY_FOLLOW_HOME="$st" bash "$runsh" --tarballs 0.0.1)"
+  # the dry run asks the Spark's build.sh --dry-run too, and builds nothing there
+  rm -f "$fx/spark.calls" "$fx/spark.pid"
+  step gb-dry -- --dry-run --tree "$t/repo"
+  expect 'gb10: a dry run asks the Spark for build.sh --dry-run (serve version, tree commit), and nothing is built' \
+    "$(grep -q "^host=spark remote=/root/bloomery-gb10 cwd=$t/repo head=$(git -C "$t/repo" rev-parse --short=12 HEAD) args=--tree $t/repo --wait 0 --bound 300 --reason follower: dry run -- bash tools/release/build.sh --dry-run --stage w 0.0.1 " "$fx/spark.calls" && [ ! -e "$fx/spark.pid" ]; echo $?)" "rc=$rc $(cat "$fx/spark.calls" 2>&1)"
   rm -f "$st/W.archives"
   tb=$(env BLOOMERY_FOLLOW_HOME="$st" bash "$runsh" --tarballs 0.0.1 2>&1)
-  expect 'tarballs: with no record every archive is absent' "$([ "$tb" = "$(printf 'sm86 absent\nsm120a absent')" ]; echo $?)" "$tb"
+  expect 'tarballs: with no record every archive is absent' "$([ "$tb" = "$(printf 'sm86 absent\nsm120a absent\ngb10 absent')" ]; echo $?)" "$tb"
   # mutants (FAIL-first): one line of the script changed, the defect it prevents shows
   mutant() { # <tag> <sed expr> <ERE proving the sed applied>
     sed "$2" "$runsh" > "$t/run-$1.sh"
@@ -987,6 +1257,63 @@ EOF
   rm -f "$fx/box.arch" "$fx/build.calls"; rm -rf "$st"
   RUNSH=$t/run-no-dry-build.sh step m-nodry -- --dry-run --tree "$t/repo"
   expect 'mutant no-dry-build: a dry run no longer asks the box for each archive'"'"'s build.sh --dry-run' "$([ ! -e "$fx/box.arch" ]; echo $?)" "rc=$rc"
+  # the GB10 step's mutants
+  mutant g-no-gb10 's/^  case \$ARCH_STATE in built | ready) build_gb10 "\$tree" "\$commit" ;; esac$/  true/' '^  true$'
+  mutant g-75-fails 's/^    elif \[ "\$rc" = 75 \]; then$/    elif false; then/' '^    elif false; then$'
+  mutant g-no-sha 's/^      if \[ "\${line#\* }" = "\$name" \]; then$/      if true; then/' '^      if true; then$'
+  mutant g-keep-x86 's/^  { grep -v .\^gb10. "\$STATE\/W.archives" || true; } > .*$/  rm -f "$STATE\/W.archives"/' '^  rm -f "[$]STATE/W.archives"$'
+  mutant g-no-kill 's/trap .kill -TERM \$BUILD_PIDS 2> \/dev\/null; wait \$BUILD_PIDS 2> \/dev\/null; echo "run.sh: interrupted: the GB10/trap '"'"':; wait $BUILD_PIDS 2> \/dev\/null; echo "run.sh: interrupted: the GB10/' "trap ':; wait [$]BUILD_PIDS 2> /dev/null; echo .run.sh: interrupted: the GB10"
+  mutant g-no-bound 's/^      if \[ \$((SECONDS - t0)) -ge \$((BUILD_BOUND + BUILD_GRACE + GB10_SLACK)) \]; then.*$/      if false; then/' '^      if false; then$'
+  mutant g-off 's/^  \[ "\$GB10_ON" = 1 \] || return 0$/  true/' '^  true$'
+  mutant g-no-dry 's/^  if \[ "\$GB10_ON" = 1 \]; then$/  if false; then/' '^  if false; then$'
+  mutant g-ready-skip 's/^  \[ "\$GB10_ON" != 1 \] || \[ -n "\$(gb10_sha)" \] || gb10_gaveup "\$1"$/  true/' '^  true$'
+  grun() { # <mutant> <tag> <env…>: the mutant script on a fresh state, the Spark stub's files cleared
+    rm -rf "$st"; rm -f "$fx/build.calls" "$fx/batch.calls" "$fx/spark.calls" "$fx/spark.pid"; : > "$fx/box.calls"
+    RUNSH=$t/run-$1.sh step "$2" "${@:3}" -- 
+  }
+  echo ok > "$fx/build.mode"; echo green > "$fx/batch.mode"; echo idle > "$fx/box.state"; echo ok > "$fx/spark.mode"
+  grun g-no-gb10 m-gnogb10
+  expect 'mutant g-no-gb10: a green pass builds the x86-64 archives and never asks the Spark' "$([ -e "$st/W.archives" ] && [ ! -e "$fx/spark.calls" ] && ! grep -q '^gb10 ' "$st/W.archives"; echo $?)" "rc=$rc"
+  echo hold > "$fx/spark.mode"
+  grun g-75-fails m-g75
+  expect 'mutant g-75-fails: a Spark held by a bench is counted as a failed build (rc 1, gb10.fail)' "$([ "$rc" = 1 ] && [ -e "$st/gb10.fail" ]; echo $?)" "rc=$rc"
+  echo nosha > "$fx/spark.mode"
+  grun g-no-sha m-gnosha
+  expect 'mutant g-no-sha: an archive with no sha256 line in its log is recorded all the same' "$(grep -q '^gb10 ' "$st/W.archives"; echo $?)" "rc=$rc"
+  echo fail > "$fx/spark.mode"
+  grun g-keep-x86 m-gkeep
+  expect 'mutant g-keep-x86: a failed GB10 build takes the x86-64 record with it' "$([ ! -e "$st/W.archives" ]; echo $?)" "rc=$rc"
+  echo ok > "$fx/spark.mode"; echo 8 > "$fx/spark.hang"; echo hang > "$fx/spark.mode"; rm -rf "$st"; rm -f "$fx/spark.pid" "$fx/spark.calls"
+  env FX="$fx" BLOOMERY_FOLLOW_HOME="$st" BLOOMERY_FOLLOW_REPO="$t/repo" bash "$t/run-g-no-kill.sh" > "$t/out-term4.log" 2>&1 < /dev/null &
+  rpid=$! k=0
+  while [ ! -s "$fx/spark.pid" ] && [ "$k" -lt 150 ]; do sleep 0.1; k=$((k + 1)); done
+  bpid=$(cat "$fx/spark.pid" 2> /dev/null || echo 0)
+  kill -TERM "$rpid" 2> /dev/null
+  sleep 1
+  expect 'mutant g-no-kill: without the signal the Spark build outlives the script' "$(alive "$bpid"; echo $?)" "spark pid $bpid is gone"
+  ! alive "$bpid" || kill -TERM "$bpid" 2> /dev/null
+  wait "$rpid" 2> /dev/null || true
+  echo 5 > "$fx/spark.hang"
+  grun g-no-bound m-gnobound BLOOMERY_FOLLOW_BUILD_BOUND=1 BLOOMERY_FOLLOW_GB10_SLACK=0
+  expect 'mutant g-no-bound: a Spark build that outlasts its bound is waited for to its end (rc 0, a gb10 row)' "$([ "$rc" = 0 ] && grep -q '^gb10 ' "$st/W.archives"; echo $?)" "rc=$rc $(cat "$st/report.txt" 2>&1)"
+  echo ok > "$fx/spark.mode"
+  grun g-off m-goff BLOOMERY_FOLLOW_GB10=0
+  expect 'mutant g-off: BLOOMERY_FOLLOW_GB10=0 is ignored (the Spark is asked)' "$([ -e "$fx/spark.calls" ]; echo $?)" "rc=$rc"
+  rm -rf "$st"; rm -f "$fx/spark.calls"
+  RUNSH=$t/run-g-no-dry.sh step m-gnodry -- --dry-run --tree "$t/repo"
+  expect 'mutant g-no-dry: a dry run no longer asks the Spark for its build.sh --dry-run' "$([ ! -e "$fx/spark.calls" ]; echo $?)" "rc=$rc"
+  echo hold > "$fx/spark.mode"
+  grun g-ready-skip m-gready
+  echo ok > "$fx/spark.mode"; rm -f "$fx/spark.calls"
+  RUNSH=$t/run-g-ready-skip.sh step m-gready2 -- 
+  expect 'mutant g-ready-skip: a current W with its x86-64 archives and no GB10 archive reads as done (the Spark is never asked again)' "$([ ! -e "$fx/spark.calls" ]; echo $?)" "rc=$rc $out"
+  echo fail > "$fx/spark.mode"
+  grun no-tries m-gnotries
+  RUNSH=$t/run-no-tries.sh step m-gnotries2 -- 
+  rm -f "$fx/spark.calls"
+  RUNSH=$t/run-no-tries.sh step m-gnotries3 -- 
+  expect 'mutant no-tries: a third GB10 try is made at a commit that failed BLOOMERY_FOLLOW_BUILD_TRIES times' "$([ -e "$fx/spark.calls" ]; echo $?)" "rc=$rc $out"
+  echo ok > "$fx/spark.mode"
   echo "run.sh self-test: $((n - bad)) of $n ok"
   [ "$bad" = 0 ]
 }

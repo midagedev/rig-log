@@ -8,7 +8,8 @@
   <!-- bloomery's follower (tools/bloomery-follow/run.sh): one real-tier pass at origin/main on the box's idle time.
        It runs on the machine that holds the gate ledger (~/.cache/bloomery/gate-ledger.tsv): gate-batch.sh drives the
        box from here, so the Mac's own work is rsync and ssh. The box host is tools/box.sh's default (the ssh alias ws);
-       a different one goes in EnvironmentVariables as BLOOMERY_BOX. Install by hand:
+       a different one goes in EnvironmentVariables as BLOOMERY_BOX. The GB10 archive is built on our DGX Spark
+       (ssh alias spark, docs/spark-hold.md) after the x86-64 ones; BLOOMERY_FOLLOW_GB10=0 in EnvironmentVariables leaves it out. Install by hand:
          sed "s|__HOME__|$HOME|g" configs/dev.midage.bloomery-follow.plist > ~/Library/LaunchAgents/dev.midage.bloomery-follow.plist
          launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.midage.bloomery-follow.plist
        Stop: launchctl bootout gui/$(id -u)/dev.midage.bloomery-follow. A call's one-line state is
