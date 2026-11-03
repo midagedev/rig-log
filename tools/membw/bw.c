@@ -7,7 +7,11 @@
 #include <stdint.h>
 #include <string.h>
 #include <omp.h>
+#if defined(__aarch64__)
+#include <arm_neon.h>   // GB10 (DGX Spark) path, 2026-11-03: same 128-byte step as 8 x 128-bit loads
+#else
 #include <immintrin.h>
+#endif
 int main(int argc, char **argv) {
     int nt = argc > 1 ? atoi(argv[1]) : 32;
     const char *sz = argc > 2 ? argv[2] : "8";
@@ -28,6 +32,18 @@ int main(int argc, char **argv) {
         {
             int tid = omp_get_thread_num(), n = omp_get_num_threads();
             size_t per = bytes / n, s = per * tid;
+#if defined(__aarch64__)
+            uint64x2_t acc = vdupq_n_u64(0);
+            for (size_t k = 0; k < passes; k++)
+            for (size_t i = 0; i + 128 <= per; i += 128) {
+                const uint64_t *p = (const uint64_t *) (buf + s + i);
+                acc = vaddq_u64(acc, vld1q_u64(p));      acc = vaddq_u64(acc, vld1q_u64(p + 2));
+                acc = vaddq_u64(acc, vld1q_u64(p + 4));  acc = vaddq_u64(acc, vld1q_u64(p + 6));
+                acc = vaddq_u64(acc, vld1q_u64(p + 8));  acc = vaddq_u64(acc, vld1q_u64(p + 10));
+                acc = vaddq_u64(acc, vld1q_u64(p + 12)); acc = vaddq_u64(acc, vld1q_u64(p + 14));
+            }
+            long long tmp[4] = {0}; vst1q_u64((uint64_t *) tmp, acc);
+#else
             __m256i acc = _mm256_setzero_si256();
             for (size_t k = 0; k < passes; k++)
             for (size_t i = 0; i + 128 <= per; i += 128) {
@@ -38,6 +54,7 @@ int main(int argc, char **argv) {
                 acc = _mm256_add_epi64(acc, _mm256_load_si256(p + 3));
             }
             long long tmp[4]; _mm256_storeu_si256((__m256i *) tmp, acc);
+#endif
             total += tmp[0] + tmp[1] + tmp[2] + tmp[3];
         }
         double dt = omp_get_wtime() - t0, gbs = (double) bytes * passes / dt / 1e9;
