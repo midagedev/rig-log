@@ -210,7 +210,16 @@ bloomery 밖에서 잰다. `tools/spark/q8gemv-bench.cu`는 Qwen3.6 디코드 �
 그래프로 홀로 돌린 A는 220 GB/s다. 실제 디코드(nsys)의 202 GB/s, llama.cpp의 232 GB/s 사이다. 우리가 짠 C와 F는 오히려 느리다. 그러니 "dp4a로 바꾸면 된다"는 이 측정으로는 서지 않는다.
 ncu(`--graph-profiling node`)로 보면 A는 행 수가 큰 텐서(1,024블록)에서 점유율 87 %이고, 512행 텐서(64블록)에서는 **21 %**다.
 512행 텐서는 공유 전문가 gate·up 80개와 전체 주의층 k·v 20개, 토큰당 100개다. 하나에 1.1 MB를 15.2 µs(ncu 아래)에 읽는다. 약 73 GB/s다.
-그래서 Q8_0 차이(+0.97 ms)의 유력한 자리는 커널 모양이 아니라 **작은 텐서가 GPU를 못 채우는 것**이다. 변종 D(512행 텐서만 4워프 split-K)는 다음 큐에 있다(`queue-night2.sh`).
+그래서 작은 텐서가 GPU를 못 채우는 것을 의심했고, 변종 D(512행 텐서만 4워프 split-K)를 만들었다.
+
+| 변종(11-04 01:08 KST, 같은 벤치 재실행) | 토큰당 | GB/s |
+|---|---:|---:|
+| A | 6.85 ms | 218 |
+| D | **6.71 ms** | 222 |
+
+D는 −0.13 ms(−2 %)뿐이다. ncu 아래의 73 GB/s는 ncu가 실행마다 캐시를 비우고 직렬로 돌린 값이라 그래프 안의 실제보다 훨씬 나쁘다.
+결론: bloomery의 Q8_0 gemv 모양은 홀로는 이미 약 220 GB/s(GB10 실효의 약 80 %)이고, 간단한 변형으로는 llama.cpp의 232 GB/s를 따라잡지 못했다.
+실제 디코드의 202 GB/s와의 차이(약 0.5 ms)는 커널 밖, 즉 그래프 안의 앞뒤 커널과의 간섭이나 L2 상태에서 올 가능성이 크다. 이 제안은 순위를 내린다.
 
 ## 개선 제안(순위, 11-04 01:15 KST)
 
@@ -223,9 +232,32 @@ ncu(`--graph-profiling node`)로 보면 A는 행 수가 큰 텐서(1,024블록)�
 | 3a | Qwen3.6 검증 헤드(`qwen3moe_head_q6k_argmax_prefetch`) | 2행 검증 헤드를 한 번에: Q6_K 417 MB를 한 번 읽고 두 행의 argmax | 창당 −1.9 ms(25.0 → 23.1, +8 %) | nsys: 창당 2회 × 1.87 ms |
 | 3b | Qwen3.6 드래프트 헤드(`q6k_gemv_prefetch`, `BLOOMERY_MTP_HEAD_ROWS`는 Qwen3.8만) | Qwen3.8의 줄인 어휘 헤드(76k 목록)를 Qwen3.6에도. 토크나이저가 같다 | 창당 약 −1.3 ms(+5 %), 수락률 소폭 손해 가능 | nsys 1.85 ms/창. 어휘가 둘 다 248,320 |
 | 3c | 2행 f32 사이트(`f32_tile_gemm`) | 1–2행이면 `mcol` 식 gemv로 | 창당 −0.9 ms(+4 %) | 4,320회 1.3 ms vs 1행 `f32_gemv` 0.35 ms |
-| 4 | `crates/gpu/src/q8f32.rs` `q8_0_gemv` | 512행 텐서(공유 전문가 gate·up, k·v)를 split-K로, 또는 gate+up을 한 실행으로 | 토큰당 최대 −1.0 ms(MTP 끔 디코드 +6 %) | ncu: 64블록 점유 21 %, 약 73 GB/s. 변종 D 결과는 큐에 |
-| 5 | `q5k_gemv_sel` | llama.cpp type 13 식 읽기(196 GB/s) | 토큰당 −0.48 ms(+3 %) | nsys 136 vs 196 GB/s |
-| 6 | `crates/gpu/src/arch/qwen3moe/mtp38.rs` `MTP_STORE_ROWS = 64` | Qwen3.8 저장 걷기를 ubatch로 | pp4096(MTP) +3.5 % | nsys +63 ms / 4,200토큰 |
+| 4 | `q5k_gemv_sel` | llama.cpp type 13 식 읽기(196 GB/s) | 토큰당 −0.48 ms(+3 %) | nsys 136 vs 196 GB/s |
+| 5 | `crates/gpu/src/arch/qwen3moe/mtp38.rs` `MTP_STORE_ROWS = 64` | Qwen3.8 저장 걷기를 ubatch로 | pp4096(MTP) +3.5 % | nsys +63 ms / 4,200토큰 |
+| 6 | `crates/gpu/src/q8f32.rs` `q8_0_gemv` | 512행 텐서 split-K(변종 D), gate+up 한 실행 | 토큰당 −0.13 ms 확인(+1 %). llama.cpp와의 나머지 차이는 원인 미확정 | 마이크로벤치 A 6.85 → D 6.71 ms. dp4a 변종은 더 느렸다 |
 
 1과 2는 같은 파일이고, 둘 다 "MTP 층을 디코드 모양으로만 돌린다"는 한 뿌리다. 그래서 함께 고치는 편이 싸다.
 3a–3c는 서로 독립이고, 합치면 창당 약 −4 ms(+15–20 %)다. 2와 겹치지 않는다(창 비용과 창 길이는 곱으로 효과가 난다).
+
+## 밤에 더한 행(11-04 01:20 KST)
+
+클라이언트 시계, tok/s. 디코드 코드 / 산문 / pp512 / pp4096 순이다.
+
+| 보드 · 파일 · 엔진 행 | 코드 | 산문 | pp512 | pp4096 |
+|---|---:|---:|---:|---:|
+| Qwen3.8 FP4-Local · Flare cc696a6b 기본(패키지 MTP 켬) | 47.5 | 36.8 | 1112 | 2232 |
+| Qwen3.8 FP4-Local · Flare nomtp(`--mtp-draft-tokens 0`) | 26.7 | 27.0 | 1122 | 2353 |
+| (비교) Qwen3.8 FP4-Local · bloomery rec | 63.9 | 42.9 | 1243 | 2330 |
+| Qwen3.8 GSQ-RCO IQ3_S · Strata 0.2.10 기본(MTP) | **66.8** | **49.6** | 450 | 1577 |
+| Qwen3.8 GSQ-RCO IQ3_S · Strata nomtp | 31.7 | 34.5 | 388 | 1585 |
+| Qwen3.8 GSQ-RCO IQ3_S · llama.cpp b12069 `-c 16896` | 30.9 | 31.1 | 655 | 752 |
+| Qwen3.8 GSQ-RCO IQ3_S · bloomery | 거절 | | | |
+
+- Flare는 bloomery보다 디코드가 26 %(코드)·14 %(산문) 느리고, pp4096은 비슷하다. 첫 실행은 무인 실행에 키 승인을 요구해 거절됐다. 패키지는 우리가 내보낸 것이고 서명 키는 로컬 개발 키라서 그 지문(일치 확인)을 넘겨 다시 돌렸다.
+- 같은 IQ3_S GGUF에서 Strata와 llama.cpp를 비교하면, MTP 없이 디코드는 Strata가 3–11 % 빠르다. 프리필은 pp512에서 llama.cpp가 1.7배, pp4096에서 Strata가 2.1배 빠르다. Strata의 MTP는 Qwen3.8에서는 효과가 있다(+111 % / +44 %). Qwen3.6에서 효과가 없던 것과 다르다.
+- bloomery는 이 파일을 연다고 하지 않는다. `blk.0.ffn_down_shexp.weight: type iq4_nl has no device format`이다. 공유 드래프트를 붙인 rec는 `token_embd`가 iq4_xs라서 거절된다("the MTP draft reads the target's token_embd as Q8_0 or BF16").
+  그러니 Strata가 고른 Qwen3.8 무게(83.6 GB, 공유 전문가 IQ4_NL)는 bloomery에 없는 형식이다. 이 자리의 bloomery 비교 행은 `UD-Q4_K_XL`이다(rec 52.1 / 36.9 / 816 / 1524).
+
+**bloomery가 못 여는 Qwen3.6 safetensors.** 0.3.12 GB10 아카이브의 `bloomery-serve`는 Qwen3.6 MoE 체크포인트 폴더를 받지 않는다.
+NVIDIA NVFP4(ModelOpt)는 `config.json: config.dtype is not a key this converter reads`, Qwen FP8은 `lm_head.weight: not a Qwen3.6 tensor`, TensorFold MLX 4-bit MTP는 `a qwen35moe model, where this seat serves qwen35`(`serve_seats/folder.rs`)다.
+README가 말하는 Qwen3.6 폴더 길은 `prepare`로 GGUF를 만드는 것이다(`docs/mac.md`). `prepare`는 이 아카이브에 없다. 그래서 보드 2의 NVFP4·FP8·MLX 열에 bloomery 행은 없다.
