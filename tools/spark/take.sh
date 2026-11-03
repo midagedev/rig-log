@@ -29,7 +29,9 @@ FETCH_UNITS="spark-fetch spark-fetch2"; PAUSED=""
 fetch_pause(){ for u in $FETCH_UNITS; do systemctl is-active -q $u && { systemctl kill -s SIGSTOP $u; PAUSED="$PAUSED $u"; }; done
   [ -n "$PAUSED" ] && { FETCH="paused:${PAUSED# }"; say "paused$PAUSED"; }; }
 fetch_resume(){ [ -n "$PAUSED" ] && { for u in $PAUSED; do systemctl kill -s SIGCONT $u; done; FETCH="resumed:${PAUSED# }"; say "resumed$PAUSED"; PAUSED=""; }; }
+WDOG=""
 finish(){ rc=$1
+  [ -s "$OUT/watchdog.log" ] && { say "watchdog: $(tail -1 "$OUT/watchdog.log")"; rc=1; }
   if [ -n "$SPID" ] && kill -0 "$SPID" 2>/dev/null; then
     say "stopping server session $SPID"; kill -TERM -- -"$SPID" 2>/dev/null
     for i in $(seq 90); do kill -0 "$SPID" 2>/dev/null || break; sleep 1; done
@@ -37,6 +39,7 @@ finish(){ rc=$1
   fi
   # a Docker engine: SERVE runs `docker run --rm --name $CONTAINER ...` in the foreground; stop it by name as well
   [ -n "${CONTAINER:-}" ] && docker stop -t 30 "$CONTAINER" >/dev/null 2>&1
+  [ -n "$WDOG" ] && kill "$WDOG" 2>/dev/null
   fetch_resume; wit end
   for i in $(seq 30); do [ "$(gpuapps)" = 0 ] && break; sleep 2; done
   say "after: gpu apps $(gpuapps), MemAvailable $(memavail) kB"
@@ -61,6 +64,15 @@ say "row $TAG; engine ${ENGINE:-?}; driver $DRV; MemAvailable $(memavail) kB aft
 echo "$SERVE" > "$OUT/serve.cmd"
 setsid bash -c "$SERVE" > "$OUT/server.log" 2>&1 < /dev/null &
 SPID=$!; T0=$(date +%s)
+# memory watchdog: on the GB10 the GPU's allocations and the host's are one pool, and running it dry can hang the
+# whole box until a power cycle (SGLang's Qwen3.8 cookbook, DGX Spark notes, asks for exactly this watchdog). Below
+# MEM_FLOOR_MB of MemAvailable (default 3072) the server session and its container are killed and the row fails.
+( while kill -0 "$SPID" 2>/dev/null; do
+    m=$(memavail); if [ "$m" -lt $(( ${MEM_FLOOR_MB:-3072} * 1024 )) ]; then
+      echo "$(date -Is) MemAvailable $m kB < ${MEM_FLOOR_MB:-3072} MiB: killing the server" >> "$OUT/watchdog.log"
+      kill -KILL -- -"$SPID" 2>/dev/null; [ -n "${CONTAINER:-}" ] && docker kill "$CONTAINER" >/dev/null 2>&1; break; fi
+    sleep 0.5; done ) &
+WDOG=$!
 ready=""
 for i in $(seq ${LOAD_TIMEOUT:-900}); do
   kill -0 "$SPID" 2>/dev/null || { say "server exited during load"; tail -30 "$OUT/server.log"; SPID=""; finish 1; }
