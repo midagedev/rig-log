@@ -9,7 +9,7 @@
 # where it reports them, stay in the tape beside it. Witnesses per take (load1, io some avg10, GPU compute apps,
 # MemAvailable, page cache) go to witness.jsonl. Before the load: drop_caches (unified memory: page cache competes with
 # the GPU's allocations). The lease is tools/quiet/lease.sh with QUIET_LEASE=/root/spark-lease.
-# A running model fetch is paused (SIGSTOP on the spark-fetch unit) for the takes and resumed on every exit path, and
+# A running model fetch is paused (SIGSTOP on the spark-fetch and spark-fetch2 units) for the takes and resumed on every exit path, and
 # the row records that it did. Sentinel TAKE_DONE / TAKE_FAILED.
 # usage: SERVE='...' PORT=8000 ENGINE='bloomery 0.3.12' [MODEL_ID=..] [CONTAINER=<docker name>] take.sh <tag>
 set -u
@@ -25,8 +25,10 @@ wit(){ printf '{"tag":"%s","at":"%s","t":"%s","load1":%s,"io_some_avg10":%s,"gpu
   "$(awk '/^some/{sub("avg10=","",$2);print $2}' /proc/pressure/io)" "$(gpuapps)" "$(memavail)" \
   "$(awk '/^Cached:/{print $2}' /proc/meminfo)" "$FETCH" >> "$OUT/witness.jsonl"; }
 SPID=""; FETCH=none
-fetch_pause(){ systemctl is-active -q spark-fetch && { systemctl kill -s SIGSTOP spark-fetch; FETCH=paused; say "spark-fetch paused"; }; }
-fetch_resume(){ [ "$FETCH" = paused ] && { systemctl kill -s SIGCONT spark-fetch; FETCH=resumed; say "spark-fetch resumed"; }; }
+FETCH_UNITS="spark-fetch spark-fetch2"; PAUSED=""
+fetch_pause(){ for u in $FETCH_UNITS; do systemctl is-active -q $u && { systemctl kill -s SIGSTOP $u; PAUSED="$PAUSED $u"; }; done
+  [ -n "$PAUSED" ] && { FETCH="paused:${PAUSED# }"; say "paused$PAUSED"; }; }
+fetch_resume(){ [ -n "$PAUSED" ] && { for u in $PAUSED; do systemctl kill -s SIGCONT $u; done; FETCH="resumed:${PAUSED# }"; say "resumed$PAUSED"; PAUSED=""; }; }
 finish(){ rc=$1
   if [ -n "$SPID" ] && kill -0 "$SPID" 2>/dev/null; then
     say "stopping server session $SPID"; kill -TERM -- -"$SPID" 2>/dev/null
