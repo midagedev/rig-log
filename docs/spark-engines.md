@@ -395,3 +395,14 @@ bloomery rec의 `mtp width` 기록에서 코드 요청은 폭 3(최대)을 고�
 **제안 순위(위 "개선 제안" 표 + 제안 7)**: ① Qwen3.6 저장 걷기를 ubatch GEMM으로(pp4096 MTP +65 %) ② Qwen3.8 검증 상한 4 → 6, 폭 5(코드 +30 %) ③ Qwen3.6 체인 폭 2–3과 걷기 그래프 캡처(코드 +15–30 %) ④ Qwen3.6 창의 헤드 한 번 읽기·줄인 드래프트 헤드·mcol f32(창당 −4 ms, +15–20 %) ⑤ Qwen3.6 NVFP4 폴더 열기(형식) ⑥ Q5_K sel(+3 %) ⑦ Qwen3.8 `MTP_STORE_ROWS`(+3.5 %) ⑧ Q8_0 gemv split-K(+1 % 확인).
 
 **실패와 못 한 것**: SGLang Qwen3.6 NVFP4 기본 행(`'FusedMoE' object has no attribute 'g1_scale_c'`), vLLM Qwen3.8 기본 행, Strata Qwen3.6 MTP 효과 없음, TensorFold Qwen3.6 MTP 효과 없음(수락 0/0), bloomery 소스 빌드(CUDA 13.3이 필요해 미룸) — 그래서 제안 이득은 모두 계산값이다.
+
+**폭과 창 비용 가르기(11-04 02:33 KST).** 같은 MTP 판 `UD-Q4_K_M`, llama.cpp를 bloomery와 같은 폭 1로(`--spec-draft-n-max 1`, `rows-gguf.sh llamacpp-mtp1`).
+
+| 행 | 코드 | 산문 | 수락(코드/산문) | MTP 끔 대비 코드 |
+|---|---:|---:|---|---:|
+| bloomery rec(폭 1) | 73.7 | 69.3 | 0.89 / 0.74 | +11 % |
+| llama.cpp n-max 1 | 83.1 | 76.6 | 0.93 / 0.74 | +25 % |
+| llama.cpp n-max 3 | 96.9 | 74.7 | 0.78 / 0.48 | +46 % |
+
+수락률이 비슷한 같은 폭 1에서 llama.cpp가 코드 +13 %, 산문 +11 % 앞선다. 이 몫은 창 비용(제안 ④: 헤드 한 번 읽기, 줄인 드래프트 헤드, mcol f32, 걷기 그래프 캡처)이다.
+폭 1 → 3이 코드에 +17 %를 더한다. 이 몫이 체인 폭(제안 ③)이다. 산문은 폭 3에서 수락률이 떨어져 오히려 −2 %다. 그러니 폭은 bloomery의 `cost` 선택기처럼 요청마다 골라야 한다.
