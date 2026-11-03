@@ -455,4 +455,4 @@ Atlas `:dev`, Qwen3.6 NVIDIA NVFP4, 산문 요청 하나, 128토큰이다(nsys�
 창 안을 보면, Atlas는 모든 선형층을 `_batch2` 커널로 돈다. `w4a16_gemv_batch2`, `moe_expert_*_shared_batch2`, `gated_delta_rule_wy2`는 두 행을 가중치 한 번 읽기로 처리한다. 그래서 가장 큰 gemv가 한 행일 때의 1.32배(3.09 → 4.09 ms)다.
 결정적인 차이는 헤드다. Atlas nomtp의 lm_head(`w4a16_gemv`, 4비트)는 스텝당 1회, 1.11 ms다. rec에서는 따로 보이지 않는다. 한 번 더 도는 `w4a16_gemv_batch2`(창당 111회 대 110회)에 두 행이 함께 들어간다.
 bloomery 창은 Q6_K 검증 헤드(`qwen3moe_head_q6k_argmax_prefetch`)와 드래프트 헤드(`q6k_gemv_prefetch`)를 따로 읽는다. 둘이 창 시간의 24 %(nsys 아래 약 7 ms)다.
-그러니 제안 ③a(검증 헤드를 한 번 읽어 두 행에 쓰기)와 ③b(드래프트 헤드를 줄이기)가 Atlas가 실제로 하는 일이다. 창 비율 1.63 → 1.36이면 bloomery Qwen3.6 rec 코드는 73.7 → 약 85다(같은 수락률 가정, 계산값). 폭 2–3(③)은 그 위에 더해진다.
+그러니 제안 ③a(검증 헤드를 한 번 읽어 두 행에 쓰기)와 ③b(드래프트 헤드를 줄이기)가 Atlas가 실제로 하는 일이다. 창 비율 1.63 → 1.36이면 bloomery Qwen3.6 rec 코드는 73.7 → 약 88이다(창 25.0 → 20.8 ms, 같은 수락률 가정, 계산값). 폭 2–3(③)은 그 위에 더해진다.
