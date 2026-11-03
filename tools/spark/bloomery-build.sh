@@ -13,7 +13,7 @@ docker run --rm --name spark-bloomery-build --network host -v /opt/build:/opt/bu
 set -eu
 export PATH=$CARGO_HOME/bin:/opt/build/llvm-21.1.8/bin:/usr/local/cuda/bin:$PATH
 export CUDA_OXIDE_LLC=/opt/build/llvm-21.1.8/bin/llc LIBCLANG_PATH=/opt/build/llvm-21.1.8/lib CUDA_HOME=/usr/local/cuda
-command -v git >/dev/null || { apt-get update -qq && apt-get install -y -qq git curl pkg-config libssl-dev build-essential >/dev/null; }
+command -v python3 >/dev/null || { apt-get update -qq && apt-get install -y -qq git curl pkg-config libssl-dev build-essential python3 >/dev/null; }
 command -v rustup >/dev/null || curl -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain none
 rustup toolchain list | grep -q 1.99.1 || rustup toolchain install 1.99.1 --profile minimal -c rust-src,rustc-dev,llvm-tools
 command -v cargo-oxide >/dev/null || cargo +1.99.1 install --locked --git https://github.com/NVIDIA/cuda-rust.git --rev 9df9e7cef561e03a066230b3bb433b3d8285da81 cargo-oxide
