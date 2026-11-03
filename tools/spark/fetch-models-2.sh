@@ -1,0 +1,22 @@
+#!/bin/bash
+# The DGX Spark's second model set, 2026-11-03: what engines need beyond fetch-models.sh's six folders. Waits for that
+# fetch's FETCH_DONE so the two never share the link, then fetches, one at a time:
+#   ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF IQ3_S (2 shards, 83.6 GB) at the revision Strata's setup.py pins —
+#     Strata's own Qwen3.8 weights, and the same file through llama.cpp (and bloomery, if it loads) for the
+#     same-GGUF pairing the user asked for
+#   lmsysorg/sglang:dev-qwen38-next-local, the image SGLang's cookbook names for Qwen3.8 on a DGX Spark (CUDA 13.0.3)
+# usage (root, beside fetch-gguf.sh): fetch-models-2.sh   sentinel FETCH2_DONE rc=<n>
+set -u
+cd "$(dirname "$0")"
+say(){ echo "$(date -u +%H:%M:%SZ) $*"; }
+until grep -q '^FETCH_DONE' fetch.log 2>/dev/null || ! systemctl is-active -q spark-fetch; do sleep 30; done
+say "after: $(grep -E '^FETCH_DONE' fetch.log || echo 'spark-fetch inactive')"
+rc=0
+REPO=ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF REV=ed59f92082b1e93c0e96d60a8b11aab089b52f09
+say "start $REPO IQ3_S @${REV:0:8}"
+N=8 REV=$REV DEST=/models/Qwen3.8-Flash-Next-GSQ-RCO-GGUF ./fetch-gguf.sh $REPO \
+  IQ3_S/Qwen3.8-Flash-Next-GSQ-RCO-IQ3_S-00001-of-00002.gguf IQ3_S/Qwen3.8-Flash-Next-GSQ-RCO-IQ3_S-00002-of-00002.gguf \
+  > fetch-gsq-iq3s.log 2>&1 || rc=1
+say "done $REPO rc=$rc $(du -sb /models/Qwen3.8-Flash-Next-GSQ-RCO-GGUF | cut -f1) B"
+say "pull lmsysorg/sglang:dev-qwen38-next-local"; docker pull -q lmsysorg/sglang:dev-qwen38-next-local || rc=1
+echo "FETCH2_DONE rc=$rc"
