@@ -4,14 +4,18 @@
 # stopped with `docker exec`. The same request as nsys-probe.sh: a warm-up, then one prose decode of N tokens (or one
 # 4,200-id prompt for KIND=prefill), cuda_gpu_kern_sum to kern.csv. take.sh runs it as PROBE with SERVE from
 # rows-atlas.sh's command plus `-v <nsys>:/nsys -v <take dir>:/out` and `/nsys/.../nsys launch ... --session-new=atlas`.
+# Atlas answers a chat request without a "model" field with an error and no log line (both -2 takes failed at the
+# warm-up that way, 2026-11-04), so both requests name the model take.sh's smoke read into models.json.
 # usage (as take.sh's PROBE): atlas-nsys-probe.sh <url> <outdir>   env CONTAINER, KIND (decode), N (128)
 set -u
 URL=$1; OUT=$2; N=${N:-128}; KIND=${KIND:-decode}; X="docker exec $CONTAINER /nsys/target-linux-sbsa-armv8/nsys"
+M=$(jq -c '.data[0].id' "$OUT/models.json")
 case $KIND in decode) P=$(head -1 /root/health/prompts/decode-prose.jsonl | jq -c .prompt);;
   prefill) P=$(head -1 /root/health/prompts/pp4096.jsonl | jq -c .prompt); N=1;; *) echo "KIND?"; exit 1;; esac
-req(){ curl -sf "$URL/v1/chat/completions" -H 'Content-Type: application/json' -d "{\"messages\":[{\"role\":\"user\",\"content\":$P}],\"max_tokens\":$1,\"temperature\":0,\"stream\":false,\"chat_template_kwargs\":{\"enable_thinking\":false},\"ignore_eos\":true}"; }
+req(){ curl -sf "$URL/v1/chat/completions" -H 'Content-Type: application/json' -d "{\"model\":$M,\"messages\":[{\"role\":\"user\",\"content\":$P}],\"max_tokens\":$1,\"temperature\":0,\"stream\":false,\"chat_template_kwargs\":{\"enable_thinking\":false},\"ignore_eos\":true}"; }
+MODEL=$(curl -sf "$URL/v1/models" | jq -r ".data[0].id")
 W=$(head -1 /root/health/prompts/decode-code.jsonl | jq -c .prompt)
-curl -sf "$URL/v1/chat/completions" -H 'Content-Type: application/json' -d "{\"messages\":[{\"role\":\"user\",\"content\":$W}],\"max_tokens\":32,\"temperature\":0,\"chat_template_kwargs\":{\"enable_thinking\":false}}" > /dev/null || { echo "warm-up failed"; exit 1; }
+curl -sf "$URL/v1/chat/completions" -H 'Content-Type: application/json' -d "{\"model\":$M,\"messages\":[{\"role\":\"user\",\"content\":$W}],\"max_tokens\":32,\"temperature\":0,\"chat_template_kwargs\":{\"enable_thinking\":false}}" > /dev/null || { echo "warm-up failed"; exit 1; }
 $X start --session=atlas -o /out/$KIND --force-overwrite=true || exit 1
 t0=$(date +%s.%N); req "$N" > "$OUT/req.json"; rc=$?; t1=$(date +%s.%N)
 $X stop --session=atlas || exit 1
