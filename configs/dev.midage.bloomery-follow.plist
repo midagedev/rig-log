@@ -9,14 +9,14 @@
        It runs on the machine that holds the gate ledger (~/.cache/bloomery/gate-ledger.tsv): gate-batch.sh drives the
        box from here, so the Mac's own work is rsync and ssh. The box host is tools/box.sh's default (the ssh alias ws);
        a different one goes in EnvironmentVariables as BLOOMERY_BOX. Install by hand:
-         cp configs/dev.midage.bloomery-follow.plist ~/Library/LaunchAgents/
+         sed "s|__HOME__|$HOME|g" configs/dev.midage.bloomery-follow.plist > ~/Library/LaunchAgents/dev.midage.bloomery-follow.plist
          launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.midage.bloomery-follow.plist
        Stop: launchctl bootout gui/$(id -u)/dev.midage.bloomery-follow. A call's one-line state is
        ~/.cache/bloomery/follow/status.txt, the last pass's report report.txt, the watermark W. -->
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>/Users/hckim/repo/rig-log/tools/bloomery-follow/run.sh</string>
+    <string>__HOME__/repo/rig-log/tools/bloomery-follow/run.sh</string>
   </array>
 
   <!-- launchd's default PATH has neither Homebrew's tools nor the ones gate-batch.sh and box.sh find in an interactive shell. -->
@@ -44,8 +44,8 @@
   <integer>10</integer>
 
   <key>StandardOutPath</key>
-  <string>/Users/hckim/Library/Logs/bloomery-follow.log</string>
+  <string>__HOME__/Library/Logs/bloomery-follow.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/hckim/Library/Logs/bloomery-follow.log</string>
+  <string>__HOME__/Library/Logs/bloomery-follow.log</string>
 </dict>
 </plist>
