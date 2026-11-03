@@ -32,14 +32,19 @@ dev_of() {  # directory -> the nvme device holding it, and its serial
 }
 
 DEV=$(dev_of "$DIR")
-SERIAL=$(cat "/sys/block/$DEV/device/serial" 2>/dev/null | xargs || echo unknown)
-MODEL=$(cat "/sys/block/$DEV/device/model" 2>/dev/null | xargs || echo unknown)
+# A SATA disk has no device/serial file; under pipefail the old `cat | xargs || echo` printed an empty line *and*
+# "unknown" (2026-11-03, the /data HDD). Read each file only when it exists.
+SERIAL=unknown; [ -r "/sys/block/$DEV/device/serial" ] && SERIAL=$(xargs < "/sys/block/$DEV/device/serial")
+MODEL=unknown;  [ -r "/sys/block/$DEV/device/model" ]  && MODEL=$(xargs < "/sys/block/$DEV/device/model")
 
-temp_now() {  # composite temperature in C, or empty
+temp_now() {  # composite temperature in C, or empty — never a failure: under set -e an empty grep here killed the
+              # whole run on a SATA disk before the first fio cell (2026-11-03, the /data HDD). SATA reads smartctl.
     # nvme prints "temperature : 48 C (321 Kelvin)"; take the first number only,
     # or the Kelvin figure gets concatenated onto it.
     sudo -n nvme smart-log "/dev/$DEV" 2>/dev/null |
-        awk -F: '/^temperature/ {print $2; exit}' | grep -oE '[0-9]+' | head -1
+        awk -F: '/^temperature/ {print $2; exit}' | grep -oE '[0-9]+' | head -1 || true
+    case $DEV in nvme*) ;; *) sudo -n smartctl -A "/dev/$DEV" 2>/dev/null |
+        awk '$2=="Temperature_Celsius" {print $10; exit}' || true ;; esac
 }
 
 run() {  # name rw bs iodepth [extra fio args...]
