@@ -135,3 +135,31 @@ bloomery의 248회는 텐서 수(Q8_0 250개)와 같다. 융합이 없다는 뜻
 `hc_gated_down_mma_4`는 본 패스에서 약 2,100행에 757 µs인데, 저장 걷기에서는 64행에 436 µs다. 행당 19배 비싸다. 걷기마다 혼합 가중치를 다시 읽기 때문이다.
 나머지 26 ms는 대상 패스다. `gate_up_nvfp4_mma`가 95 → 96회처럼 층 커널이 한 번씩 더 돈다.
 MTP가 모든 행의 마지막 층 출력(`Hidden::Target`)을 요구해서 nomtp가 건너뛰던 끝 층 일부를 다 돌리는 것으로 읽는다. 확인은 하지 않았다.
+
+## Qwen3.6의 MTP(11-04 00:30 KST)
+
+MTP 층이 든 `unsloth/Qwen3.6-35B-A3B-MTP-GGUF` 판에서 잰 것이다. 클라이언트 시계로, tok/s다.
+
+| 행 | 디코드 코드 | 디코드 산문 | pp512 | pp4096 |
+|---|---:|---:|---:|---:|
+| UD-Q4_K_M · bloomery rec(MTP) | 73.7 | 69.3 | 1754 | 2484 |
+| UD-Q4_K_M · bloomery nomtp | 66.4 | 66.6 | 2553 | **4296** |
+| UD-Q4_K_M · llama.cpp 기본 | 66.5 | 66.9 | 1895 | 2425 |
+| UD-Q4_K_M · llama.cpp rec(`draft-mtp`, n-max 3) | **96.9** | **74.7** | 1746 | 2263 |
+| UD-Q4_K_XL · bloomery rec | 68.2 | 64.0 | 1757 | 2487 |
+| UD-Q4_K_XL · bloomery nomtp | 63.9 | 64.2 | 2563 | 4306 |
+| UD-Q4_K_XL · llama.cpp rec | 94.4 | 71.3 | 1718 | 2253 |
+| UD-Q4_K_XL · Strata 0.2.10(설정이 쓴 run config, `--mtp 2`) | 58.0 | 64.4 | 2048 | 2782 |
+
+bloomery가 이 판에서 지는 곳은 두 군데다.
+
+1. **MTP 디코드.** llama.cpp는 MTP로 코드 +46 %, 산문 +12 %를 얻는다. bloomery는 +11 %와 +4 %다.
+   서버 기록(`mtp width`)을 보면 bloomery의 Qwen3.6 창은 폭 1이 최대다. 폭 0/1의 창 비용은 15.3 / 25.0 ms이고, e는 1.73–1.92다.
+   `mtp35.rs`에서 `WALK_ROWS = 2`이고, `mtp_chain`은 자기 행(own row)을 이름으로 거절한다("a chain of {own} own rows"). 그러니 제안은 늘 한 토큰이다.
+   llama.cpp는 같은 층을 세 번 이어 돌린다(평균 수락 길이 2.2–3.4).
+   창 비용도 크다. 행 하나를 더 검증하는 데 +9.7 ms(+63 %)가 든다. 걷기가 eager로 돌고 그래프에 잡히지 않으며, 제안 id를 호스트로 읽어 오기 때문이다(모듈 문서 "A walk is eager. A captured walk is refused by name.").
+2. **MTP를 켠 프리필.** pp4096이 4,296에서 2,484로 −42 %, pp512가 −31 %다. llama.cpp는 MTP를 켜도 −7 %다.
+   `mtp35.rs`의 저장 걷기는 `STORE_ROWS = 2`다. 4,200행 프롬프트면 저장 걷기를 2,100번 돌리고, 걷기마다 `eh_proj`와 k·v 가중치를 다시 읽는다.
+   더해진 시간은 1.69 − 0.98 = 0.71 s, 걷기당 약 0.34 ms다. nsys 확인은 큐에 있다(`probes-lag.sh nsys-prefill-q36mtp`).
+
+Strata는 `--mtp 2`가 있어도 디코드가 MTP를 뺀 행과 같다(서버 로그에 드래프트 기록이 없다). 그래서 Strata의 MTP 행은 "효과 없음"으로 적는다.
