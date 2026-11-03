@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.midage.bloomery-follow</string>
+
+  <!-- bloomery's follower (tools/bloomery-follow/run.sh): one real-tier pass at origin/main on the box's idle time.
+       It runs on the machine that holds the gate ledger (~/.cache/bloomery/gate-ledger.tsv): gate-batch.sh drives the
+       box from here, so the Mac's own work is rsync and ssh. The box host is tools/box.sh's default (the ssh alias ws);
+       a different one goes in EnvironmentVariables as BLOOMERY_BOX. Install by hand:
+         cp configs/dev.midage.bloomery-follow.plist ~/Library/LaunchAgents/
+         launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.midage.bloomery-follow.plist
+       Stop: launchctl bootout gui/$(id -u)/dev.midage.bloomery-follow. A call's one-line state is
+       ~/.cache/bloomery/follow/status.txt, the last pass's report report.txt, the watermark W. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/hckim/repo/rig-log/tools/bloomery-follow/run.sh</string>
+  </array>
+
+  <!-- launchd's default PATH has neither Homebrew's tools nor the ones gate-batch.sh and box.sh find in an interactive shell. -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <!-- Every half hour. launchd never starts a second instance of a job that is still running, and run.sh takes its own lock
+       too. A call with nothing to do (the box busy, W already at origin/main) ends at once; exit 75 is "not now", not a
+       failure, and the job has no KeepAlive, so it is not restarted. A machine that was asleep at the tick runs the next one.
+       RunAtLoad is off: bootstrapping the agent starts no pass; the first call comes one interval later. -->
+  <key>StartInterval</key>
+  <integer>1800</integer>
+  <key>RunAtLoad</key>
+  <false/>
+
+  <!-- run.sh's TERM trap stops the batch it started and nothing else; give it time to do that before SIGKILL. -->
+  <key>ExitTimeOut</key>
+  <integer>60</integer>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>Nice</key>
+  <integer>10</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/hckim/Library/Logs/bloomery-follow.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/hckim/Library/Logs/bloomery-follow.log</string>
+</dict>
+</plist>
