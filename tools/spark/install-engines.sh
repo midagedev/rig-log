@@ -5,13 +5,14 @@
 # nothing is linked onto PATH, and a checksum is checked wherever the release publishes one.
 # Docker engines (vLLM via eugr/spark-vllm-docker, SGLang lmsysorg/sglang:*-cu130, Atlas avarok/atlas-gb10) are pulled
 # separately so their gigabytes do not share the 1 Gb/s link with a model fetch.
-# usage (root): install-engines.sh [bloomery|strata|llamacpp|toktape]...   default: all four
+# usage (root): install-engines.sh [bloomery|strata|llamacpp|tensorfold|toktape]...   default: all five
 set -euo pipefail
 E=/opt/engines; mkdir -p "$E"; cd "$E"
 say(){ echo "$(date -u +%H:%M:%SZ) $*"; }
 BLOOMERY=v0.3.12
 STRATA=v0.2.10 STRATA_ENGINE=0.1.56
 LLAMA=b12069   # ggml-org/llama.cpp tag, 2026-11-03
+TENSORFOLD=v1.2.1  # ashhart/TensorFold, linux-aarch64 native release (R580+, CUDA 13.0 per its README)
 TOKTAPE=v0.8.0 # the recorder, not an engine; linux_arm64 build
 
 bloomery(){
@@ -44,6 +45,13 @@ llamacpp(){
   cmake --build build -j 20 --target llama-server llama-bench llama-cli > ../llama.cpp-$LLAMA.build.log 2>&1
   cd ..; say "llama.cpp $LLAMA: $(llama.cpp-$LLAMA/build/bin/llama-server --version 2>&1 | tail -1)"
 }
+tensorfold(){
+  local a=tensorfold-${TENSORFOLD#v}-linux-aarch64.tar.gz u=https://github.com/ashhart/TensorFold/releases/download/$TENSORFOLD
+  [ -d tensorfold-$TENSORFOLD ] && { say "tensorfold $TENSORFOLD already here"; return; }
+  curl -fsSLO "$u/$a"; curl -fsSL "$u/$a.sha256" | awk -v a="$a" '{print $1"  "a}' | sha256sum -c
+  mkdir tensorfold-$TENSORFOLD; tar -xzf "$a" -C tensorfold-$TENSORFOLD; rm -f "$a"
+  say "tensorfold $TENSORFOLD: $(find tensorfold-$TENSORFOLD -maxdepth 3 -name 'tensorfold*' -type f -perm -u+x | head -3 | tr '\n' ' ')"
+}
 toktape(){
   local v=${TOKTAPE#v} u=https://github.com/midagedev/toktape/releases/download/$TOKTAPE a
   a=toktape_${v}_linux_arm64.tar.gz
@@ -52,4 +60,4 @@ toktape(){
   mkdir toktape-$TOKTAPE; tar -xzf "$a" -C toktape-$TOKTAPE; rm -f "$a"
   say "toktape: $(toktape-$TOKTAPE/toktape version 2>&1 | head -1)"
 }
-for x in "${@:-bloomery strata llamacpp toktape}"; do for y in $x; do $y; done; done
+for x in "${@:-bloomery strata llamacpp tensorfold toktape}"; do for y in $x; do $y; done; done
