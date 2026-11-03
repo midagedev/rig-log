@@ -7,7 +7,9 @@
 //   B  A with 16 B code loads (4 words a lane per step) and the activations staged in shared memory as f32
 //   C  llama.cpp's shape: activations quantized once to q8_1 (int8 + f32 scale per 32), 16 B code loads, dp4a
 //   F  C with same-input tensors fused into one launch (qkv+gate, q+k+v, shexp gate+up), as llama.cpp fuses
-// Weights are random codes; outputs are checked against A (max abs diff printed). Usage: q8gemv-bench [iters=200]
+//   D  A with the row split over S warps (split-K, a shared-memory sum) for tensors of at most 1,024 rows (shared-expert
+//      gate/up, attention k/v: 512 rows are 64 blocks of A, a fifth of the GB10's 48 SMs' warp slots), S = 4; A elsewhere
+// Weights are random codes; outputs are checked against A (largest |difference| over A's rms, printed). Usage: q8gemv-bench [iters=200]
 #include <cstdio>
 #include <cstdlib>
 #include <cstdint>
@@ -30,6 +32,26 @@ __global__ void gemv_a(const uint32_t* qs, const __half* d, const float* x, int 
   }
   for (int o = 16; o; o >>= 1) acc += __shfl_xor_sync(0xffffffff, acc, o);
   if (lane == 0) y[row] = acc;
+}
+
+// D: S warps a row (split-K); 8/S rows a 256-thread block
+template <int S>
+__global__ void gemv_d(const uint32_t* qs, const __half* d, const float* x, int rows, int k, float* y) {
+  __shared__ float part[8];
+  int w = threadIdx.x / 32, lane = threadIdx.x % 32, row = blockIdx.x * (8 / S) + w / S, sub = w % S;
+  float acc = 0.f;
+  if (row < rows) {
+    int words = k / 4; const uint32_t* wq = qs + (size_t)row * words; const __half* s = d + (size_t)row * (k / 32);
+    for (int i = sub * 32 + lane; i < words; i += 32 * S) {
+      uint32_t c = wq[i]; float sc = __half2float(s[i / 8]); float4 xv = reinterpret_cast<const float4*>(x)[i];
+      acc += sc * ((float)(int8_t)(c & 255) * xv.x + (float)(int8_t)((c >> 8) & 255) * xv.y +
+                   (float)(int8_t)((c >> 16) & 255) * xv.z + (float)(int8_t)(c >> 24) * xv.w);
+    }
+  }
+  for (int o = 16; o; o >>= 1) acc += __shfl_xor_sync(0xffffffff, acc, o);
+  if (lane == 0) part[w] = acc;
+  __syncthreads();
+  if (row < rows && sub == 0 && lane == 0) { float t = 0.f; for (int j = 0; j < S; j++) t += part[w + j]; y[row] = t; }
 }
 
 // B: 16 B code loads, x in shared f32 (k <= 8192)
@@ -116,6 +138,10 @@ int main(int argc, char** argv) {
   CK(cudaFuncSetAttribute(gemv_b, cudaFuncAttributeMaxDynamicSharedMemorySize, 32768));
   auto run = [&](char v) {
     if (v == 'A') for (size_t i = 0; i < seq.size(); i++) gemv_a<<<(seq[i].t.rows + 7) / 8, 256, 0, st>>>(qs[i], dd[i], x, seq[i].t.rows, seq[i].t.k, ya[i]);
+    if (v == 'D') for (size_t i = 0; i < seq.size(); i++) {
+      if (seq[i].t.rows <= 1024) gemv_d<4><<<(seq[i].t.rows + 1) / 2, 256, 0, st>>>(qs[i], dd[i], x, seq[i].t.rows, seq[i].t.k, yc[i]);
+      else gemv_a<<<(seq[i].t.rows + 7) / 8, 256, 0, st>>>(qs[i], dd[i], x, seq[i].t.rows, seq[i].t.k, yc[i]);
+    }
     if (v == 'B') for (size_t i = 0; i < seq.size(); i++) gemv_b<<<(seq[i].t.rows + 7) / 8, 256, seq[i].t.k * 4, st>>>(qs[i], dd[i], x, seq[i].t.rows, seq[i].t.k, yc[i]);
     if (v == 'C' || v == 'F') {
       // one quantize per distinct input (per group in F, per tensor-input in C: llama.cpp quantizes once per input too)
@@ -132,7 +158,7 @@ int main(int argc, char** argv) {
     }
   };
   int launches[256] = {0};
-  for (char v : {'A', 'B', 'C', 'F'}) {
+  for (char v : {'A', 'D', 'B', 'C', 'F'}) {
     cudaGraph_t gr; cudaGraphExec_t ge;
     CK(cudaStreamBeginCapture(st, cudaStreamCaptureModeGlobal)); run(v); CK(cudaStreamEndCapture(st, &gr));
     size_t nn; CK(cudaGraphGetNodes(gr, nullptr, &nn)); launches[(int)v] = (int)nn;
@@ -145,7 +171,8 @@ int main(int argc, char** argv) {
     if (v != 'A') for (size_t i = 0; i < seq.size(); i += 7) {
       std::vector<float> a(seq[i].t.rows), c(seq[i].t.rows);
       CK(cudaMemcpy(a.data(), ya[i], a.size() * 4, cudaMemcpyDeviceToHost)); CK(cudaMemcpy(c.data(), yc[i], c.size() * 4, cudaMemcpyDeviceToHost));
-      for (size_t r = 0; r < a.size(); r++) { double dlt = fabs(a[r] - c[r]) / (fabs(a[r]) + 1e-3); if (dlt > diff) diff = dlt; }
+      double rms = 0; for (float q : a) rms += (double)q * q; rms = sqrt(rms / a.size()) + 1e-12;
+      for (size_t r = 0; r < a.size(); r++) { double dlt = fabs(a[r] - c[r]) / rms; if (dlt > diff) diff = dlt; }
     }
     printf("{\"variant\":\"%c\",\"ms_per_token\":%.4f,\"gbs\":%.1f,\"nodes\":%d,\"max_rel_diff_vs_A\":%.3g}\n", v, ms, bytes / ms / 1e6, launches[(int)v], diff);
   }
