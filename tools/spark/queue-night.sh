@@ -2,7 +2,8 @@
 # The 11-03/04 night queue, behind queue-q36.sh (start it with q-after.sh). HOME is set here: a systemd unit has none,
 # and bloomery's scale store for a checkpoint folder's compressed block scales lives under it (11-03 23:39, the
 # ids probes refused at load without it). Jobs, one after another; a failed one is logged and the next runs:
-#   the README-method and nsys probes (FP4-Local ids; Qwen3.6 MTP GGUF prefill, decode and ids),
+#   the README-method and nsys probes (FP4-Local ids; Qwen3.6 MTP GGUF prefill, decode and ids), bloomery on the
+#   Qwen3.6 NVFP4 and FP8 folders,
 #   Flare on its exported package, the julian GB10 tape set beside ours (lmstudio Q4_K_M, toktape's own run),
 #   the Q8_0 gemv micro-benchmark, Strata's IQ3_S setup and rows, and bloomery and llama.cpp on the same IQ3_S file.
 # Sentinel QUEUE_NIGHT_DONE.
@@ -11,6 +12,9 @@ B=$(ls -d /opt/engines/bloomery-v0.3.12/*/bin)/bloomery-serve; L=/opt/engines/ll
 LMS=/models/Qwen3.6-35B-A3B-LMS-GGUF/Qwen3.6-35B-A3B-Q4_K_M.gguf; IQ=/models/Qwen3.8-Flash-Next-GSQ-RCO-GGUF
 job(){ echo "$(date -u +%TZ) start $*"; "$@"; echo "$(date -u +%TZ) end rc=$? $1"; }
 job ./probes-lag.sh ids nsys-prefill-q36mtp nsys-decode-q36mtp ids-q36mtp
+# bloomery on the checkpoint folders SGLang, vLLM, TensorFold and Atlas read (the same weights as their rows)
+job ./rows-bloomery-q38.sh Qwen3.6-35B-A3B-NVFP4 default rec nomtp
+job ./rows-bloomery-q38.sh Qwen3.6-35B-A3B-FP8 default nomtp
 pkg=$(ls -d /root/.cache/flare/packages/models/nvidia_2FQwen3.8-Flash-Next-FP4-Local/gb10-tp1-* 2>/dev/null | tail -1)
 [ -n "$pkg" ] && job ./rows-flare.sh q38-fp4-local "$pkg" flare-default flare-nomtp
 if [ -f /models/Qwen3.6-35B-A3B-LMS-GGUF/.fetch-verified ]; then
