@@ -440,3 +440,19 @@ Spark의 `nvidia/cuda:13.3.1-devel-ubuntu24.04` 컨테이너에서 bloomery v0.3
 패치에는 두 곳을 함께 고쳐야 했다. `place.rs`의 `mtp_arena_bytes` 상수가 gpu 크레이트의 아레나 검사와 맞아야 로드된다(w5: 793 → 797, s512: 5,049,938 → 40,399,896). 첫 시도는 그 검사에서 거절됐다.
 덤: 같은 소스라도 이 컨테이너(CUDA 13.3) 빌드는 릴리스 바이너리보다 pp4096이 +4.7 %(2,330 → 2,440)다. 디코드는 같다. 원인은 따로 가르지 않았다.
 ③(Qwen3.6 체인 폭 2–3)은 상수나 플래그가 아니다. 앱의 `mtp35.rs`가 `WIDTH = 1`이고, gpu 크레이트의 `mtp_chain`이 자기 행을 거절한다. 그래서 이번 범위에서 뺐다.
+
+## Atlas의 폭 1 창을 nsys로 본 것(11-04 03:25 KST)
+
+Atlas `:dev`, Qwen3.6 NVIDIA NVFP4, 산문 요청 하나, 128토큰이다(nsys를 컨테이너 안에서 실행, `--gpu-memory-utilization 0.80`). rec는 창 70개, nomtp는 스텝 127개다.
+앞의 두 시도는 실패했다. 첫 번째는 소스 빌드와 겹쳐 take.sh watchdog이 MemAvailable 2.7 GB에서 서버를 죽였다. 두 번째는 프로브 요청에 `model` 필드가 없어 거절됐다.
+
+| | Atlas rec(폭 1) | Atlas nomtp | 비율 | bloomery 비율(UD-Q4_K_M, 앞 절) |
+|---|---:|---:|---:|---:|
+| 창(스텝)당 GPU 시간 | 14.5 ms | 10.7 ms | 1.36 | 1.63(25.0 / 15.3 ms) |
+| 창(스텝)당 커널 수 | 727 | 612 | 1.19 | 1.14(969 / 853) |
+| GPU 바쁨(벽시계 대비) | 91 % | 94 % | | |
+
+창 안을 보면, Atlas는 모든 선형층을 `_batch2` 커널로 돈다. `w4a16_gemv_batch2`, `moe_expert_*_shared_batch2`, `gated_delta_rule_wy2`는 두 행을 가중치 한 번 읽기로 처리한다. 그래서 가장 큰 gemv가 한 행일 때의 1.32배(3.09 → 4.09 ms)다.
+결정적인 차이는 헤드다. Atlas nomtp의 lm_head(`w4a16_gemv`, 4비트)는 스텝당 1회, 1.11 ms다. rec에서는 따로 보이지 않는다. 한 번 더 도는 `w4a16_gemv_batch2`(창당 111회 대 110회)에 두 행이 함께 들어간다.
+bloomery 창은 Q6_K 검증 헤드(`qwen3moe_head_q6k_argmax_prefetch`)와 드래프트 헤드(`q6k_gemv_prefetch`)를 따로 읽는다. 둘이 창 시간의 24 %(nsys 아래 약 7 ms)다.
+그러니 제안 ③a(검증 헤드를 한 번 읽어 두 행에 쓰기)와 ③b(드래프트 헤드를 줄이기)가 Atlas가 실제로 하는 일이다. 창 비율 1.63 → 1.36이면 bloomery Qwen3.6 rec 코드는 73.7 → 약 85다(같은 수락률 가정, 계산값). 폭 2–3(③)은 그 위에 더해진다.
