@@ -11,7 +11,7 @@
 # the GPU's allocations). The lease is tools/quiet/lease.sh with QUIET_LEASE=/root/spark-lease.
 # A running model fetch is paused (SIGSTOP on the spark-fetch unit) for the takes and resumed on every exit path, and
 # the row records that it did. Sentinel TAKE_DONE / TAKE_FAILED.
-# usage: SERVE='...' PORT=8000 ENGINE='bloomery 0.3.12' [MODEL_ID=..] take.sh <tag>
+# usage: SERVE='...' PORT=8000 ENGINE='bloomery 0.3.12' [MODEL_ID=..] [CONTAINER=<docker name>] take.sh <tag>
 set -u
 TAG=${1:?tag}; PORT=${PORT:?PORT}; SERVE=${SERVE:?SERVE}; URL=http://127.0.0.1:$PORT
 H=/root/health; OUT=/root/takes/$TAG; TT=/opt/engines/toktape-v0.8.0/toktape; P=$H/prompts
@@ -33,7 +33,8 @@ finish(){ rc=$1
     for i in $(seq 90); do kill -0 "$SPID" 2>/dev/null || break; sleep 1; done
     kill -0 "$SPID" 2>/dev/null && { say "server alive after 90 s: SIGKILL to the session"; kill -KILL -- -"$SPID"; }
   fi
-  [ -n "${CID:-}" ] && docker stop -t 30 "$CID" >/dev/null 2>&1
+  # a Docker engine: SERVE runs `docker run --rm --name $CONTAINER ...` in the foreground; stop it by name as well
+  [ -n "${CONTAINER:-}" ] && docker stop -t 30 "$CONTAINER" >/dev/null 2>&1
   fetch_resume; wit end
   for i in $(seq 30); do [ "$(gpuapps)" = 0 ] && break; sleep 2; done
   say "after: gpu apps $(gpuapps), MemAvailable $(memavail) kB"
@@ -45,6 +46,7 @@ trap 'finish 1' INT TERM
 # capture on GB10, per eugr/spark-vllm-docker's README); a row on any other driver is refused, not recorded
 DRV=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1)
 [ "${DRV%%.*}" = "${WANT_DRIVER:-580}" ] || { say "refused: driver $DRV, the comparison runs on ${WANT_DRIVER:-580}"; echo TAKE_FAILED; exit 1; }
+[ -n "${CONTAINER:-}" ] && docker ps -q --filter "name=^$CONTAINER\$" | grep -q . && { say "refused: container $CONTAINER exists"; echo TAKE_FAILED; exit 1; }
 ss -ltn | grep -q ":$PORT " && { say "refused: port $PORT already has a listener"; echo TAKE_FAILED; exit 1; }
 [ "$(gpuapps)" = 0 ] || { say "refused: GPU compute apps running"; echo TAKE_FAILED; exit 1; }
 QUIET_LEASE_PID=$$ "$H/lease.sh" acquire "take $TAG" || { echo TAKE_FAILED; exit 1; }
