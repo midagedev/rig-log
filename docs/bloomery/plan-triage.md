@@ -2,6 +2,14 @@
 
 여기는 **아직 할 일만** 있다. 2026-09-25 새벽에 다시 썼다 — 그 전 판(라운드 보고 절 스무 개와 09-23 GPU 선 목록의 원문, 155 KB)은 [`plan-ledger.md`](plan-ledger.md) 「plan-triage.md 2026-09-25 이전 판」에 원문 그대로 있고, 항목의 근거·수치·기제가 필요하면 거기서 찾는다. 항목은 받을 라운드별로 한 줄씩이고 크기는 XS·S·M·L이다. 착륙한 줄은 지운다(원문은 장부, 결과는 커밋 메시지와 rig-log). 수치는 `[유도]`가 아니면 실측이다.
 
+## Open: a fresh server's first request decodes slower than its second (lead, 2026-11-04)
+
+The validation sitting on main 0190b04b6 (A6000 + 3090 box, `--fold depths`, Qwen3.6-35B-A3B UD-Q4_K_M at `--place a` on the
+RTX 3090, D=512, serving defaults) read the first request of a fresh server at 103.71 tok/s decode and the same depth as
+a shared request of a warm server at 157.50 tok/s; neither row is `[cold]`. A user's first request pays it. Open: which
+term (lazy graph capture, residency fill, a JIT, the allocator) — a reading round first, then one probe that splits the
+first request's step times. The release sitting reads fresh-server first requests (`--fold off`), as before.
+
 ## Idea: one executor rule beside the one placement rule (the user, 2026-11-03)
 
 - **Card-free serving falls out of placement only if the executor is placed too.** `crates/placement` already sizes
