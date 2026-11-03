@@ -7,11 +7,12 @@ set -u
 F=${1:?folder}; shift; M=/models/$F; B=$(ls -d /opt/engines/bloomery-v0.3.12/*/bin)/bloomery-serve
 short=$(echo "$F" | sed 's/Qwen3.8-Flash-Next-/q38-/; s/Qwen3.6-35B-A3B-/q36-/' | tr 'A-Z' 'a-z')
 common="--host 127.0.0.1 --port 18731"
-rec="BLOOMERY_HOST_ROOM=96G BLOOMERY_MTP_WIDTH=cost $B -m $M $common --parallel 1 --ctx-size 16896"
+rec="BLOOMERY_HOST_ROOM=96G $B -m $M $common --parallel 1 --ctx-size 16896"
+# BLOOMERY_MTP_WIDTH=cost is the unset width; it goes with the draft only (0.3.12 refuses it beside BLOOMERY_DRAFT=off)
 for r in "${@:-default rec nomtp}"; do for row in $r; do
   case $row in
     default) S="$B -m $M $common";;
-    rec)     S="BLOOMERY_DRAFT=mtp $rec";;
+    rec)     S="BLOOMERY_DRAFT=mtp BLOOMERY_MTP_WIDTH=cost $rec";;
     nomtp)   S="BLOOMERY_DRAFT=off $rec";;
   esac
   SERVE="$S" PORT=18731 ENGINE="bloomery 0.3.12" /root/health/take.sh "$short-bloomery-$row"
