@@ -8,6 +8,10 @@
 #   llamacpp-default  `llama-server -m <file>` and nothing else (no draft)
 #   llamacpp-rec      NVIDIA's dgx-spark-playbooks nvidia/llama-cpp step 4: --spec-type draft-mtp --spec-draft-n-max 3
 #                     (playbook's preserve_thinking kwarg left out: the takes ask no-think and carry no history)
+#   llamacpp-c16k     llama-server with -c 16896 (bloomery rec's context), for files whose default context does not fit:
+#                     11-03, Qwen3.8 UD-Q4_K_XL at llama.cpp's default (the trained 262,144) loaded with 3.8 GB free and
+#                     the take.sh watchdog stopped it at 3.0 GB in the first take
+#   llamacpp-rec-c16k llamacpp-rec with -c 16896
 # usage: [DRAFT=<draft gguf>] rows-gguf.sh <tag prefix> <first gguf> [row ...]
 set -u
 PFX=${1:?tag prefix}; M=${2:?gguf}; shift 2
@@ -21,6 +25,8 @@ for r in "${@:-bloomery-default bloomery-rec bloomery-nomtp llamacpp-default lla
     bloomery-nomtp)   S="BLOOMERY_DRAFT=off $rec"; P=18731; E="bloomery 0.3.12";;
     llamacpp-default) S="$L -m $M --host 127.0.0.1 --port 18732"; P=18732; E="llama.cpp b12069";;
     llamacpp-rec)     S="$L -m $M --host 127.0.0.1 --port 18732 --spec-type draft-mtp --spec-draft-n-max 3"; P=18732; E="llama.cpp b12069";;
+    llamacpp-c16k)    S="$L -m $M --host 127.0.0.1 --port 18732 -c 16896"; P=18732; E="llama.cpp b12069";;
+    llamacpp-rec-c16k) S="$L -m $M --host 127.0.0.1 --port 18732 -c 16896 --spec-type draft-mtp --spec-draft-n-max 3"; P=18732; E="llama.cpp b12069";;
     *) echo "unknown row $row"; continue;;
   esac
   SERVE="$S" PORT=$P ENGINE="$E" /root/health/take.sh "$PFX-$row"
