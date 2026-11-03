@@ -13,7 +13,6 @@ M=$(jq -c '.data[0].id' "$OUT/models.json")
 case $KIND in decode) P=$(head -1 /root/health/prompts/decode-prose.jsonl | jq -c .prompt);;
   prefill) P=$(head -1 /root/health/prompts/pp4096.jsonl | jq -c .prompt); N=1;; *) echo "KIND?"; exit 1;; esac
 req(){ curl -sf "$URL/v1/chat/completions" -H 'Content-Type: application/json' -d "{\"model\":$M,\"messages\":[{\"role\":\"user\",\"content\":$P}],\"max_tokens\":$1,\"temperature\":0,\"stream\":false,\"chat_template_kwargs\":{\"enable_thinking\":false},\"ignore_eos\":true}"; }
-MODEL=$(curl -sf "$URL/v1/models" | jq -r ".data[0].id")
 W=$(head -1 /root/health/prompts/decode-code.jsonl | jq -c .prompt)
 curl -sf "$URL/v1/chat/completions" -H 'Content-Type: application/json' -d "{\"model\":$M,\"messages\":[{\"role\":\"user\",\"content\":$W}],\"max_tokens\":32,\"temperature\":0,\"chat_template_kwargs\":{\"enable_thinking\":false}}" > /dev/null || { echo "warm-up failed"; exit 1; }
 $X start --session=atlas -o /out/$KIND --force-overwrite=true || exit 1
