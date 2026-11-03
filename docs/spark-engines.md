@@ -211,3 +211,21 @@ bloomery 밖에서 잰다. `tools/spark/q8gemv-bench.cu`는 Qwen3.6 디코드 �
 ncu(`--graph-profiling node`)로 보면 A는 행 수가 큰 텐서(1,024블록)에서 점유율 87 %이고, 512행 텐서(64블록)에서는 **21 %**다.
 512행 텐서는 공유 전문가 gate·up 80개와 전체 주의층 k·v 20개, 토큰당 100개다. 하나에 1.1 MB를 15.2 µs(ncu 아래)에 읽는다. 약 73 GB/s다.
 그래서 Q8_0 차이(+0.97 ms)의 유력한 자리는 커널 모양이 아니라 **작은 텐서가 GPU를 못 채우는 것**이다. 변종 D(512행 텐서만 4워프 split-K)는 다음 큐에 있다(`queue-night2.sh`).
+
+## 개선 제안(순위, 11-04 01:15 KST)
+
+순위는 "기대 이득 × 증거의 굳기"다. 이득은 위 측정에서 계산한 값이고, 소스 빌드로 확인한 것은 없다(빌드는 이번 밤에 미뤘다. 아래 "못 한 것").
+
+| # | 어디 | 바꿀 것 | 기대 이득 | 증거 |
+|---|---|---|---|---|
+| 1 | `crates/gpu/src/model/mtp35.rs` `walk_rows`·`STORE_ROWS = 2`, 앱의 저장 걷기 호출 | Qwen3.6 저장 걷기를 ubatch 전체의 GEMM으로: `eh_proj`·k·v를 `gemm_q8_0p`로 한 번 읽고, append만 행별로 | 4K 프롬프트당 −0.6 s. MTP 켠 pp4096 2,484 → 약 4,100(**+65 %**), pp512 1,754 → 약 2,500 | nsys: rec가 `q8_0_gemv` +16,800회 · +470 ms, `mtp_input` 4,200회. Atlas 드래프터 프리필 136 ms |
+| 2 | `mtp35.rs` `mtp_chain`·`chain_rows`("a chain of {own} own rows"), `WALK_ROWS = 2` | 드래프트가 자기 행을 이어 받게 해 폭 2–3. 걷기를 그래프로 잡고 제안 id를 카드에 둔다(`MtpArena::Step` 길을 체인에도) | 코드 디코드 73.7 → 85–95(+15–30 %). 산문은 +5 % 안팎 | llama.cpp가 같은 MTP 층으로 n-max 3에서 코드 96.9 / 산문 74.7. bloomery는 폭 1이 최대(서버 `mtp width`) |
+| 3a | Qwen3.6 검증 헤드(`qwen3moe_head_q6k_argmax_prefetch`) | 2행 검증 헤드를 한 번에: Q6_K 417 MB를 한 번 읽고 두 행의 argmax | 창당 −1.9 ms(25.0 → 23.1, +8 %) | nsys: 창당 2회 × 1.87 ms |
+| 3b | Qwen3.6 드래프트 헤드(`q6k_gemv_prefetch`, `BLOOMERY_MTP_HEAD_ROWS`는 Qwen3.8만) | Qwen3.8의 줄인 어휘 헤드(76k 목록)를 Qwen3.6에도. 토크나이저가 같다 | 창당 약 −1.3 ms(+5 %), 수락률 소폭 손해 가능 | nsys 1.85 ms/창. 같은 어휘 248,320 |
+| 3c | 2행 f32 사이트(`f32_tile_gemm`) | 1–2행이면 `mcol` 식 gemv로 | 창당 −0.9 ms(+4 %) | 4,320회 1.3 ms vs 1행 `f32_gemv` 0.35 ms |
+| 4 | `crates/gpu/src/q8f32.rs` `q8_0_gemv` | 512행 텐서(공유 전문가 gate·up, k·v)를 split-K로, 또는 gate+up을 한 실행으로 | 토큰당 최대 −1.0 ms(MTP 끔 디코드 +6 %) | ncu: 64블록 점유 21 %, 약 73 GB/s. 변종 D 결과는 큐에 |
+| 5 | `q5k_gemv_sel` | llama.cpp type 13 식 읽기(196 GB/s) | 토큰당 −0.48 ms(+3 %) | nsys 136 vs 196 GB/s |
+| 6 | `mtp38.rs` `MTP_STORE_ROWS = 64` | Qwen3.8 저장 걷기를 ubatch로 | pp4096(MTP) +3.5 % | nsys +63 ms / 4,200토큰 |
+
+1과 2는 같은 파일이고, 둘 다 "MTP 층을 디코드 모양으로만 돌린다"는 한 뿌리다. 그래서 함께 고치는 편이 싸다.
+3a–3c는 서로 독립이고, 합치면 창당 약 −4 ms(+15–20 %)다. 2와 겹치지 않는다(창 비용과 창 길이는 곱으로 효과가 난다).
