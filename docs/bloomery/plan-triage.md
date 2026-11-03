@@ -2,6 +2,19 @@
 
 여기는 **아직 할 일만** 있다. 2026-09-25 새벽에 다시 썼다 — 그 전 판(라운드 보고 절 스무 개와 09-23 GPU 선 목록의 원문, 155 KB)은 [`plan-ledger.md`](plan-ledger.md) 「plan-triage.md 2026-09-25 이전 판」에 원문 그대로 있고, 항목의 근거·수치·기제가 필요하면 거기서 찾는다. 항목은 받을 라운드별로 한 줄씩이고 크기는 XS·S·M·L이다. 착륙한 줄은 지운다(원문은 장부, 결과는 커밋 메시지와 rig-log). 수치는 `[유도]`가 아니면 실측이다.
 
+## Idea: one executor rule beside the one placement rule (the user, 2026-11-03)
+
+- **Card-free serving falls out of placement only if the executor is placed too.** `crates/placement` already sizes
+  every byte over VRAM → host RAM → NVMe in one plan, but which side *runs* a site is not part of it: the host runs
+  routed stacks only (`crates/placement/src/kernels.rs` `host_stack`: fused qdot rows), and attention, dense FFN, norms,
+  head and the KV cache run only as card kernels in `GpuModel`. With zero cards the plan has bytes and no executor. The
+  CPU engine (`crates/model`, `bloomery-decode`: V2-Lite on the CPU alone, 87.87 tok/s against ik 85.87, rig-log
+  2026-09-23) has every site but is a separate engine. The idea: an executor fact per site (card, host, or host reading
+  a streamed NVMe part) chosen by the same plan, with host arms for the dense and attention sites, so zero cards is one
+  case of the rule. Trigger: a user's question about a pure-C CPU engine streaming a 2.78 T model from SSD in 8 GB of RAM
+  (an X post, 2026-11-03; not measured by us). Open: whether today's plan refuses zero cards by name or plans them;
+  the paper decomposition (active bytes a token ÷ NVMe and DRAM rates per model and RAM size) before any round. Size L.
+
 ## CUDA flow audit (cflow) — 0.3.12 speed (lead, 2026-10-30)
 
 The audit's measurement sitting (cflmeas, RTX A6000, 2026-10-29; cards `docs/cards/cflow-m*.card` in bloomery) settled
