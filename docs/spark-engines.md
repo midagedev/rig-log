@@ -261,3 +261,31 @@ D는 −0.13 ms(−2 %)뿐이다. ncu 아래의 73 GB/s는 ncu가 실행마다 �
 **bloomery가 못 여는 Qwen3.6 safetensors.** 0.3.12 GB10 아카이브의 `bloomery-serve`는 Qwen3.6 MoE 체크포인트 폴더를 받지 않는다.
 NVIDIA NVFP4(ModelOpt)는 `config.json: config.dtype is not a key this converter reads`, Qwen FP8은 `lm_head.weight: not a Qwen3.6 tensor`, TensorFold MLX 4-bit MTP는 `a qwen35moe model, where this seat serves qwen35`(`serve_seats/folder.rs`)다.
 README가 말하는 Qwen3.6 폴더 길은 `prepare`로 GGUF를 만드는 것이다(`docs/mac.md`). `prepare`는 이 아카이브에 없다. 그래서 보드 2의 NVFP4·FP8·MLX 열에 bloomery 행은 없다.
+
+## 같은 Qwen3.6, 다른 Q4_K_M 파일(11-04 01:30 KST)
+
+juliankang4의 테이프(bloomery 0.3.0, 드라이버 595.84)는 lmstudio-community의 `Q4_K_M`에서 잰 것이다. 우리 보드 2의 GGUF는 unsloth의 `UD-Q4_K_M`이다. 이름은 같아도 밀집 텐서가 다르다(헤더에서 읽음, 임베딩·MTP 층 뺌).
+
+| 파일 | 밀집 | 전문가 전체(토큰당 8/256) | 헤드 | 토큰당 읽기 |
+|---|---|---:|---:|---:|
+| lmstudio `Q4_K_M` @68a34855 | Q4_K 645 MB + Q6_K 215 MB | 19.5 GB(0.61 GB) | Q6_K 417 MB | 약 1.9 GB |
+| unsloth `UD-Q4_K_M`(MTP 판) | **Q8_0 1,525 MB** | 20.1 GB(0.63 GB) | Q6_K 417 MB | 약 2.6 GB |
+
+| lmstudio `Q4_K_M` 행 | 코드 | 산문 | pp512 | pp4096 |
+|---|---:|---:|---:|---:|
+| bloomery 0.3.12 기본 | **92.0** | **92.7** | **2582** | **4549** |
+| llama.cpp b12069 기본 | 76.7 | 77.5 | 1919 | 2415 |
+
+토큰당 읽기로 나누면 bloomery는 두 파일에서 같은 실효 대역폭(약 174 GB/s)을 낸다. llama.cpp는 `UD`에서 176, lmstudio에서 146 GB/s다.
+그러니 `UD` 파일에서 bloomery가 llama.cpp와 비기는 것은 llama.cpp의 Q8_0 경로가 강해서다. lmstudio 파일에서는 bloomery가 디코드 +20 %, pp4096 +88 %로 앞선다.
+
+**테이프 교차 확인.** toktape 0.8.0, prompts@v2, 기본 인자, 세 번. 프롬프트 7,258 id.
+
+| | 디코드 | 프리필 | ITL p50 |
+|---|---:|---:|---:|
+| juliankang4, bloomery 0.3.0, 드라이버 595.84, 2슬롯 | 86.9 | 4,301 | 11.28 ms |
+| 우리, bloomery 0.3.12, 드라이버 580.178.04, 1슬롯(0.3.12 기본) | 80.7–81.1 | 4,779–4,827 | 12.20–12.27 ms |
+| 우리, llama.cpp b12069 | 70.1–70.5 | 2,417–2,427 | 14.03–14.14 ms |
+
+프리필은 우리가 12 % 빠르고 디코드는 7 % 느리다. 차이의 후보는 셋이다. 드라이버(580 대 595), 판(0.3.0 대 0.3.12, 0.3.0의 GB10 아카이브는 없어 같은 판으로 못 돌렸다), 슬롯 수다.
+드라이버는 하드 스톱이라 바꾸지 않았다. 0.3.11 아카이브는 있으니, 판 차이를 좁히는 다음 값싼 시험은 0.3.11로 같은 테이프를 다시 받는 것이다.
