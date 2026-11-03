@@ -341,3 +341,55 @@ bloomery rec의 `mtp width` 기록에서 코드 요청은 폭 3(최대)을 고�
 
 전체 어휘 헤드는 수락률을 조금 올리지만 드래프트 걷기가 비싸져 9–10 % 느리다. 줄인 헤드가 맞는 기본값이다.
 폭을 늘 3으로 고정해도 코드는 rec와 같다. 코드에서는 `cost`가 이미 폭 3을 고르고 있었다는 뜻이다. 그러니 코드 디코드의 상한은 선택기가 아니라 4행 검증 상한(`DELTA_VERIFY_ROWS`)이다. 제안 7의 근거가 하나 더 선다.
+
+## 아침 요약(11-04 02:30 KST 기준)
+
+모두 이 Spark 한 대(GB10, 드라이버 580.178.04)에서 잰 것이다. 클라이언트 시계, tok/s, 세 번의 중앙값이다. 디코드는 코드·산문 각 256토큰이고, pp는 479 / 4,200 id 프롬프트다. 엔진은 한 번에 하나씩 돌렸고, 로드 전마다 drop_caches를 했다.
+
+**보드 1: Qwen3.8-Flash-Next**
+
+| 파일 | 엔진 · 행 | 코드 | 산문 | pp512 | pp4096 |
+|---|---|---:|---:|---:|---:|
+| FP4-Local | bloomery rec | 63.9 | 42.9 | **1243** | 2330 |
+| FP4-Local | bloomery 기본 | 62.5 | 42.9 | 1241 | 2268 |
+| FP4-Local | bloomery nomtp | 29.6 | 29.8 | 1285 | **2452** |
+| FP4-Local | Flare 기본 / nomtp | 47.5 / 26.7 | 36.8 / 27.0 | 1112 / 1122 | 2232 / 2353 |
+| FP4-Local | vLLM rec / nomtp(기본 행은 실패) | 56.8 / 26.9 | 35.5 / 26.9 | 998 / 1110 | 2002 / 2146 |
+| TF MLX 4-bit MTP | TensorFold 기본 / `--no-drafts` | **74.4** / 29.3 | **44.0** / 28.1 | 978 / 1052 | 1503 / 1584 |
+| NVIDIA NVFP4 | SGLang MTP / 없음(N-gram 표 NVMe) | 30.2 / 15.2 | 21.5 / 14.9 | 560 / 633 | 1598 / 1561 |
+| UD-Q4_K_XL | bloomery 공유 드래프트 / nomtp | 52.1 / 28.8 | 36.9 / 29.0 | 816 / 842 | 1524 / 1558 |
+| UD-Q4_K_XL | llama.cpp `-c 16896` | 27.5 | 27.4 | 672 | 767 |
+| GSQ-RCO IQ3_S | Strata 기본(MTP) / nomtp | 66.8 / 31.7 | 49.6 / 34.5 | 450 / 388 | 1577 / 1585 |
+| GSQ-RCO IQ3_S | llama.cpp `-c 16896` | 30.9 | 31.1 | 655 | 752 |
+| GSQ-RCO IQ3_S | bloomery | 거절(iq4_nl) | | | |
+
+**보드 2: Qwen3.6-35B-A3B**
+
+| 파일 | 엔진 · 행 | 코드 | 산문 | pp512 | pp4096 |
+|---|---|---:|---:|---:|---:|
+| lmstudio Q4_K_M | bloomery 기본 | 92.0 | **92.7** | 2582 | 4549 |
+| lmstudio Q4_K_M | llama.cpp 기본 | 76.7 | 77.5 | 1919 | 2415 |
+| UD-Q4_K_M(MTP 판) | bloomery rec / nomtp | 73.7 / 66.4 | 69.3 / 66.6 | 1754 / 2553 | 2484 / 4296 |
+| UD-Q4_K_M(MTP 판) | llama.cpp rec / 기본 | 96.9 / 66.5 | 74.7 / 66.9 | 1746 / 1895 | 2263 / 2425 |
+| UD-Q4_K_XL(MTP 판) | bloomery rec / nomtp | 68.2 / 63.9 | 64.0 / 64.2 | 1757 / 2563 | 2487 / 4306 |
+| UD-Q4_K_XL(MTP 판) | llama.cpp rec / 기본 | 94.4 / 65.5 | 71.3 / 65.8 | 1718 / 1898 | 2253 / 2429 |
+| UD-Q4_K_XL(MTP 판) | Strata 기본 / nomtp(MTP 효과 없음) | 58.0 / 58.6 | 64.4 / 64.4 | 2048 / 2114 | 2782 / 2896 |
+| NVIDIA NVFP4 | SGLang MTP / rec(기본 행은 실패) | **120.1** / 79.7 | 91.4 / 79.9 | 3467 / **3874** | 4179 / **6742** |
+| NVIDIA NVFP4 | TensorFold 기본 / nomtp | 64.1 / 64.0 | 63.9 / 64.1 | 3489 / 3484 | 5188 / 5175 |
+| TF MLX 4-bit MTP | TensorFold 기본 / nomtp | 82.0 / 82.4 | 82.4 / 82.5 | 3584 / 3587 | 5514 / 5509 |
+| Qwen FP8 | SGLang MTP / 기본 | 68.0 / 53.0 | 51.6 / 53.1 | 2267 / 1537 | 5805 / 4643 |
+| Qwen FP8 | Atlas 기본 / rec / nomtp | 66.8 / 64.8 / 55.3 | 67.3 / 58.6 / 55.0 | 521 / 427 / 433 | 1017 / 962 / 982 |
+| NVFP4 · FP8 · MLX | bloomery | 거절(폴더 형식) | | | |
+
+**bloomery가 지는 곳과 원인(증거)**
+
+1. Qwen3.6 MTP를 켠 프리필: pp4096 −42 %. 저장 걷기가 행마다 디코드 모양 gemv로 돈다(nsys `q8_0_gemv` +16,800회, +470 ms).
+2. Qwen3.6 MTP 디코드: 코드 73.7 대 llama.cpp 96.9. 제안이 늘 한 토큰이고(`mtp_chain`이 자기 행 거절), 창 25 ms 안에 헤드를 두 번 읽는다.
+3. Qwen3.8 코드 디코드: 63.9 대 TensorFold 74.4. 수락률 0.95인데 검증 4행 상한(`DELTA_VERIFY_ROWS`)에서 폭 3에 멈춘다.
+4. Qwen3.6 NVFP4/FP8 폴더를 못 연다. SGLang NVFP4 MTP 120.1 / pp4096 6,742가 이 칸의 최고다.
+5. unsloth `UD` 파일의 Q8_0 밀집에서 llama.cpp와 비긴다(실효 174 대 176 GB/s). lmstudio 파일에서는 bloomery가 +20 %다.
+6. Strata가 고른 IQ3_S(공유 전문가 IQ4_NL)를 못 연다.
+
+**제안 순위(위 "개선 제안" 표 + 제안 7)**: ① Qwen3.6 저장 걷기를 ubatch GEMM으로(pp4096 MTP +65 %) ② Qwen3.8 검증 상한 4 → 6, 폭 5(코드 +30 %) ③ Qwen3.6 체인 폭 2–3과 걷기 그래프 캡처(코드 +15–30 %) ④ Qwen3.6 창의 헤드 한 번 읽기·줄인 드래프트 헤드·mcol f32(창당 −4 ms, +15–20 %) ⑤ Qwen3.6 NVFP4 폴더 열기(형식) ⑥ Q5_K sel(+3 %) ⑦ Qwen3.8 `MTP_STORE_ROWS`(+3.5 %) ⑧ Q8_0 gemv split-K(+1 % 확인).
+
+**실패와 못 한 것**: SGLang Qwen3.6 NVFP4 기본 행(`'FusedMoE' object has no attribute 'g1_scale_c'`), vLLM Qwen3.8 기본 행, Strata Qwen3.6 MTP 효과 없음, TensorFold Qwen3.6 MTP 효과 없음(수락 0/0), bloomery 소스 빌드(CUDA 13.3이 필요해 미룸) — 그래서 제안 이득은 모두 계산값이다.
