@@ -15,7 +15,8 @@
 #     inert. A bus-derived name is not a stable identifier; a MAC address is.
 #
 # Port f0 carries the LAN. Port f1 is a direct 10GbE cable to the DGX Spark (its RJ45 port, enP7s7): a /30 with
-# no gateway and no DNS, MTU 9000 on both ends; the Spark side is the NetworkManager profile in configs/spark/.
+# no gateway and no DNS, MTU 1500 (jumbo frames tripled an 8 KiB round trip on the Spark's Realtek port, log
+# 2026-11-04 spark-wire-tuning); the Spark side is the NetworkManager profile in configs/spark/.
 #
 # optional: true keeps systemd-networkd-wait-online from blocking boot for 120
 # seconds on whichever port has no cable. Nothing here needs network-online:
@@ -43,7 +44,6 @@ network:
       match:
         macaddress: "xx:xx:xx:xx:xx:87"
       addresses: [x.x.x.1/30]
-      mtu: 9000
       dhcp4: false
       dhcp6: false
       link-local: [ipv6]

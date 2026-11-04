@@ -1,0 +1,16 @@
+# The Spark's cores kept out of their deep idle state (LPI-1: 42 µs exit, 1930 µs residency) while the tier Wire is
+# served: with it off on every core an 8 KiB round trip on the direct cable is p99 79 µs, against 943 µs with it on
+# (log 2026-11-04 spark-wire-tuning; off on the two NIC IRQ cores alone left p99 260 µs). It is installed and NOT
+# enabled: the cores then idle shallow and draw more of the GB10's shared power, which moves the bench bot's GPU rows.
+# Start it for a Wire sitting (`systemctl start cpuidle-shallow`), stop it after; ExecStop restores the state.
+[Unit]
+Description=Keep every core out of cpuidle state1 (LPI-1) for the tier Wire
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'for f in /sys/devices/system/cpu/cpu*/cpuidle/state1/disable; do echo 1 > "$f"; done'
+ExecStop=/bin/sh -c 'for f in /sys/devices/system/cpu/cpu*/cpuidle/state1/disable; do echo 0 > "$f"; done'
+
+[Install]
+WantedBy=multi-user.target
