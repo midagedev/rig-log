@@ -2,6 +2,13 @@
 
 여기는 **아직 할 일만** 있다. 2026-09-25 새벽에 다시 썼다 — 그 전 판(라운드 보고 절 스무 개와 09-23 GPU 선 목록의 원문, 155 KB)은 [`plan-ledger.md`](plan-ledger.md) 「plan-triage.md 2026-09-25 이전 판」에 원문 그대로 있고, 항목의 근거·수치·기제가 필요하면 거기서 찾는다. 항목은 받을 라운드별로 한 줄씩이고 크기는 XS·S·M·L이다. 착륙한 줄은 지운다(원문은 장부, 결과는 커밋 메시지와 rig-log). 수치는 `[유도]`가 아니면 실측이다.
 
+## Open: gate-gpu-lib's held-card room test reads another process's frees (lead, 2026-11-04)
+
+`context_tests::hw_a_held_card_leaves_the_room_its_open_reads` (crates/gpu/src/lib.rs) measures the card's free bytes around
+an open; gate-gpu-lib takes no gate lock, so a round's GPU gate on the same 3090 freeing memory meanwhile made it read
+"the open took -25313280 B of the room" (landing batch of b1ed756bd, 2026-11-04). Fix: this test takes the card's gate
+lock (or refuses by name while another compute process is on the card), not a looser bound.
+
 ## Open: a fresh server's first request decodes slower than its second (lead, 2026-11-04)
 
 The validation sitting on main 0190b04b6 (A6000 + 3090 box, `--fold depths`, Qwen3.6-35B-A3B UD-Q4_K_M at `--place a` on the
