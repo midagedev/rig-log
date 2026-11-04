@@ -77,8 +77,11 @@ def decode_other_model(total_b, active_b, bpw, ram_gb=328.0, hot_hit=0.5):
     file_gb = total_b * bpw / 8
     missing = max(0.0, file_gb - ram_gb + 20.0)
     tok_gb = active_b * bpw / 8
-    card_share = min(1.0, 48.0 / file_gb * 1.0)
-    box_ms = tok_gb * (card_share / 768.0 + (1 - card_share) / 119.0) * 1000.0 * 0.6 + CARD_FRONT_MS * 0.5
+    card_share = min(1.0, 48.0 / file_gb)
+    raw = tok_gb * (card_share / 768.0 + (1 - card_share) / 119.0) * 1000.0
+    # calibrated: V4.1-Flash Q3_K_M (753 B, 22 B active, 3.44 bpw) reads 19.4 ms warm on the box (CAL)
+    cal_raw = (22 * 3.44 / 8) * (min(1.0, 48.0 / (753 * 3.44 / 8)) / 768.0 + (1 - min(1.0, 48.0 / (753 * 3.44 / 8))) / 119.0) * 1000.0
+    box_ms = raw * STEP_A_MS / cal_raw
     nvme_ms = tok_gb * (missing / file_gb) * (1 - hot_hit) / NVME_GBPS_QD4 * 1000.0
     node_share = min(missing, NODE_TIER_GB) / file_gb
     spark_ms = box_ms * (1 - node_share) + tok_gb * node_share / 209.0 * 1000.0 + LAYERS * 0.2
