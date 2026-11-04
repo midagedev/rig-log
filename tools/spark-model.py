@@ -42,6 +42,21 @@ def decode_layer_pipeline(spark_layers, per_layer_ms):
     return box + spark_layers * per_layer_ms + 2 * A_RTT_FLOOR_US / 1000.0 + 0.2
 
 
+def decode_streams(k, a_us, with_node):
+    """k streams decoded together (bloomery-serve --parallel k): one step serves k rows. The host leg grows with the
+    union of the k rows' routed experts [derived: union factor 1 + 0.75 (k-1) up to the pool]; the card front grows
+    little (attention k rows, the card's experts' union). With the node, the node takes its share of the host union
+    in ONE trip for all k rows (page MAX_ROWS = 4), so a is paid once a layer, not once a row. Host slots at plan a,
+    one row: 83 a token (sparktier); host leg = slots x HOST_SLOT_MS, exposed only above the card front."""
+    union = 1.0 + 0.75 * (k - 1)
+    card = CARD_FRONT_MS * (1.0 + 0.06 * (k - 1))
+    host_slots = 83 * union * ((1 - NODE_SHARE) if with_node else 1.0)
+    host = host_slots * HOST_SLOT_MS
+    node = (LAYERS * a_us / 1000.0) if with_node else 0.0
+    step = max(card, host) + node
+    return step, k * 1000.0 / step
+
+
 def prefill_host_reads_node(cache_warm):
     """nodebatch today: the host serves the node's experts in the batch, read from the file each prompt."""
     per_layer_file_ms = NODE_TIER_GB / LAYERS / NVME_GBPS_QD4 * 1000.0 * (1.0 - cache_warm)
@@ -69,6 +84,12 @@ def main():
     for pl in (0.5, 0.75, 1.0):
         s = decode_layer_pipeline(10, pl)
         print("  Spark holds 10 whole layers at %.2f ms/layer: step %.1f ms -> %.1f tok/s [derived]" % (pl, s, 1000 / s))
+    print("decode, k streams together (aggregate tok/s) [derived]")
+    for k in (1, 2, 4):
+        s0, t0 = decode_streams(k, 0, False)
+        s1, t1 = decode_streams(k, 200, True)
+        s2, t2 = decode_streams(k, 52, True)
+        print("  k=%d: ws alone step %.1f ms %.0f tok/s | +Spark a 200 us: %.1f ms %.0f tok/s | a 52 us: %.1f ms %.0f tok/s" % (k, s0, t0, s1, t1, s2, t2))
     print("prefill, pp tok/s at P 512; ws alone plan a = %.0f" % PP_A)
     for warm in (0.0, 0.5, 0.8):
         print("  host reads the node's experts from the file, cache %.0f %% warm: %.0f" % (warm * 100, prefill_host_reads_node(warm)))
