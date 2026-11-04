@@ -70,6 +70,21 @@ def decode_bigger_quant(bpw, ram_gb=328.0, hot_hit=0.5):
     return file_gb, missing, ws_alone, ws_spark
 
 
+def decode_other_model(total_b, active_b, bpw, ram_gb=328.0, hot_hit=0.5):
+    """Another MoE at a quant the box cannot hold: bytes a token = active params x bpw / 8, read by the box's card share
+    (768 GB/s), its host (119 GB/s) and the node (209 GB/s) beside each other [derived: bandwidth-bound, the 40 round
+    trips added]; ws alone pages the missing share from NVMe (hot_hit of it kept in RAM [guess])."""
+    file_gb = total_b * bpw / 8
+    missing = max(0.0, file_gb - ram_gb + 20.0)
+    tok_gb = active_b * bpw / 8
+    card_share = min(1.0, 48.0 / file_gb * 1.0)
+    box_ms = tok_gb * (card_share / 768.0 + (1 - card_share) / 119.0) * 1000.0 * 0.6 + CARD_FRONT_MS * 0.5
+    nvme_ms = tok_gb * (missing / file_gb) * (1 - hot_hit) / NVME_GBPS_QD4 * 1000.0
+    node_share = min(missing, NODE_TIER_GB) / file_gb
+    spark_ms = box_ms * (1 - node_share) + tok_gb * node_share / 209.0 * 1000.0 + LAYERS * 0.2
+    return file_gb, missing, box_ms + nvme_ms, spark_ms
+
+
 def prefill_host_reads_node(cache_warm):
     """nodebatch today: the host serves the node's experts in the batch, read from the file each prompt."""
     per_layer_file_ms = NODE_TIER_GB / LAYERS / NVME_GBPS_QD4 * 1000.0 * (1.0 - cache_warm)
@@ -108,6 +123,13 @@ def main():
         f, m, wa, ws = decode_bigger_quant(bpw)
         fits = "fits ws+Spark" if m <= NODE_TIER_GB else "does NOT fit the Spark's %.0f GB either" % NODE_TIER_GB
         print("  %s ~%.0f GB (%.0f GB past the box, %s): ws alone %.1f ms -> %.1f tok/s (NVMe pages) | ws+Spark %.1f ms -> %.1f tok/s" % (name, f, m, fits, wa, 1000 / wa, ws, 1000 / ws))
+    print("other MoEs at a quant past the box (total B, active B, bpw) [derived, bandwidth model]")
+    for name, tb, ab, bpw in (("V4.1-Flash IQ4_XS", 753, 22, 4.25), ("Mistral Large 4 1T-A52B ~3 bpw", 1000, 52, 3.0),
+                              ("Muse-Spark-Open 816B-A42B ~3.4 bpw", 816, 42, 3.4), ("Kimi K2.x 1T-A32B ~3 bpw", 1000, 32, 3.0),
+                              ("DeepSeek V4-Pro 1.6T-A49B ~2 bpw", 1600, 49, 2.0)):
+        f, m, wa, ws = decode_other_model(tb, ab, bpw)
+        fit = "fits" if m <= NODE_TIER_GB else "too big for the node"
+        print("  %-36s ~%4.0f GB, %3.0f GB past the box (%s): ws alone %.0f tok/s | ws+Spark %.0f tok/s" % (name, f, m, fit, 1000 / wa, 1000 / ws))
     print("prefill, pp tok/s at P 512; ws alone plan a = %.0f" % PP_A)
     for warm in (0.0, 0.5, 0.8):
         print("  host reads the node's experts from the file, cache %.0f %% warm: %.0f" % (warm * 100, prefill_host_reads_node(warm)))
