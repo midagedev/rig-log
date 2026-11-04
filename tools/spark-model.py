@@ -104,9 +104,10 @@ def main():
         s2, t2 = decode_streams(k, 52, True)
         print("  k=%d: ws alone step %.1f ms %.0f tok/s | +Spark a 200 us: %.1f ms %.0f tok/s | a 52 us: %.1f ms %.0f tok/s" % (k, s0, t0, s1, t1, s2, t2))
     print("decode at a bigger quant than the box holds [derived]")
-    for bpw, name in ((4.85, "Q4_K_M"), (5.7, "Q5_K_M")):
+    for bpw, name in ((4.25, "IQ4_XS"), (4.85, "Q4_K_M")):
         f, m, wa, ws = decode_bigger_quant(bpw)
-        print("  %s ~%.0f GB (%.0f GB past the box): ws alone %.1f ms -> %.1f tok/s (NVMe pages) | ws+Spark %.1f ms -> %.1f tok/s" % (name, f, m, wa, 1000 / wa, ws, 1000 / ws))
+        fits = "fits ws+Spark" if m <= NODE_TIER_GB else "does NOT fit the Spark's %.0f GB either" % NODE_TIER_GB
+        print("  %s ~%.0f GB (%.0f GB past the box, %s): ws alone %.1f ms -> %.1f tok/s (NVMe pages) | ws+Spark %.1f ms -> %.1f tok/s" % (name, f, m, fits, wa, 1000 / wa, ws, 1000 / ws))
     print("prefill, pp tok/s at P 512; ws alone plan a = %.0f" % PP_A)
     for warm in (0.0, 0.5, 0.8):
         print("  host reads the node's experts from the file, cache %.0f %% warm: %.0f" % (warm * 100, prefill_host_reads_node(warm)))
