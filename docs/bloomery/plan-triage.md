@@ -19,6 +19,16 @@ not retry it; pass 2 (the next commit's keys) ran it green. A gate-batch defect,
 remote dir needs one owner per batch (sync once before the lanes start, or a lock around `.sync-id.new`). Size ~20
 lines in tools/box.sh or gate-batch.sh.
 
+## Open: sitting.sh's self-test `quiet` case flakes under the parallel static tier (lead, 2026-11-05)
+
+`just mac-static origin/main` on the r3node tree (36783bdc5) ended check-recipes red on one case: `FAIL quiet: the output
+lacks '[quiet] box quiet after 0 s'` with the line `sitting.sh: SITTING_QUIET_WAIT is whole seconds, got 'abc'` under it,
+the message of the case that follows it (`ST_EXTRA=(SITTING_QUIET_WAIT=abc)`, tools/release/sitting.sh ~:1852). The tree
+does not touch sitting.sh; `bash tools/release/sitting.sh --self-test` alone on main (c5b257933 + 1, quiet Mac) is `ok (106
+cases)`. So the quiet case's output is read from a file another case already overwrote, or its 5 s bound (`:1798`, "too
+short for six looks under load") ends early under the tier's parallel load. Reproduce with the self-test under load before
+a fix; the fix is per-case output files or a longer bound, ~10 lines. Not a landing blocker: the red is the self-test's.
+
 ## Open: the second Mac's `just` is 1.58.0, `just remote-static` refuses (lead, 2026-11-05)
 
 `tools/mac-setup.sh --check` on the second Mac names "missing: just 1.59.0 in PATH (found: just 1.58.0)", rc 69 before any
