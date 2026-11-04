@@ -19,6 +19,17 @@ not retry it; pass 2 (the next commit's keys) ran it green. A gate-batch defect,
 remote dir needs one owner per batch (sync once before the lanes start, or a lock around `.sync-id.new`). Size ~20
 lines in tools/box.sh or gate-batch.sh.
 
+## Open: a tier node's census room, the one-value budget, and prefill with a node (lead, 2026-11-05, sparkr3)
+
+From the first Spark bind (log/2026-11-05.md#spark-를-v41-의-expert-tier-노드로): ① the plan takes the node's census as a
+card spec and plans the tier at 125.8 GB on a 121 GiB shared pool (OOM once, 791 MB free once); an integrated node's room
+= free − the file's read pages − a floor, not total (placement/devices.rs `spec_of_device`, the node branch of the plan;
+~40 lines); ② `BLOOMERY_CARD_BUDGET` with nodes takes one value for every card (generate_ds41 refuses `CUDAn=`), so the
+small-tier regime the sparkr3 card derived cannot be recovered without cutting the A6000: a node-indexed word
+(`NODE0=24G`), ~20 lines; ③ a prompt batch refuses a node tier (`HostTier::enqueue_download_tiered`, "feed the prompt as
+steps"): the Spark helps decode only until the batch port's tier legs can run on a node (design, the r4prompt track).
+④ the 580 driver's missing atomic-reduction memop: round r3b (kernel add by probe), then the Spark run by the lead.
+
 ## Open: sitting.sh's self-test `quiet` case flakes under the parallel static tier (lead, 2026-11-05)
 
 `just mac-static origin/main` on the r3node tree (36783bdc5) ended check-recipes red on one case: `FAIL quiet: the output
