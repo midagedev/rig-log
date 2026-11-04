@@ -1,0 +1,27 @@
+# The DGX Spark's end of the direct 10GbE cable to the workstation (its RJ45 port enP7s7; the workstation's end is lan
+# port f1 in configs/01-lan.yaml). Made on 2026-11-04 by `nmcli con mod` of the auto-made profile, which sat in DHCP on
+# a link with no server:
+#   nmcli con mod "<auto profile>" connection.id spark-ws-link ipv4.method manual ipv4.addresses <.2>/30 \
+#     ipv4.gateway "" ipv4.never-default yes ipv6.method link-local 802-3-ethernet.mtu 9000 connection.autoconnect yes
+# The Spark's NetworkManager keeps profiles as netplan files, so this is /etc/netplan/90-NM-<uuid>.yaml (mode 600) as it
+# wrote it; the /30 is redacted (x.x.x.2, the workstation is .1) and the uuid and timestamp are left out.
+network:
+  version: 2
+  ethernets:
+    NM-spark-ws-link:
+      renderer: NetworkManager
+      match:
+        name: "enP7s7"
+      addresses:
+      - "x.x.x.2/30"
+      mtu: 9000
+      wakeonlan: true
+      networkmanager:
+        name: "spark-ws-link"
+        passthrough:
+          connection.autoconnect-priority: "-999"
+          ipv4.never-default: "true"
+          ipv6.addr-gen-mode: "default"
+          ipv6.method: "link-local"
+          ipv6.ip6-privacy: "-1"
+          proxy._: ""

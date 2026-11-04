@@ -1,7 +1,7 @@
 # /etc/netplan/01-lan.yaml — both X550 ports, matched by MAC.
 #
-# The MACs below are redacted; on the machine they are the two real port
-# addresses, which differ only in the last octet. Everything else is as-is.
+# The MACs and the link's /30 below are redacted; on the machine they are the two real port
+# addresses, which differ only in the last octet, and a private /30. Everything else is as-is.
 #
 # This file replaces 50-cloud-init.yaml, which named enp36s0f1 directly and
 # carried critical: true. Two separate faults came out of that pair:
@@ -14,7 +14,8 @@
 #     0x24 to 0x25, so enp36s0f1 became enp37s0f1 and the stanza went silently
 #     inert. A bus-derived name is not a stable identifier; a MAC address is.
 #
-# Both ports are declared so either one can carry the cable.
+# Port f0 carries the LAN. Port f1 is a direct 10GbE cable to the DGX Spark (its RJ45 port, enP7s7): a /30 with
+# no gateway and no DNS, MTU 9000 on both ends; the Spark side is the NetworkManager profile in configs/spark/.
 #
 # optional: true keeps systemd-networkd-wait-online from blocking boot for 120
 # seconds on whichever port has no cable. Nothing here needs network-online:
@@ -38,11 +39,12 @@ network:
       optional: true
       nameservers:
         addresses: [168.126.63.1, 168.126.63.2]
-    lan-f1:
+    spark-f1:
       match:
         macaddress: "xx:xx:xx:xx:xx:87"
-      dhcp4: true
-      dhcp-identifier: "mac"
+      addresses: [x.x.x.1/30]
+      mtu: 9000
+      dhcp4: false
+      dhcp6: false
+      link-local: [ipv6]
       optional: true
-      nameservers:
-        addresses: [168.126.63.1, 168.126.63.2]
