@@ -2,6 +2,14 @@
 
 여기는 **아직 할 일만** 있다. 2026-09-25 새벽에 다시 썼다 — 그 전 판(라운드 보고 절 스무 개와 09-23 GPU 선 목록의 원문, 155 KB)은 [`plan-ledger.md`](plan-ledger.md) 「plan-triage.md 2026-09-25 이전 판」에 원문 그대로 있고, 항목의 근거·수치·기제가 필요하면 거기서 찾는다. 항목은 받을 라운드별로 한 줄씩이고 크기는 XS·S·M·L이다. 착륙한 줄은 지운다(원문은 장부, 결과는 커밋 메시지와 rig-log). 수치는 `[유도]`가 아니면 실측이다.
 
+## Open: gate-gpu-qwen35moe-e2e red in the real tier since 1b289718d (lead, 2026-11-05, #1167)
+
+Real tier, 3090 and A6000: `prompt step 1024: worst l_out ratio 1.56–1.61 at layer 34 (band 1.5)` and the flips clause
+(relative worst 4.144e-1 at call 34). Bisected on the box: 22ab72204 (1b289718d~1) PASS at 1.28/layer 35; 1b289718d
+FAIL at 1.61/layer 34; b17e44a69, 35a7e8e52 and main f83a69dea FAIL. The fixture tier is green at every commit, so the
+landing batches never saw it: a fixture gap to close by clause name (the real-tier prompt-step clause at 1024 needs a
+fixture twin that reads the same layer). juliankang4 asked on #1167; the band stays.
+
 ## Open: two lanes of one gate-batch rsync into one remote dir (lead, 2026-11-05)
 
 The train's pass-1 batch (f83a69dea's union, fixture tier) ended `gate-gpu-qwen4exp-e2e rc=1 1s try=1`: `mv: cannot stat
