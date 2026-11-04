@@ -2,6 +2,21 @@
 
 여기는 **아직 할 일만** 있다. 2026-09-25 새벽에 다시 썼다 — 그 전 판(라운드 보고 절 스무 개와 09-23 GPU 선 목록의 원문, 155 KB)은 [`plan-ledger.md`](plan-ledger.md) 「plan-triage.md 2026-09-25 이전 판」에 원문 그대로 있고, 항목의 근거·수치·기제가 필요하면 거기서 찾는다. 항목은 받을 라운드별로 한 줄씩이고 크기는 XS·S·M·L이다. 착륙한 줄은 지운다(원문은 장부, 결과는 커밋 메시지와 rig-log). 수치는 `[유도]`가 아니면 실측이다.
 
+## Open: two lanes of one gate-batch rsync into one remote dir (lead, 2026-11-05)
+
+The train's pass-1 batch (f83a69dea's union, fixture tier) ended `gate-gpu-qwen4exp-e2e rc=1 1s try=1`: `mv: cannot stat
+'/root/repo/bloomery-train/.sync-id.new'` and `rsync error (code 1)` — lane B's box.sh sync raced lane A's in the same
+remote dir, nothing of the gate ran, and its two variants (-2, -3) were green at 69–72 s. The batch's bulk recheck did
+not retry it; pass 2 (the next commit's keys) ran it green. A gate-batch defect, not a gate red: the sync of a shared
+remote dir needs one owner per batch (sync once before the lanes start, or a lock around `.sync-id.new`). Size ~20
+lines in tools/box.sh or gate-batch.sh.
+
+## Open: the second Mac's `just` is 1.58.0, `just remote-static` refuses (lead, 2026-11-05)
+
+`tools/mac-setup.sh --check` on the second Mac names "missing: just 1.59.0 in PATH (found: just 1.58.0)", rc 69 before any
+step, so the static tier ran on the lead's MacBook instead (`just mac-static origin/main`, 6 min). The second Mac is a
+shared CI runner: the user decides the upgrade (`brew upgrade just`).
+
 ## Open: three timing flakes in one landing (lead, 2026-11-04, cde272491)
 
 Each red once and green on the re-run, on a tree that touches none of them: `gate-model-host`'s
