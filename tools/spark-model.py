@@ -57,6 +57,19 @@ def decode_streams(k, a_us, with_node):
     return step, k * 1000.0 / step
 
 
+def decode_bigger_quant(bpw, ram_gb=328.0, hot_hit=0.5):
+    """A quant that does not fit the box (RAM 256 + A6000 48 + 3090 24 = 328 GB): ws alone pages the missing experts
+    from NVMe each token; ws+Spark holds them on the node. Q3_K_M = 324 GB at ~3.44 bpw; bytes a token = 6 routed x 40
+    layers x 19.3 MB x bpw/3.44 [derived]. hot_hit: the share of the missing bytes residency keeps in RAM [guess]."""
+    file_gb = 324.0 * bpw / 3.44
+    missing = max(0.0, file_gb - ram_gb + 20.0)   # 20 GB of KV, scratch and the page cache's floor [derived]
+    tok_gb = 6 * LAYERS * 0.0193 * bpw / 3.44
+    nvme_ms = tok_gb * (missing / file_gb) * (1 - hot_hit) / NVME_GBPS_QD4 * 1000.0
+    ws_alone = STEP_A_MS * bpw / 3.44 + nvme_ms
+    ws_spark = decode_split(200) * bpw / 3.44
+    return file_gb, missing, ws_alone, ws_spark
+
+
 def prefill_host_reads_node(cache_warm):
     """nodebatch today: the host serves the node's experts in the batch, read from the file each prompt."""
     per_layer_file_ms = NODE_TIER_GB / LAYERS / NVME_GBPS_QD4 * 1000.0 * (1.0 - cache_warm)
@@ -90,6 +103,10 @@ def main():
         s1, t1 = decode_streams(k, 200, True)
         s2, t2 = decode_streams(k, 52, True)
         print("  k=%d: ws alone step %.1f ms %.0f tok/s | +Spark a 200 us: %.1f ms %.0f tok/s | a 52 us: %.1f ms %.0f tok/s" % (k, s0, t0, s1, t1, s2, t2))
+    print("decode at a bigger quant than the box holds [derived]")
+    for bpw, name in ((4.85, "Q4_K_M"), (5.7, "Q5_K_M")):
+        f, m, wa, ws = decode_bigger_quant(bpw)
+        print("  %s ~%.0f GB (%.0f GB past the box): ws alone %.1f ms -> %.1f tok/s (NVMe pages) | ws+Spark %.1f ms -> %.1f tok/s" % (name, f, m, wa, 1000 / wa, ws, 1000 / ws))
     print("prefill, pp tok/s at P 512; ws alone plan a = %.0f" % PP_A)
     for warm in (0.0, 0.5, 0.8):
         print("  host reads the node's experts from the file, cache %.0f %% warm: %.0f" % (warm * 100, prefill_host_reads_node(warm)))
