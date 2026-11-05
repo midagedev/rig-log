@@ -53,27 +53,36 @@ def decode_streams(k, a_us, with_node):
     host_slots = 83 * union * ((1 - NODE_SHARE) if with_node else 1.0)
     host = host_slots * HOST_SLOT_MS
     node = (LAYERS * a_us / 1000.0) if with_node else 0.0
-    step = max(card, host) + node
+    step = max(card, host) + node + HOST_WAIT_A_MS   # the exposed wait plan a pays at k=1 (calibrates k=1 to 19.4)
     return step, k * 1000.0 / step
 
 
-def decode_bigger_quant(bpw, ram_gb=328.0, hot_hit=0.5):
+NVME_MS_PER_GB_SHORT = 6.0 / 27.4   # ms of warm step per GB of routed experts past RAM (sparkroom sitting 2026-11-05: 27.4 GB on
+                                     # NVMe (paged 124 - arena 96.6) cost 25.5 - 19.4 = 6.1 ms a step) [derived from one point]
+
+
+def decode_bigger_quant(bpw, ram_gb=328.0, hot_hit=None):
     """A quant that does not fit the box (RAM 256 + A6000 48 + 3090 24 = 328 GB): ws alone pages the missing experts
     from NVMe each token; ws+Spark holds them on the node. Q3_K_M = 324 GB at ~3.44 bpw; bytes a token = 6 routed x 40
-    layers x 19.3 MB x bpw/3.44 [derived]. hot_hit: the share of the missing bytes residency keeps in RAM [guess]."""
+    layers x 19.3 MB x bpw/3.44 [derived]. The NVMe term is NVME_MS_PER_GB_SHORT x the GB past RAM (the sparkroom
+    point, residency's hot share folded in); hot_hit given overrides it with the older guess."""
     file_gb = 324.0 * bpw / 3.44
     missing = max(0.0, file_gb - ram_gb + 20.0)   # 20 GB of KV, scratch and the page cache's floor [derived]
     tok_gb = 6 * LAYERS * 0.0193 * bpw / 3.44
-    nvme_ms = tok_gb * (missing / file_gb) * (1 - hot_hit) / NVME_GBPS_QD4 * 1000.0
+    if hot_hit is None:
+        nvme_ms = NVME_MS_PER_GB_SHORT * missing * bpw / 3.44
+    else:
+        nvme_ms = tok_gb * (missing / file_gb) * (1 - hot_hit) / NVME_GBPS_QD4 * 1000.0
     ws_alone = STEP_A_MS * bpw / 3.44 + nvme_ms
-    ws_spark = decode_split(200) * bpw / 3.44
+    ws_spark = decode_split(175) * bpw / 3.44
     return file_gb, missing, ws_alone, ws_spark
 
 
-def decode_other_model(total_b, active_b, bpw, ram_gb=328.0, hot_hit=0.5):
+def decode_other_model(total_b, active_b, bpw, ram_gb=328.0):
     """Another MoE at a quant the box cannot hold: bytes a token = active params x bpw / 8, read by the box's card share
     (768 GB/s), its host (119 GB/s) and the node (209 GB/s) beside each other [derived: bandwidth-bound, the 40 round
-    trips added]; ws alone pages the missing share from NVMe (hot_hit of it kept in RAM [guess])."""
+    trips added]; ws alone pages the missing share from NVMe at the sparkroom point's ms per GB short, scaled by the
+    model's bytes a token against V4.1-Flash Q3_K_M's."""
     file_gb = total_b * bpw / 8
     missing = max(0.0, file_gb - ram_gb + 20.0)
     tok_gb = active_b * bpw / 8
@@ -82,10 +91,25 @@ def decode_other_model(total_b, active_b, bpw, ram_gb=328.0, hot_hit=0.5):
     # calibrated: V4.1-Flash Q3_K_M (753 B, 22 B active, 3.44 bpw) reads 19.4 ms warm on the box (CAL)
     cal_raw = (22 * 3.44 / 8) * (min(1.0, 48.0 / (753 * 3.44 / 8)) / 768.0 + (1 - min(1.0, 48.0 / (753 * 3.44 / 8))) / 119.0) * 1000.0
     box_ms = raw * STEP_A_MS / cal_raw
-    nvme_ms = tok_gb * (missing / file_gb) * (1 - hot_hit) / NVME_GBPS_QD4 * 1000.0
+    nvme_ms = NVME_MS_PER_GB_SHORT * missing * tok_gb / (22 * 3.44 / 8)
     node_share = min(missing, NODE_TIER_GB) / file_gb
     spark_ms = box_ms * (1 - node_share) + tok_gb * node_share / 209.0 * 1000.0 + LAYERS * 0.2
     return file_gb, missing, box_ms + nvme_ms, spark_ms
+
+
+PF_PASS_MS = 29.0           # per layer per pass of 512 with the group pipeline on (P 4096: 416-427 pp = 8 passes x ~29 ms + a leg)
+
+
+def prefill_passes(p, cut=512):
+    """Plan a, a prompt of p positions cut at `cut` positions a pass (T_MAX = 512 today): per layer the passes' card
+    terms in a row plus one exposed host leg (the pipeline's fill and drain) [derived]. One pass (P 512 today) has no
+    overlap at all: card 36.1 + host 28.8 serial = 58 ms -> 220 measured."""
+    passes = -(-p // cut)
+    if passes == 1:
+        per_layer = PF_CARD_MS + PF_HOST_MS
+    else:
+        per_layer = passes * PF_PASS_MS * cut / 512.0 + PF_HOST_MS * cut / 512.0
+    return p / (LAYERS * per_layer / 1000.0), passes
 
 
 def prefill_host_reads_node(cache_warm):
@@ -122,7 +146,7 @@ def main():
         s2, t2 = decode_streams(k, 52, True)
         print("  k=%d: ws alone step %.1f ms %.0f tok/s | +Spark a 200 us: %.1f ms %.0f tok/s | a 52 us: %.1f ms %.0f tok/s" % (k, s0, t0, s1, t1, s2, t2))
     print("decode at a bigger quant than the box holds [derived]")
-    for bpw, name in ((4.25, "IQ4_XS"), (4.85, "Q4_K_M")):
+    for bpw, name in ((395 * 3.44 / 324, "UD-IQ3_XXS (395 GB)"), (4.25, "IQ4_XS"), (4.85, "Q4_K_M")):
         f, m, wa, ws = decode_bigger_quant(bpw)
         fits = "fits ws+Spark" if m <= NODE_TIER_GB else "does NOT fit the Spark's %.0f GB either" % NODE_TIER_GB
         print("  %s ~%.0f GB (%.0f GB past the box, %s): ws alone %.1f ms -> %.1f tok/s (NVMe pages) | ws+Spark %.1f ms -> %.1f tok/s" % (name, f, m, fits, wa, 1000 / wa, ws, 1000 / ws))
@@ -134,6 +158,10 @@ def main():
         fit = "fits" if m <= NODE_TIER_GB else "too big for the node"
         print("  %-36s ~%4.0f GB, %3.0f GB past the box (%s): ws alone %.0f tok/s | ws+Spark %.0f tok/s" % (name, f, m, fit, 1000 / wa, 1000 / ws))
     print("prefill, pp tok/s at P 512; ws alone plan a = %.0f" % PP_A)
+    for p, cut in ((512, 512), (1024, 512), (2048, 512), (4096, 512), (512, 256), (512, 128)):
+        pp, n = prefill_passes(p, cut)
+        print("  plan a, P %4d cut at %3d (%d passes): %.0f [derived]" % (p, cut, n, pp))
+    print("  sparkroom 2026-11-05: 190 GB room, 27.4 GB on NVMe: ws alone 27.5-28.5 tok/s(p50), warm 39; +Spark 35-37, warm 37")
     for warm in (0.0, 0.5, 0.8):
         print("  host reads the node's experts from the file, cache %.0f %% warm: %.0f" % (warm * 100, prefill_host_reads_node(warm)))
     for nb, name in ((4, "f32"), (2, "bf16")):
