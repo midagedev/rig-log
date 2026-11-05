@@ -2856,6 +2856,7 @@ chain at m = 2 (the same term as the recentlit "verify m-rows" line above).
 - **(c) 노드 다리를 카드 앞단 아래로 (비동기): 다음 사이팅.** 노드 항(왕복 40 회 + 슬롯)은 직렬 약 3–4 ms; 카드 앞단 17 ms 아래 숨기면 스텝 17–18 ms ≈ 55–58 tok/s [유도]. 디스패치 경로라 같은 리스 A/B 와 카드가 필요; 호스트 다리의 노출분(호스트 슬롯 46 × 0.14 = 6.4 ms, 앞단 아래)이 한계를 정한다.
 - **(d) 세 집 적응 residency (Spark 도 residency 의 집): 견고성, 뒤.** 랭크 파일은 정적이고 이번 측정은 prose 가 학습에 섞였다(교차 코퍼스 예측 40–45). 어떤 입력이든 같은 코퍼스 행(~48)에 닿으려면 `swap.rs` 의 "티어 항목은 희생도 승격도 안 된다" 를 풀어야 한다. 헤드라인보다 입력 분포 견고성의 일.
 - **(e) 릴리즈에 모델별 기본 랭크 파일: 포장.** 라우터 세트에서 `router-rank.py` 로 만든 파일을 모델 프로필이 기본으로 읽으면 사용자는 플래그 없이 이득을 받는다. 파일의 출처(세트, 위치 수)는 헤더에 있다.
+- **(f) 열린 소견 둘 (lead, 2026-11-05, 릴리즈 패스 전 닫는다).** ① **serve 경로가 generate 보다 ~20 % 느리다**: 같은 cold-split 플랜(랭크·residency mid-p17-s1 이 serve 의 plan 줄에 확인됨)에서 toktape chat 요청 6건이 37–41 tok/s, generate 는 48.9. 원인 미상 — 후보는 serve 의 샘플링·스트리밍 턴당 비용, 요청 사이 residency 의 되돌림, 노드 다리의 스트림 순서; 사용자 패스에서 같은 리스로 generate 와 serve 를 번갈아 재고 첫 질문은 `BLOOMERY_STEP_STATS=1` 의 스텝 ms 가 같은지(같으면 토큰 밖의 비용). ② **Spark tier_server 의 첫 open 이 OOM**: 새로 뜬 tier_server 의 첫 노드 open 이 `cuDevicePrimaryCtxRetain: DriverError(2, "out of memory")`(dmesg NVRM `kgrctxAllocMainCtxBuffer` NV_ERR_NO_MEMORY)로 죽고 두 번째 open 은 성공 — RSS 가 아니라 드라이버 컨텍스트 쪽(580 드라이버; 메모리 11-05 「Spark node facts」의 atomic-reduction 거부와 같은 드라이버). 기록 스크립트는 자동 재시도 1회로 넘겼다; 릴리즈의 노드 경로는 tier_server 가 컨텍스트를 미리 잡고(서버 기동 시 open 한 번) 유지하는지 확인하고, 아니면 start 경로가 첫 open 실패를 이름 붙여 재시도한다.
 
 ### 재판정 잔여 (revisit)
 
