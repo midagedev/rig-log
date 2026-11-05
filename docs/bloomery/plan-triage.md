@@ -2559,6 +2559,10 @@ V4.1 `--place gate` 게이트는 카드 이름 "3090"이 박혀 `BLOOMERY_GATE_C
 
 ### 아이디어 원장 (외부 레포·조사에서 얻은 것 — 한 줄에 처분과 근거)
 
+**vllm-project/Kimi-K3.1-Pro-pruned75** (사용자 링크, 2026-11-06; 모델 카드만 읽음): Kimi-K3.1-Pro(K3 가 아닌 `kimi_k31`, 비전 포함, 원본 ~1.5 TB)의 라우팅 전문가를 층당 896 → 224 로 잘라낸 vLLM 스모크 테스트용 체크포인트 — 랭킹은 보정 데이터 없이 라우터 행의 부호 합(`sum(router.weight[i])`), MXFP4 safetensors 443–476 GB, GGUF 없음, GSM8K 5-shot 43.7 %(원본 수치 미기재), 카드 스스로 "큰 품질 회귀"를 경고.
+- **지원 대상: 기각.** 다른 아키텍처·GGUF 없음·박스에 안 들어가는 크기·스모크 테스트용 품질.
+- **라우터 가중치 부호 합 = 데이터 없는 핫/콜드 프록시: 비교만.** k3trace 의 실제 트레이스(`kimi-k3-rank.tsv`)가 나오면 GGUF 의 `ffn_gate_inp` 행 합 순위와 층별 겹침을 한 줄로 잰다(XS). 겹치면 트레이스 없이 콜드 블록을 노드로 보내는 플랜 B. 75 % 제거에서 43 % 는 "제거" 대신 "콜드 전문가를 느린 티어에"라는 우리 방향의 근거.
+
 조사 대상에는 추론 엔진뿐 아니라 모델 변환·학습 도구(NVIDIA Model-Optimizer, llm-compressor, z-lab DFlash)도 넣는다. DSpark 작업이 09-24에 시작됐는데, ModelOpt의 DFlash 오프라인 학습(0.45, 07-06)을 09-28에야 봤다.
 
 **NVIDIA Model-Optimizer `23355ed`** (조사 라운드 `modelopt`, 09-28; 보고 원문 `specs/research/modelopt-report.md`, 리드 세션 사본):
