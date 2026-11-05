@@ -57,7 +57,8 @@ def decode_streams(k, a_us, with_node):
     return step, k * 1000.0 / step
 
 
-NVME_MS_PER_GB_SHORT = 6.0 / 27.4   # ms of warm step per GB of routed experts past RAM (sparkroom sitting 2026-11-05: 27.4 GB on
+NVME_MS_PER_GB_SHORT = 6.0 / 27.4   # ms of warm step per GB of routed experts past RAM; three points on one line: sparkroom 0.22,
+                                    # smallroom 2026-11-05 room 160G 0.20 (62 GB) and 128G 0.26 (94 GB) (sparkroom sitting 2026-11-05: 27.4 GB on
                                      # NVMe (paged 124 - arena 96.6) cost 25.5 - 19.4 = 6.1 ms a step) [derived from one point]
 
 

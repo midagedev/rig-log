@@ -29,6 +29,10 @@ small-tier regime the sparkr3 card derived cannot be recovered without cutting t
 (`NODE0=24G`), ~20 lines; ③ a prompt batch refuses a node tier (`HostTier::enqueue_download_tiered`, "feed the prompt as
 steps"): the Spark helps decode only until the batch port's tier legs can run on a node (design, the r4prompt track).
 ④ the 580 driver's missing atomic-reduction memop: round r3b (kernel add by probe), then the Spark run by the lead.
+⑤ (smallroom, 2026-11-05) `tier_server` keeps the closed load's memory (RSS 113 GB after `node 0 closed the load`, then
+`listening on` in the same process); at a 116 GB tier (`BLOOMERY_CARD_BUDGET=110G`) on the 121 GiB pool, 2 of 6 opens were
+refused `cuDevicePrimaryCtxRetain: out of memory` (FAIL rows, dropped). Release the tier on close, or refuse the open by
+name from the node's free bytes before the context; `crates/gpu-gates/src/bin/tier_server.rs:94` and the node's close path.
 
 ## Open: sitting.sh's self-test `quiet` case flakes under the parallel static tier (lead, 2026-11-05)
 
