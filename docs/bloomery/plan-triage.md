@@ -66,6 +66,26 @@ an open; gate-gpu-lib takes no gate lock, so a round's GPU gate on the same 3090
 "the open took -25313280 B of the room" (landing batch of b1ed756bd, 2026-11-04). Fix: this test takes the card's gate
 lock (or refuses by name while another compute process is on the card), not a looser bound.
 
+## Open: depth-serve's cpu-busy probe counts our own exiting server, and a V4.1 bp server's TERM ends in a KILL (lead, 2026-11-06)
+
+The 0.3.13 release sitting (box, V4.1-Flash `--place bp`, serving defaults) voided its D=4096 row `[cpu-busy]`: the
+pre-probe read `bloomery-serve 99.8 %` over 6.5 s right after `[port-wait] the last server is gone after 4 s` — the
+D=512 server, which `gate-bound.sh` had just SIGKILLed because it did not leave on TERM within the grace (its teardown
+frees ~262 GB of pinned and cached host memory). `CPU_BUSY_COMMS` holds `bloomery-serve` by default (a foreign server
+is a co-tenant), so the probe cannot tell the previous arm's exit from one. Two fixes, one owner each: the port-wait
+waits until no process of the previous server's pid tree exists and its CPU is gone (not the port alone); the server's
+TERM path releases the host set before the grace runs out, or the grace is sized to the plan's bytes. Until then a
+sitting red on this tag is re-run. Evidence: `~/.cache/bloomery/specs/release-0.3.13/sitting2.log` (the lead's Mac).
+
+## Open: Kimi K3's real file needs the placed two-card loader (lead, 2026-11-06)
+
+At 0.3.13 K3 runs end to end on the fixture only (#1178, #1179). The real UD-IQ1_S file (594 GB, 14 shards) is refused
+at plan on one card: `dense trunk … 51415597332 B … past the 50668240896 B free by 747356436 B` (the A6000). The loader
+that stages the trunk over two cards, the host and the NVMe tier does not exist; `Program::KimiK3Body` accepts one card.
+Next: the placement inputs are in (#1178); write the two-card plan on the common placement owner (no K3 branch), then
+the real-file bring-up round (kimiplan round 7) and the oracle trace (round 8). The e2e gate's forced top-1 clause is
+vacuous on the fixture (vendor margins under σ̂): a real-file set closes it.
+
 ## Open: a fresh server's first request decodes slower than its second (lead, 2026-11-04)
 
 The validation sitting on main 0190b04b6 (A6000 + 3090 box, `--fold depths`, Qwen3.6-35B-A3B UD-Q4_K_M at `--place a` on the
