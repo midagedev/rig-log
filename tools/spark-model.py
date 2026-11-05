@@ -61,12 +61,14 @@ NVME_MS_PER_GB_SHORT = 6.0 / 27.4   # ms of warm step per GB of routed experts p
                                      # NVMe (paged 124 - arena 96.6) cost 25.5 - 19.4 = 6.1 ms a step) [derived from one point]
 
 
-def decode_bigger_quant(bpw, ram_gb=328.0, hot_hit=None):
+def decode_bigger_quant(bpw, ram_gb=328.0, hot_hit=None, resident_gb=None):
     """A quant that does not fit the box (RAM 256 + A6000 48 + 3090 24 = 328 GB): ws alone pages the missing experts
     from NVMe each token; ws+Spark holds them on the node. Q3_K_M = 324 GB at ~3.44 bpw; bytes a token = 6 routed x 40
     layers x 19.3 MB x bpw/3.44 [derived]. The NVMe term is NVME_MS_PER_GB_SHORT x the GB past RAM (the sparkroom
     point, residency's hot share folded in); hot_hit given overrides it with the older guess."""
-    file_gb = 324.0 * bpw / 3.44
+    # resident bytes exclude the Engram table (sparse rows read from the file): Q3_K_M 324 GB holds 79 GB of it, so
+    # 245 GB are resident; a file's own resident_gb overrides the bpw scaling (inventory the split, not the file size)
+    file_gb = resident_gb if resident_gb is not None else 245.0 * bpw / 3.44
     missing = max(0.0, file_gb - ram_gb + 20.0)   # 20 GB of KV, scratch and the page cache's floor [derived]
     tok_gb = 6 * LAYERS * 0.0193 * bpw / 3.44
     if hot_hit is None:
@@ -146,8 +148,9 @@ def main():
         s2, t2 = decode_streams(k, 52, True)
         print("  k=%d: ws alone step %.1f ms %.0f tok/s | +Spark a 200 us: %.1f ms %.0f tok/s | a 52 us: %.1f ms %.0f tok/s" % (k, s0, t0, s1, t1, s2, t2))
     print("decode at a bigger quant than the box holds [derived]")
-    for bpw, name in ((395 * 3.44 / 324, "UD-IQ3_XXS (395 GB)"), (4.25, "IQ4_XS"), (4.85, "Q4_K_M")):
-        f, m, wa, ws = decode_bigger_quant(bpw)
+    print("  breakeven: the node's flat %.1f ms a step equals the NVMe term at %.0f GB short [derived]" % (decode_split(175) - STEP_A_MS, (decode_split(175) - STEP_A_MS) / NVME_MS_PER_GB_SHORT))
+    for bpw, name, res in ((3.06, "UD-IQ3_XXS (395 GB file, 233 GB resident: inventory 2026-11-05)", 233.0), (3.9, "UD-Q4_K_XL (501 GB file, ~340 GB resident)", 340.0), (4.25, "IQ4_XS", None), (4.85, "Q4_K_M", None)):
+        f, m, wa, ws = decode_bigger_quant(bpw, resident_gb=res)
         fits = "fits ws+Spark" if m <= NODE_TIER_GB else "does NOT fit the Spark's %.0f GB either" % NODE_TIER_GB
         print("  %s ~%.0f GB (%.0f GB past the box, %s): ws alone %.1f ms -> %.1f tok/s (NVMe pages) | ws+Spark %.1f ms -> %.1f tok/s" % (name, f, m, fits, wa, 1000 / wa, ws, 1000 / ws))
     print("other MoEs at a quant past the box (total B, active B, bpw) [derived, bandwidth model]")
