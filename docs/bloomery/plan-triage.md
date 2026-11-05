@@ -2850,6 +2850,13 @@ chain at m = 2 (the same term as the recentlit "verify m-rows" line above).
     device에서 바로 읽기 — M5에서 다음 항(M). (v) kernels 게이트 `headnorm_rows`가 linear_gate fault를 올린 채 끝나 다음
     clause 결과가 순서에 의존(`clauses_route.rs:1294`, S). (w) routed probe가 A4 f16만 잰다 — Q4_K GGUF expert 미측정(S).
 
+**cold split 의 후속 (lead + the user, 2026-11-05; 로그 11-05 「coldsplit」 절: Spark 에 각 레이어의 가장 차가운 전문가를 주면 룸 128G 에서 decode 35 → 49, pp 107 → 211, 1 라운드씩)** — 비용 모델은 스텝 = 17 ms(카드 앞단) + 40 × a + 노드 슬롯 × 0.09 ms, a ≈ 40–50 µs [유도]; 숫자는 전부 유도이고 각 항은 라우터 세트 재생(`coldsplit.py`, 리드 캐시)으로 먼저 닫는다:
+- **(a) 같은 랭크를 NVMe 꼬리에 (Spark 없는 사람용): 다음, 먼저.** 128 GB 단독 arm 은 `room.rs` `expert_nvme_tier` 가 `l.ids[..n]` 로 id 순 꼬리 94 GB 를 넘긴다. 가장 차가운 전문가를 넘기면 토큰당 NVMe 를 때리는 슬롯이 줄어 0.26 ms/GB 의 선형 항이 슬롯 항으로 바뀐다. 예측은 재생이 낸다(토큰당 NVMe 슬롯, id 꼬리 대 coldest); 코드는 작다(라운드 coldsplit 의 스펙 밖 후보). 19.5 tok/s 단독 행이 움직이면 "128 GB 단독" 헤드라인도 바뀐다.
+- **(b) skip 레버: 노드 pick 이 없는 레이어는 왕복 생략: 다음(작음).** cold split 에서 노드 슬롯 토큰당 ~19 면 38 레이어 중 절반 넘게 빈 레이어: a × ~24 ≈ 1.2 ms, 19.9 ms 의 ~6 % [유도]. 빈 레이어 수는 재생의 `node-free layers` 열.
+- **(c) 노드 다리를 카드 앞단 아래로 (비동기): 다음 사이팅.** 노드 항(왕복 40 회 + 슬롯)은 직렬 약 3–4 ms; 카드 앞단 17 ms 아래 숨기면 스텝 17–18 ms ≈ 55–58 tok/s [유도]. 디스패치 경로라 같은 리스 A/B 와 카드가 필요; 호스트 다리의 노출분(호스트 슬롯 46 × 0.14 = 6.4 ms, 앞단 아래)이 한계를 정한다.
+- **(d) 세 집 적응 residency (Spark 도 residency 의 집): 견고성, 뒤.** 랭크 파일은 정적이고 이번 측정은 prose 가 학습에 섞였다(교차 코퍼스 예측 40–45). 어떤 입력이든 같은 코퍼스 행(~48)에 닿으려면 `swap.rs` 의 "티어 항목은 희생도 승격도 안 된다" 를 풀어야 한다. 헤드라인보다 입력 분포 견고성의 일.
+- **(e) 릴리즈에 모델별 기본 랭크 파일: 포장.** 라우터 세트에서 `router-rank.py` 로 만든 파일을 모델 프로필이 기본으로 읽으면 사용자는 플래그 없이 이득을 받는다. 파일의 출처(세트, 위치 수)는 헤더에 있다.
+
 ### 재판정 잔여 (revisit)
 
 R2 Q3_K 밀집 m ≤ 8 대역(m=6이 m=1 GB/s의 90 % 밑이면 m > 1 명령 레버 카드 — DSpark 패스 +4.7 ms 위험; uniongroup 앞); R5 0·1층 Q5_K `_sel`을 카드로(순 −0.15…−0.4 ms); R6 목록 주장 확인·R7 DSpark 재유도(합집합 0.753로)·R8 rows % 4(plainfile이 덮었는지); N1·N2·N3·N4·N5는 시팅 큐와 사용자 결정.

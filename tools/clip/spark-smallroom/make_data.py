@@ -35,7 +35,7 @@ SITTING = {
     "P": (512, f"{LOG}:221"),
     "depth": (512, f"{LOG}:221"),
     "n": (96, f"{LOG}:221"),
-    "rounds": (3, f"{LOG}:221"),
+    "rounds": ("alone 3 rounds, + Spark 1 round", f"{LOG}:221 and :272"),
     "cpu_cores": (64, f"{LOG}:246 (CPU 코어 수(박스 64))"),
     "room_gb": (128, f"{LOG}:230"),
     "ref_gb": (256, f"{LOG}:234"),
@@ -56,22 +56,25 @@ SITTING = {
     "act_format": ("q8_1", "spec sparkclip mechanism item 3 (the activation sent per layer)"),
     "row_format": ("f32", "spec sparkclip mechanism item 3 (the rows returned)"),
     "url": ("github.com/midagedev/bloomery", "spec sparkclip END beat"),
-    "link_ms": (7, f"{LOG}:130 (the node round trip 7 ms) and :85"),
+    "step_prefix_ms": (28.6, f"{LOG}:277 (the Spark holding each layer's id block)"),
+    "step_cold_ms": (19.9, f"{LOG}:278 (the Spark holding the coldest experts)"),
     "nvme_ms_per_gb": ("0.20–0.26", f"{LOG}:236"),
     "step_fits_ms": (27, f"{LOG}:234 (~27) and :236"),
     "step_160_ms": (39.4, f"{LOG}:236 (39.4 − 27)"),
     "step_128_ms": (51.2, f"{LOG}:236 (51.2 − 27)"),
     "prefill_alone_s": (17.7, f"{LOG}:237"),
     "step_story": ("27 → 39 → 51", "spec sparkclip mechanism item 4 (the step alone at 0, 62, 94 GB short)"),
-    "decode_x": ("1.8", f"{LOG}:216"),
-    "prefill_x": ("3.6", f"{LOG}:216"),
+    "decode_x": ("2.6", f"{LOG}:284 (50.32 / 19.35–19.61 -> 2.6)"),
+    "prefill_x": ("7.3", f"{LOG}:284 (210.5 / 28.8–29.2 -> 7.3)"),
 }
-# The table rows, verbatim from log/2026-11-05.md:230-234 (decode tok/s p50, step p50 ms, pp tok/s at P 512).
+# The table rows, verbatim from log/2026-11-05.md:230-234 and :277-278 (decode tok/s p50, step p50 ms, pp tok/s at P 512).
 ROWS = [
     {"key": "alone", "label": "128 GB workstation alone", "short": "128 GB alone", "sub": "missing experts from NVMe",
      "decode": "19.35–19.61", "step": "51.0–51.7", "pp": "28.8–29.2", "src": f"{LOG}:230"},
-    {"key": "spark", "label": "128 GB workstation + one DGX Spark", "short": "128 GB + one DGX Spark", "sub": "missing experts on the Spark",
+    {"key": "spark_prefix", "label": "128 GB workstation + one DGX Spark, the Spark holding each layer's id block", "short": "128 GB + one DGX Spark (id block)", "sub": "missing experts on the Spark",
      "decode": "34.69–35.04", "step": "28.5–28.8", "pp": "104.5–108.2", "src": f"{LOG}:231"},
+    {"key": "spark", "label": "128 GB workstation + one DGX Spark, the coldest experts on the Spark", "short": "128 GB + one DGX Spark", "sub": "the coldest experts on the Spark",
+     "decode": "50.32", "step": "19.9", "pp": "210.5", "src": f"{LOG}:278 (one round)"},
     {"key": "alone160", "label": "160 GB workstation alone", "short": "160 GB alone", "sub": "",
      "decode": "25.23–25.65", "step": "39.0–39.6", "pp": "29.1–30.3", "src": f"{LOG}:232"},
     {"key": "spark160", "label": "160 GB workstation + one DGX Spark", "short": "160 GB + one DGX Spark", "sub": "",
@@ -228,7 +231,7 @@ def main():
             "cut": [x["key"] for x in (A, S) if x["done_s"] > reach],
             "arms": [A, S],
         },
-        "chart": {"ticks_x": [0, 62, 94], "ticks_y": [0, 10, 20], "y_max": 26},
+        "chart": {"ticks_x": [0, 62, 94], "ticks_y": [0, 20, 40, 60], "y_max": 60},
     }
     Path(a.out).write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")))
     ratio = A["done_s"] / S["done_s"]
@@ -236,7 +239,7 @@ def main():
     for x in (A, S):
         print(f"  {x['key']:5s} {x['tape']}: n={x['n']} first token {x['ttft_label']} done {x['done_label']} "
               f"rate {x['rate_final']} tok/s model={x['model_file']} server={x['server']}")
-    print(f"  alone/spark done ratio {ratio:.2f} (spec expects about 1.8 on the real tapes)")
+    print(f"  alone/spark done ratio {ratio:.2f} (the cold-split tapes read about 2.0: the serve path's 38–41 tok/s against the sitting's 49, a gap under study)")
 
 
 if __name__ == "__main__":

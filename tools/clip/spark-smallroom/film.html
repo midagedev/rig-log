@@ -389,7 +389,7 @@ function how(t) {
   rise('Each token walks ' + F.layers + ' layers.', 56, 104, 48, 620, BONE, t, H1 + .1, H2 - .35);
   wipe('In each, a router picks ' + F.picks + ' of ' + F.experts + ' experts.', 56, 150, font(500, 28), ASH, t, H1 + 1.3, H2 - .2);
   rise('Three homes for an expert.', 56, 104, 48, 620, BONE, t, H2, H3 - .35);
-  wipe('The card holds the hottest; RAM and the Spark hold the rest.', 56, 150, font(500, 28), ASH, t, H2 + .6, H3 - .2);
+  wipe('The card holds the hottest, the Spark the coldest, RAM the middle.', 56, 150, font(500, 28), ASH, t, H2 + .6, H3 - .2);
   rise('Per layer, the host asks the Spark.', 56, 104, 48, 620, BONE, t, H3, H4 - .35);
   wipe('The Spark runs its own kernels on its ' + F.node_chip + '.', 56, 150, font(500, 28), ASH, t, H3 + .6, H4 - .2);
   if (t > H4 - .2) chart(t);
@@ -470,8 +470,8 @@ function homesFrame(t, u) {
   txt('the workstation', 66, HY - 44, font(500, 22), ASH, { alpha: e });
   const labels = [
     ['RTX A6000 · VRAM', 'the hottest ' + F.card_experts],
-    ['RAM', F.spark_host_gb + ' GB of experts'],
-    ['DGX Spark', 'unified memory · ~' + F.spark_node_gb + ' GB'],
+    ['RAM', 'the middle · ' + F.spark_host_gb + ' GB'],
+    ['DGX Spark', 'the coldest · ~' + F.spark_node_gb + ' GB'],
   ];
   HOMES.forEach((Hm, h) => {
     const uu = out3((u * 1.6) - h * .2);
@@ -543,12 +543,14 @@ function linkLoop(t) {
   txt('× ' + F.layers + ' layers, every token', 540, 548, font(500, 24), BONE, { alpha: win(t, fast + .1, H4 - .1, .3, .3), align: 'center' });
 }
 
-// H4: what the missing experts cost a step: the link flat, NVMe growing with the GB short
+// H4: the step against the GB short: alone it climbs from the step that fits, with the Spark it is flat, and with
+// the coldest experts on the Spark it sits under the step of a workstation the model fits in
 function chart(t) {
   const a = win(t, H4 - .2, H5 - .1, .45, .4); if (a <= 0) return;
   ctx.save(); ctx.globalAlpha *= a;
-  rise('~' + F.link_ms + ' ms a step over the link. Flat.', 56, 104, 48, 620, BONE, t, H4, H5 - .4);
-  wipe('From NVMe: ' + F.nvme_ms_per_gb + ' ms a step for every GB short.', 56, 150, font(500, 28), STEEL, t, H4 + .4, H5 - .2);
+  rise('The coldest experts on the Spark:', 56, 104, 48, 620, BONE, t, H4, H5 - .4);
+  rise('~' + Math.round(F.step_cold_ms) + ' ms a step. Flat.', 56, 160, 48, 620, BONE, t, H4 + .15, H5 - .4);
+  wipe('Alone, from NVMe: +' + F.nvme_ms_per_gb + ' ms a step for every GB short.', 56, 206, font(500, 28), STEEL, t, H4 + .4, H5 - .2);
   const X0 = 150, X1 = 960, Y0 = 860, Y1 = 330, xm = 100, ym = D.chart.y_max;
   const X = g => lerp(X0, X1, g / xm), Y = m => lerp(Y0, Y1, m / ym);
   const ax = out3((t - H4 - .1) / .5);
@@ -557,29 +559,32 @@ function chart(t) {
   for (const m of D.chart.ticks_y) { txt(String(m), X0 - 16, Y(m) + 8, font(500, 22, MONO), ASH, { alpha: ax, align: 'right' }); if (m) { ctx.fillStyle = rgba(ASH, .12 * ax); ctx.fillRect(X0, Y(m), X1 - X0, 1); } }
   txt('GB of experts past the RAM', X1, Y0 + 70, font(500, 22), ASH, { alpha: ax, align: 'right' });
   txt('ms a step', X0, Y1 - 24, font(500, 22), ASH, { alpha: ax });
-  // NVMe: the band between the two measured slopes, grown left to right
-  const [s0, s1] = F.nvme_ms_per_gb.split('–').map(Number);
+  // NVMe: from the step that fits, the band between the two measured slopes, grown left to right
+  const [s0, s1] = F.nvme_ms_per_gb.split('–').map(Number), fit = F.step_fits_ms;
   const gx94 = F.past_arena_gb, g = out3((t - H4 - .5) / 1.2) * gx94;
   if (g > 0) {
-    ctx.beginPath(); ctx.moveTo(X(0), Y(0)); ctx.lineTo(X(g), Y(s1 * g)); ctx.lineTo(X(g), Y(s0 * g)); ctx.closePath();
+    ctx.beginPath(); ctx.moveTo(X(0), Y(fit)); ctx.lineTo(X(g), Y(fit + s1 * g)); ctx.lineTo(X(g), Y(fit + s0 * g)); ctx.closePath();
     ctx.fillStyle = rgba(STEEL, .28); ctx.fill();
-    ctx.strokeStyle = STEEL; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(X(0), Y(0)); ctx.lineTo(X(g), Y((s0 + s1) / 2 * g)); ctx.stroke();
+    ctx.strokeStyle = STEEL; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(X(0), Y(fit)); ctx.lineTo(X(g), Y(fit + (s0 + s1) / 2 * g)); ctx.stroke();
   }
-  txt('NVMe', X(gx94) + 18, Y((s0 + s1) / 2 * gx94) + 8, font(600, 24), STEEL, { alpha: clamp((t - H4 - 1.5) / .3) });
-  // the two rooms, measured: the step alone minus the step that fits
-  const pts = [[F.past_arena_160_gb, F.step_160_ms - F.step_fits_ms, '160 GB room'], [F.past_arena_gb, F.step_128_ms - F.step_fits_ms, F.room_gb + ' GB room']];
+  txt('alone (NVMe)', 960, 519, font(600, 24), STEEL, { alpha: clamp((t - H4 - 1.5) / .3), align: 'right' });
+  txt('fits: ~' + fit + ' ms', X(0) + 14, Y(fit) + 30, font(500, 22), ASH, { alpha: clamp((t - H4 - .6) / .3) });
+  // the two rooms, measured
+  const pts = [[F.past_arena_160_gb, F.step_160_ms, '160 GB room'], [F.past_arena_gb, F.step_128_ms, F.room_gb + ' GB room']];
   pts.forEach(([gx, ms, lab], i) => {
     const u = spring(t - H4 - .6 - gx / xm * 1.2); if (u <= 0) return;
     ctx.save(); ctx.fillStyle = STEEL; ctx.globalAlpha *= clamp(u * 2); ctx.beginPath(); ctx.arc(X(gx), Y(ms), 9 * Math.min(u, 1.1), 0, 7); ctx.fill(); ctx.restore();
-    txt(lab, X(gx) - 16, Y(ms) - 18, font(500, 22), STEEL, { alpha: clamp(u * 2), align: 'right' });
+    txt(lab, X(gx) - 16, Y(ms) - 30, font(500, 22), STEEL, { alpha: clamp(u * 2), align: 'right' });
   });
-  // the link: flat
-  const l = out3((t - H4 - 1.5) / 1.0);
-  if (l > 0) {
-    ctx.save(); ctx.strokeStyle = EMBER; ctx.lineWidth = 5; ctx.shadowColor = EMBER; ctx.shadowBlur = 12;
-    ctx.beginPath(); ctx.moveTo(X(0), Y(F.link_ms)); ctx.lineTo(X(xm * l), Y(F.link_ms)); ctx.stroke(); ctx.restore();
-    txt('the Spark link: ~' + F.link_ms + ' ms, at any GB short', X(xm) , Y(F.link_ms) - 18, font(600, 24), EMBER, { alpha: clamp((l - .5) * 2), align: 'right' });
-  }
+  // the Spark: flat, twice — the id blocks on it, then the coldest experts on it
+  const flat = (ms, t0, lw, alpha, lab, dy) => {
+    const l = out3((t - t0) / 1.0); if (l <= 0) return;
+    ctx.save(); ctx.strokeStyle = EMBER; ctx.lineWidth = lw; ctx.globalAlpha *= alpha; ctx.shadowColor = EMBER; ctx.shadowBlur = lw > 3 ? 12 : 0;
+    ctx.beginPath(); ctx.moveTo(X(0), Y(ms)); ctx.lineTo(X(xm * l), Y(ms)); ctx.stroke(); ctx.restore();
+    txt(lab, X(xm), Y(ms) + dy, font(600, 24), EMBER, { alpha: alpha * clamp((l - .5) * 2), align: 'right' });
+  };
+  flat(F.step_prefix_ms, H4 + 1.5, 3, .55, '+ the Spark holding the id blocks: ' + F.step_prefix_ms + ' ms', -16);
+  flat(F.step_cold_ms, H4 + 2.1, 5, 1, '+ the Spark holding the coldest: ' + F.step_cold_ms + ' ms, at any GB short', 40);
   wipe('alone, the step went ' + F.step_story + ' ms at ' + D.chart.ticks_x.join(', ') + ' GB short', X0 - 94, Y0 + 116, font(500, 24), ASH, t, H4 + 2.0, H5 - .2);
   ctx.restore();
 }
@@ -651,7 +656,8 @@ function numbers(t) {
   const cf = font(500, 22), cu = t0 + 1.9;
   const cond = [
     `${F.model} ${F.quant} (${F.file_gb} GB) · stage card ${F.card_full} · DGX Spark over TCP`,
-    `prose prompt P ${F.P} · depth ${F.depth} · n ${F.n} · ${F.rounds} rounds · each arm its own process · ${F.date}`,
+    `prose prompt P ${F.P} · depth ${F.depth} · n ${F.n} · ${F.rounds}`,
+    `each arm its own process · ${F.date}`,
     `RAM capped by BLOOMERY_HOST_ROOM; CPU unchanged (${F.cpu_cores} cores)`,
   ];
   cond.forEach((s, i) => wipe(s, 56, 900 + i * 34, cf, ASH, t, cu + i * .1));
