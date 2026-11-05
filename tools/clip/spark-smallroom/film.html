@@ -1,0 +1,709 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>spark small room</title>
+<style>
+  @font-face { font-family: Geist; src: url(fonts/Geist-Variable.ttf); font-weight: 100 900; }
+  @font-face { font-family: GeistMono; src: url(fonts/GeistMono-Variable.ttf); font-weight: 100 900; }
+  @font-face { font-family: Pretendard; src: url(fonts/Pretendard-Medium.otf); font-weight: 500; }
+  html, body { margin: 0; background: #07080A; }
+  #stage { width: 1080px; height: 1080px; display: block; }
+</style></head>
+<body>
+<canvas id="stage" width="1080" height="1080"></canvas>
+<script>
+// Every frame is a pure function of t (seconds): window.seek(t) draws it, nothing carries over between frames.
+// Every number drawn comes from data.json (make_data.py); with window.audit = true every drawn string is recorded
+// in window.drawn so render.py audit can hold them to it. Which experts a token picks is schematic (a hash).
+const W = 1080, H = 1080, T = 55.0;
+const VOID = '#07080A', FLOOR = '#14171C', LINE = '#232832', PANE = '#0C0E12', BONE = '#EDEAE4', ASH = '#8E949C',
+      STEEL = '#7F96AD', EMBER = '#FF6A2B', CORE = '#FFD9B8';
+const SANS = 'Geist, Pretendard', MONO = 'GeistMono, Pretendard', TOK = 'Geist, Pretendard';
+const cv = document.getElementById('stage'), ctx = cv.getContext('2d');
+let D = null, F = null, RACE = null, NOISE = null;
+window.audit = false; window.drawn = [];
+
+// ---- math --------------------------------------------------------------------------------------------------
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, u) => a + (b - a) * u;
+const expo = x => { x = clamp(x); return x >= 1 ? 1 : 1 - Math.pow(2, -10 * x); };
+const io = x => { x = clamp(x); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+const out3 = x => { x = clamp(x); return 1 - Math.pow(1 - x, 3); };
+const sstep = x => { x = clamp(x); return x * x * (3 - 2 * x); };
+// damped spring 0 -> 1 (zeta 0.55, 4.2 Hz), overshoot under 4 % after 0.25 s
+const spring = x => { if (x <= 0) return 0; const z = .55, w = 2 * Math.PI * 4.2, wd = w * Math.sqrt(1 - z * z);
+  return 1 - Math.exp(-z * w * x) * (Math.cos(wd * x) + z * w / wd * Math.sin(wd * x)); };
+const win = (t, a, b, fi = .35, fo = .35) => clamp(Math.min(out3((t - a) / fi), 1 - io((t - (b - fo)) / fo)));
+function hsh(...k) {
+  let h = 0x9e3779b9 | 0;
+  for (const x of k) { h = Math.imul(h ^ (x | 0), 0x85ebca6b); h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35); h ^= h >>> 16; }
+  return (h >>> 0) / 4294967296;
+}
+function rgba(hex, a) { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; }
+
+// ---- text --------------------------------------------------------------------------------------------------
+function font(w, px, fam = SANS) { return `${w} ${px}px ${fam}`; }
+function rec(s, cat) { if (window.audit && s) window.drawn.push([String(s), cat]); }
+function txt(s, x, y, f, col, o = {}) {
+  if (!s) return 0;
+  ctx.save(); ctx.font = f; ctx.fillStyle = col; ctx.textAlign = o.align || 'left'; ctx.textBaseline = 'alphabetic';
+  if (o.ls) ctx.letterSpacing = o.ls + 'px';
+  if (o.alpha !== undefined) ctx.globalAlpha *= clamp(o.alpha);
+  if (ctx.globalAlpha > 0.003) { ctx.fillText(s, x, y); rec(s, o.cat || 'ui'); }
+  const w = ctx.measureText(s).width; ctx.restore(); return w;
+}
+function width(s, f) { ctx.save(); ctx.font = f; const w = ctx.measureText(s).width; ctx.restore(); return w; }
+const PREF = new Map();
+function prefix(s, f, ls = 0) {
+  const k = f + '\u0000' + ls + '\u0000' + s; let v = PREF.get(k); if (v) return v;
+  ctx.save(); ctx.font = f; ctx.letterSpacing = ls + 'px'; v = []; for (let i = 0; i <= s.length; i++) v.push(ctx.measureText(s.slice(0, i)).width);
+  ctx.restore(); PREF.set(k, v); return v;
+}
+// Kinetic line: glyphs rise out of a mask (0.42 s expo-out, 18 ms stagger) from t0; from t1 they lift out the top.
+function rise(s, x, y, px, w, col, t, t0, t1 = 1e9, o = {}) {
+  if (t < t0 || t > t1 + .5) return;
+  const f = font(w, px, o.fam || SANS), pw = prefix(s, f, o.ls || 0), tw = pw[pw.length - 1];
+  const x0 = o.align === 'center' ? x - tw / 2 : o.align === 'right' ? x - tw : x;
+  ctx.save(); ctx.beginPath(); ctx.rect(x0 - 12, y - px * 1.05, tw + 24, px * 1.42); ctx.clip();
+  ctx.font = f; ctx.fillStyle = col; ctx.textBaseline = 'alphabetic';
+  const st = o.stagger === undefined ? .018 : o.stagger;
+  let any = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]; if (c === ' ') continue;
+    const u = expo((t - t0 - i * st) / .42), v = io((t - t1 - i * st * .5) / .32);
+    const dy = (1 - u) * px * .9 - v * px * 1.1;
+    const a = clamp(u * 2.2) * (1 - v);
+    if (a <= 0) continue;
+    ctx.globalAlpha = a; ctx.fillText(c, x0 + pw[i], y + dy); any = true;
+  }
+  ctx.restore();
+  if (any) rec(s, o.cat || 'ui');
+}
+// a caption that wipes in left to right and fades out
+function wipe(s, x, y, f, col, t, t0, t1 = 1e9, o = {}) {
+  const a = win(t, t0, t1, .3, .3); if (a <= 0) return;
+  const tw = width(s, f), x0 = o.align === 'center' ? x - tw / 2 : o.align === 'right' ? x - tw : x;
+  const u = out3((t - t0) / .45);
+  ctx.save(); ctx.beginPath(); ctx.rect(x0 - 8, y - 60, (tw + 16) * u, 90); ctx.clip();
+  txt(s, x0, y, f, col, { alpha: a, cat: o.cat }); ctx.restore();
+}
+function rrect(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); }
+
+// ---- ambience: flat field, slow grain (12 fps), vignette ------------------------------------------------------
+function makeNoise() {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d'), im = g.createImageData(256, 256);
+  for (let i = 0; i < 256 * 256; i++) { const v = hsh(i, 7) < .5 ? 0 : 255; im.data[4 * i] = im.data[4 * i + 1] = im.data[4 * i + 2] = v; im.data[4 * i + 3] = Math.floor(hsh(i, 9) * 255); }
+  g.putImageData(im, 0, 0); return c;
+}
+function ambience(t) {
+  const bf = Math.floor((60 * t + .5) / 5);
+  ctx.save(); ctx.globalAlpha = .028;
+  const ox = Math.floor(hsh(bf, 1) * 256), oy = Math.floor(hsh(bf, 2) * 256);
+  for (let x = -ox; x < W; x += 256) for (let y = -oy; y < H; y += 256) ctx.drawImage(NOISE, x, y);
+  ctx.restore();
+  const g = ctx.createRadialGradient(W / 2, H / 2, W * .36, W / 2, H / 2, W * .78);
+  g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0.42)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+}
+function watermark() {
+  if (!D.placeholder) return;
+  ctx.save(); ctx.translate(W / 2, H / 2); ctx.rotate(-Math.PI / 6);
+  ctx.font = font(800, 96); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,40,90,0.55)'; ctx.fillStyle = 'rgba(255,40,90,0.22)';
+  for (const dy of [-150, 150]) { ctx.fillText('PLACEHOLDER TAPES', 0, dy); ctx.strokeText('PLACEHOLDER TAPES', 0, dy); }
+  ctx.restore(); rec('PLACEHOLDER TAPES', 'ui');
+}
+
+// ---- beats -------------------------------------------------------------------------------------------------
+const B = { hook: [0, 5.0], race: [4.95, 25.1], how: [25.0, 45.15], num: [45.05, 53.05], end: [52.9, T + 1] };
+const H1 = 25.0, H2 = 29.4, H3 = 33.6, H4 = 37.8, H5 = 41.8;
+
+// ================================================ HOOK =========================================================
+function hook(t) {
+  const a = 1 - io((t - 4.55) / .45); if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha = a; ctx.translate(0, -60 * io((t - 4.55) / .45));
+  const base = 905, s = 2.15, gb = F.file_gb, room = F.room_gb;
+  const colH = gb * s, boxH = room * s, cx0 = 170, cw = 160;
+  // the baseline draws first
+  const bl = out3((t - .05) / .6);
+  ctx.fillStyle = LINE; ctx.fillRect(56, base, (W - 112) * bl, 2);
+  // the model: a column whose height is its bytes, rising slab by slab (byte slices, not layers)
+  const nS = 36, sh = colH / nS;
+  for (let i = 0; i < nS; i++) {
+    const u = spring(t - .35 - i * .016); if (u <= 0) continue;
+    const y = base - (i + 1) * sh;
+    ctx.globalAlpha = a * clamp(u * 3);
+    ctx.fillStyle = BONE; ctx.fillRect(cx0, y + 2 + (1 - Math.min(u, 1.04)) * 40, cw, sh - 2);
+  }
+  ctx.globalAlpha = a;
+  rise('DeepSeek ' + F.model.replace('DeepSeek ', '') + ' · ' + F.quant, cx0, base - colH - 92, 28, 500, ASH, t, .7);
+  rise(gb + ' GB', cx0, base - colH - 26, 64, 300, BONE, t, .55, 1e9, { fam: MONO, ls: -4 });
+  // the workstation: a glass box whose height is its RAM; it glides over to the column at 2.4 s
+  const bx0 = 520, bw = 220, slide = io((t - 2.35) / .9), bx = lerp(bx0, cx0 - 30, slide);
+  const bu = spring(t - 1.25);
+  if (bu > 0) {
+    const h = boxH * Math.min(bu, 1.04);
+    ctx.save(); ctx.globalAlpha = a * clamp(bu * 2.5);
+    ctx.fillStyle = rgba(STEEL, .13); ctx.fillRect(bx, base - h, bw, h);
+    ctx.strokeStyle = STEEL; ctx.lineWidth = 3; ctx.strokeRect(bx + 1.5, base - h + 1.5, bw - 3, h - 1.5);
+    ctx.fillStyle = rgba(BONE, .25); ctx.fillRect(bx + 10, base - h + 10, 3, h * .55);
+    ctx.restore();
+    const lx = bx + bw + 28;
+    rise('workstation RAM', lx, base - boxH + 34, 28, 500, ASH, t, 1.45);
+    rise(room + ' GB', lx, base - boxH + 100, 64, 300, BONE, t, 1.4, 1e9, { fam: MONO, ls: -4 });
+    rise('+ one ' + F.card_full, lx, base - boxH + 148, 26, 500, ASH, t, 1.7);
+  }
+  // what sticks out above the glass: hatched steel, a dashed outline
+  const ov = io((t - 3.1) / .5);
+  if (ov > 0) {
+    const top = base - colH, edge = base - boxH;
+    ctx.save(); ctx.globalAlpha = a * ov;
+    ctx.beginPath(); ctx.rect(cx0, top, cw, edge - top); ctx.clip();
+    ctx.fillStyle = 'rgba(7,8,10,0.55)'; ctx.fillRect(cx0, top, cw, edge - top);
+    ctx.strokeStyle = rgba(STEEL, .9); ctx.lineWidth = 3;
+    for (let k = -cw; k < edge - top + cw; k += 18) { ctx.beginPath(); ctx.moveTo(cx0, top + k); ctx.lineTo(cx0 + cw, top + k - cw); ctx.stroke(); }
+    ctx.restore();
+    ctx.save(); ctx.globalAlpha = a * ov; ctx.setLineDash([10, 8]); ctx.strokeStyle = STEEL; ctx.lineWidth = 3;
+    ctx.strokeRect(cx0 - 8, top - 8, cw + 16, edge - top + 8); ctx.restore();
+  }
+  rise('It does not fit.', 560, 300, 76, 640, BONE, t, 3.35);
+  ctx.restore();
+}
+
+// ================================================ RACE =========================================================
+// tape second shown at video second t: 1x for real_s, then speed x, held at reach_s
+function tapeAt(t) {
+  const R = RACE, v = t - R.v0; if (v < 0) return -1;
+  const vv = Math.min(v, R.budget_s);
+  return R.speed === 1 ? vv : (vv <= R.real_s ? vv : R.real_s + R.speed * (vv - R.real_s));
+}
+function videoAt(tape) {   // inverse of tapeAt (for line scroll timing)
+  const R = RACE; if (R.speed === 1 || tape <= R.real_s) return R.v0 + tape;
+  return R.v0 + R.real_s + (tape - R.real_s) / R.speed;
+}
+const PANES = [
+  { key: 'alone', x: 40, col: STEEL, title: null, sub: 'alone · experts from NVMe', subCol: STEEL,
+    wait: 'prefill · paging experts from NVMe' },
+  { key: 'spark', x: 552, col: EMBER, title: null, sub: '+ one DGX Spark', subCol: EMBER,
+    wait: 'prefill · the Spark computes its share' },
+];
+const PW = 488, PY = 176, PH = 818, TX = 24, TY = 392, TH = 440, LH = 40, TPX = 28;
+function layoutArm(A) {
+  // the pane text is a prefix of the joined tape text; lines break at spaces, hard at '\n'
+  const f = font(500, TPX, TOK), maxW = PW - 2 * TX;
+  const S = A.tx.join(''), ends = [], refl = new Uint8Array(S.length);
+  let off = 0;
+  A.tx.forEach((s, i) => { for (let k = 0; k < s.length; k++) refl[off + k] = A.r[i]; off += s.length; ends.push(off); });
+  const lines = []; let y = 0;
+  ctx.save(); ctx.font = f;
+  const re = /\n+|[^\S\n]*\S+[^\S\n]*|[^\S\n]+/g; let m, cur = null;
+  const push = (s, e, gap) => { if (cur) { lines.push(cur); y += LH + (gap ? LH * .45 : 0); } cur = { s, e, y }; };
+  let gapNext = false;
+  while ((m = re.exec(S))) {
+    const seg = m[0], s0 = m.index, e0 = s0 + seg.length;
+    if (seg[0] === '\n') { if (cur) { gapNext = seg.length > 1; push(e0, e0, gapNext); } else { cur = { s: e0, e: e0, y }; } continue; }
+    if (!cur) cur = { s: s0, e: s0, y };
+    const lineTxt = S.slice(cur.s, e0).replace(/^\s+/, '').replace(/\s+$/, '');
+    if (cur.e > cur.s && ctx.measureText(lineTxt).width > maxW) push(s0, s0, false);
+    if (ctx.measureText(seg.trim()).width > maxW) {   // one unbroken run longer than the line: break by character
+      for (let k = s0; k < e0; k++) {
+        if (ctx.measureText(S.slice(cur.s, k + 1).trim()).width > maxW && k > cur.s) push(k, k, false);
+        cur.e = k + 1;
+      }
+    } else cur.e = e0;
+  }
+  if (cur) lines.push(cur);
+  ctx.restore();
+  // a line appears when its first visible character's token lands
+  const tokOf = o => { let lo = 0, hi = ends.length - 1; while (lo < hi) { const mid = (lo + hi) >> 1; if (ends[mid] > o) hi = mid; else lo = mid + 1; } return lo; };
+  for (const L of lines) {
+    let o = L.s; while (o < L.e && /\s/.test(S[o])) o++;
+    L.first = o; L.tok = o < L.e ? tokOf(o) : (L.s < S.length ? tokOf(Math.max(0, L.s - 1)) : ends.length - 1);
+    L.vt = videoAt(A.tt[L.tok]);
+  }
+  return { S, ends, refl, lines, f };
+}
+function countAt(A, tape) { let lo = 0, hi = A.tt.length; while (lo < hi) { const m = (lo + hi) >> 1; if (A.tt[m] <= tape) lo = m + 1; else hi = m; } return lo; }
+
+function drawPaneText(P, A, L, t, tape, x, y, a) {
+  const n = countAt(A, tape), vis = n ? L.ends[n - 1] : 0;
+  // scroll: a smooth step per line, so the newest line rides at the bottom of the window
+  let curY = 0;
+  for (let j = 1; j < L.lines.length; j++) { const u = sstep((t - L.lines[j].vt) / .2); if (u <= 0) break; curY += (L.lines[j].y - L.lines[j - 1].y) * u; }
+  const scroll = Math.max(0, curY + LH - TH + 8);
+  ctx.save(); ctx.beginPath(); ctx.rect(x, y + 12, PW - 2 * TX + 8, TH - 12); ctx.clip();
+  ctx.font = L.f; ctx.textBaseline = 'alphabetic';
+  let caret = null;
+  for (const ln of L.lines) {
+    if (ln.s >= vis && ln.first >= vis) break;
+    const ly = y + ln.y + TPX + 4 - scroll; if (ly - TPX < y + 12 || ly > y + TH + LH) continue;
+    let o = ln.first; const e = Math.min(ln.e, vis); let cx = x;
+    while (o < e) {
+      let k = o; const r = L.refl[o]; while (k < e && L.refl[k] === r && L.S[k] !== '\n') k++;
+      const run = L.S.slice(o, k);
+      if (run.length) { ctx.globalAlpha = a; ctx.fillStyle = r ? ASH : BONE; ctx.fillText(run, cx, ly); rec(run, 'tape:' + A.key); cx += ctx.measureText(run).width; }
+      o = Math.max(k, o + 1);
+    }
+    caret = [cx, ly];
+  }
+  ctx.restore();
+  // top fade
+  const g = ctx.createLinearGradient(0, y + 12, 0, y + 58); g.addColorStop(0, PANE); g.addColorStop(1, rgba(PANE.replace('#', '#'), 0));
+  ctx.save(); ctx.globalAlpha = a; ctx.fillStyle = g; ctx.fillRect(x - 4, y + 10, PW - 2 * TX + 12, 48); ctx.restore();
+  return { n, caret };
+}
+
+function race(t) {
+  const [a0, a1] = B.race; if (t < a0 || t > a1) return;
+  const a = win(t, a0, a1, .5, .5), dy = 40 * (1 - out3((t - a0) / .7)) - 40 * io((t - (a1 - .5)) / .5);
+  ctx.save(); ctx.translate(0, dy); ctx.globalAlpha = a;
+  rise('Same prompt. Same model.', 40, 96, 48, 620, BONE, t, a0 + .15);
+  // the prompt itself, one line
+  const pr = RACE.prompt.split('\n')[0];
+  const pf = font(500, 24, TOK); let ps = pr; const maxw = 1000 - 60;
+  if (width('“' + ps + '”', pf) > maxw) { while (ps.length && width('“' + ps + '…”', pf) > maxw) ps = ps.slice(0, -1); ps += '…'; }
+  wipe('“' + ps + '”', 40, 140, pf, ASH, t, a0 + .45, 1e9, { cat: 'prompt' });
+  const tape = tapeAt(t);
+  const tScale = Math.max(...RACE.arms.map(A => Math.min(A.done_s, RACE.reach_s)));
+  PANES.forEach((P, pi) => {
+    const A = RACE.arms[pi], L = RACE.layout[pi], x = P.x, pa = clamp(out3((t - a0 - .2 - pi * .1) / .5));
+    ctx.save(); ctx.globalAlpha = a * pa; ctx.translate(0, 30 * (1 - pa));
+    const done = tape >= A.done_s;
+    // pane
+    rrect(x, PY, PW, PH, 14); ctx.fillStyle = PANE; ctx.fill();
+    const flash = done ? Math.exp(-(t - videoAt(A.done_s)) * 2.2) : 0;
+    ctx.lineWidth = 2; ctx.strokeStyle = rgba(P.col, .28 + .6 * flash); ctx.stroke();
+    txt(F.room_gb + ' GB workstation', x + TX, PY + 46, font(600, 30), BONE);
+    txt(P.sub, x + TX, PY + 82, font(pi ? 600 : 500, pi ? 28 : 26), P.subCol);
+    // live tok/s from the tape's own stamps
+    const n = countAt(A, tape);
+    const rate = n >= 2 ? A.rate[n - 1] : null;
+    const cf = font(300, 78, MONO);
+    if (rate) { const w = txt(rate, x + TX, PY + 182, cf, P.col, { ls: -6 }); txt('tok/s', x + TX + w + 10, PY + 182, font(500, 24), ASH); }
+    else if (tape >= 0) {
+      const dots = '.'.repeat(1 + Math.floor((t * 3) % 3));
+      txt(P.wait, x + TX, PY + 170, font(500, 24), ASH);
+      txt(dots, x + TX + width(P.wait, font(500, 24)) + 2, PY + 170, font(500, 24), ASH);
+      // a slow pulse under the wait line: the prompt is in flight
+      const ph = (t * 1.6) % 1;
+      ctx.fillStyle = rgba(P.col, .5 * (1 - ph)); ctx.fillRect(x + TX, PY + 186, (PW - 2 * TX) * ph, 3);
+    }
+    ctx.fillStyle = LINE; ctx.fillRect(x + TX, PY + 204, PW - 2 * TX, 1.5);
+    // the tokens
+    const r = drawPaneText(P, A, L, t, Math.max(tape, -1), x + TX, TY, 1);
+    if (r.caret && !done && tape >= 0 && r.caret[1] - TPX >= TY - 4 && r.caret[1] <= TY + TH) { ctx.fillStyle = P.col; ctx.fillRect(r.caret[0] + 3, r.caret[1] - TPX + 4, 3, TPX); }
+    // the clock rail: both panes on one scale of tape seconds
+    const rx = x + TX, rw = PW - 2 * TX, ry = PY + PH - 64;
+    const px = tt => rx + rw * clamp(tt / tScale);
+    ctx.fillStyle = rgba(ASH, .25); ctx.fillRect(rx, ry, rw, 2);
+    if (tape >= 0) {
+      const head = Math.min(tape, A.done_s);
+      ctx.fillStyle = P.col; ctx.fillRect(rx, ry - 1, px(head) - rx, 4);
+      if (!done) { ctx.beginPath(); ctx.arc(px(head), ry + 1, 6, 0, 7); ctx.fill(); }
+    }
+    if (tape >= A.ttft_s) {
+      const u = out3((t - videoAt(A.ttft_s)) / .35), fx = px(A.ttft_s);
+      ctx.save(); ctx.globalAlpha *= u; ctx.fillStyle = BONE; ctx.fillRect(fx - 1, ry - 12, 2, 26); ctx.restore();
+      txt('first token ' + A.ttft_label, Math.min(fx, rx + rw - 210), ry - 20, font(500, 22), BONE, { alpha: u });
+    }
+    if (done) {
+      const u = out3((t - videoAt(A.done_s)) / .35), fx = px(A.done_s);
+      ctx.save(); ctx.globalAlpha *= u; ctx.fillStyle = P.col; ctx.beginPath(); ctx.arc(fx, ry + 1, 8, 0, 7); ctx.fill(); ctx.restore();
+      const lab = 'done ' + A.done_label + ' · ' + A.n + ' tokens';
+      const lw = width(lab, font(500, 22));
+      txt(lab, clamp(fx - lw / 2, rx, rx + rw - lw), ry + 38, font(500, 22), P.col, { alpha: u });
+    } else if (tape >= RACE.reach_s - 1e-6 && A.done_s > RACE.reach_s) {
+      txt('still writing', rx, ry + 38, font(500, 22), ASH);
+    }
+    ctx.restore();
+  });
+  // the clock label: real time, then the labelled time-lapse
+  if (tape >= 0) {
+    const fast = RACE.speed > 1 && tape > RACE.real_s, lab = fast ? RACE.speed_label + ' speed' : 'real time';
+    const f = font(600, 24), w = width(lab, f), cx = W / 2, y = 1040;
+    const u = fast ? out3((t - videoAt(RACE.real_s)) / .3) : 1;
+    ctx.save(); ctx.fillStyle = fast ? EMBER : ASH; ctx.globalAlpha *= u;
+    const ix = cx - (w + 34) / 2;
+    const tri = (x0) => { ctx.beginPath(); ctx.moveTo(x0, y - 18); ctx.lineTo(x0 + 13, y - 9); ctx.lineTo(x0, y); ctx.closePath(); ctx.fill(); };
+    if (fast) { tri(ix - 8); tri(ix + 5); } else tri(ix);
+    txt(lab, ix + 30, y, f, fast ? EMBER : ASH);
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// ================================================ HOW ==========================================================
+// one diagram: 40 layers (top strip), the router's 384 experts (grid), three homes (bottom row)
+const STRIP = { x0: 110, x1: 970, y: 236 };
+const layerX = i => lerp(STRIP.x0, STRIP.x1, (i + .5) / 40);
+const GRID = { x0: 156, y0: 312, p: 24, c: 18, cols: 32 };
+const HOMES = [
+  { key: 'card', x: 72, w: 250, col: CORE, cols: 11 },
+  { key: 'ram', x: 342, w: 258, col: BONE, cols: 15 },
+  { key: 'spark', x: 752, w: 280, col: EMBER, cols: 15 },
+];
+const HY = 668, HH = 322, HG = 790, HP = 16;
+let CELLS = null;
+function setupCells() {
+  // split the layer's 384 experts across the homes by the Spark arm's byte shares (schematic counts, never drawn)
+  const tot = F.card_gb + F.spark_host_gb + F.spark_node_gb, n = F.experts;
+  const nc = Math.round(n * F.card_gb / tot), nr = Math.round(n * F.spark_host_gb / tot), ns = n - nc - nr;
+  const order = [...Array(n).keys()].sort((i, j) => hsh(i, 31) - hsh(j, 31));
+  CELLS = new Array(n); const cnt = [0, 0, 0];
+  order.forEach((ci, r) => { const h = r < nc ? 0 : r < nc + nr ? 1 : 2; CELLS[ci] = { h, k: cnt[h]++ }; });
+  HOMES[0].n = nc; HOMES[1].n = nr; HOMES[2].n = ns;
+}
+function gridPos(i) { return [GRID.x0 + (i % GRID.cols) * GRID.p, GRID.y0 + Math.floor(i / GRID.cols) * GRID.p]; }
+function homePos(h, k) { const Hm = HOMES[h], gx = Hm.x + (Hm.w - Hm.cols * HP) / 2 + 2; return [gx + (k % Hm.cols) * HP, HG + Math.floor(k / Hm.cols) * HP]; }
+// the six picks of a layer: two in each home (schematic)
+function picks(layer) {
+  const res = [];
+  for (let h = 0; h < 3; h++) {
+    const ids = CELLS.map((c, i) => [c, i]).filter(([c]) => c.h === h).map(([, i]) => i);
+    const a = Math.floor(hsh(layer, h, 1) * ids.length); let b = Math.floor(hsh(layer, h, 2) * ids.length); if (b === a) b = (b + 7) % ids.length;
+    res.push(ids[a], ids[b]);
+  }
+  return res;
+}
+// the token's layer along the strip
+function layerAt(t) {
+  if (t < H1 + .6) return 0;
+  if (t < H1 + 1.8) return lerp(0, 8, io((t - H1 - .6) / 1.2));
+  if (t < H1 + 3.2) return 8;
+  if (t < H1 + 3.5) return lerp(8, 9, io((t - H1 - 3.2) / .3));
+  if (t < H3 + 2.5) return 9;
+  if (t < H3 + 2.8) return lerp(9, 10, io((t - H3 - 2.5) / .3));
+  // then quick cycles: one layer every 0.42 s
+  const c = (t - H3 - 2.8) / .42, i = Math.floor(c), f = c - i;
+  return 10 + i + io(clamp((f - .7) / .3));
+}
+function curPicks(t) { return picks(Math.round(layerAt(t))); }
+
+function how(t) {
+  const [a0, a1] = B.how; if (t < a0 || t > a1) return;
+  const a = win(t, a0, a1, .5, .4);
+  ctx.save(); ctx.globalAlpha = a;
+  const dia = 1 - io((t - (H4 - .3)) / .5);           // the diagram leaves before the chart
+  const diaY = -50 * io((t - (H4 - .3)) / .5);
+  if (dia > 0) { ctx.save(); ctx.globalAlpha *= dia; ctx.translate(0, diaY); diagram(t); ctx.restore(); }
+  // headlines
+  rise('Each token walks ' + F.layers + ' layers.', 56, 104, 48, 620, BONE, t, H1 + .1, H2 - .35);
+  wipe('In each, a router picks ' + F.picks + ' of ' + F.experts + ' experts.', 56, 150, font(500, 28), ASH, t, H1 + 1.3, H2 - .2);
+  rise('Three homes for an expert.', 56, 104, 48, 620, BONE, t, H2, H3 - .35);
+  wipe('The card holds the hottest; RAM and the Spark hold the rest.', 56, 150, font(500, 28), ASH, t, H2 + .6, H3 - .2);
+  rise('Per layer, the host asks the Spark.', 56, 104, 48, 620, BONE, t, H3, H4 - .35);
+  wipe('The Spark runs its own kernels on its ' + F.node_chip + '.', 56, 150, font(500, 28), ASH, t, H3 + .6, H4 - .2);
+  if (t > H4 - .2) chart(t);
+  if (t > H5 - .2) prefill(t);
+  ctx.restore();
+}
+
+function diagram(t) {
+  // the strip of layers
+  const sa = clamp((t - H1) / .6);
+  const L = layerAt(t), Li = Math.round(L);
+  for (let i = 0; i < 40; i++) {
+    const u = out3((t - H1 - i * .012) / .4); if (u <= 0) continue;
+    const x = layerX(i), on = Math.max(0, 1 - Math.abs(L - i) * 1.4), past = L > i + .5;
+    ctx.globalAlpha = u * (ctx.globalAlpha > 0 ? 1 : 0);
+    rrect(x - 7, STRIP.y - 20, 14, 40, 3);
+    ctx.fillStyle = on > 0 ? rgba(CORE, .25 + .75 * on) : past ? rgba(EMBER, .32) : FLOOR; ctx.fill();
+    ctx.strokeStyle = LINE; ctx.lineWidth = 1; ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  txt(F.layers + ' layers', STRIP.x0 - 2, STRIP.y - 34, font(500, 22), ASH, { alpha: sa });
+  // the token
+  if (t > H1 + .4) {
+    const x = layerX(L), u = out3((t - H1 - .4) / .3);
+    ctx.save(); ctx.globalAlpha *= u; ctx.shadowColor = EMBER; ctx.shadowBlur = 18; ctx.fillStyle = EMBER;
+    ctx.beginPath(); ctx.arc(x, STRIP.y + 34, 8, 0, 7); ctx.fill(); ctx.restore();
+  }
+  // grid -> homes: each expert cell flies from the router grid to its home (H2)
+  const P = new Set(curPicks(t));
+  const pickOn = t > H1 + 2.3 ? out3((t - H1 - 2.3) / .3) : 0;
+  const homesOn = clamp((t - H2) / .5);
+  // homes
+  if (t > H2 - .1) homesFrame(t, homesOn);
+  for (let i = 0; i < CELLS.length; i++) {
+    const c = CELLS[i], d = (i % GRID.cols + Math.floor(i / GRID.cols)) * .012;
+    const gin = out3((t - H1 - 1.2 - d) / .45); if (gin <= 0) continue;
+    const fly = io((t - H2 - .7 - hsh(i, 5) * .7) / .75);
+    const [gx, gy] = gridPos(i), [hx, hy] = homePos(c.h, c.k);
+    const x = lerp(gx, hx, fly), y = lerp(gy, hy, fly) - Math.sin(Math.PI * fly) * 40;
+    const sz = lerp(GRID.c, 12, fly);
+    const home = HOMES[c.h].col, isP = P.has(i);
+    let fill = rgba('#3A404B', .9);
+    if (fly > 0) fill = rgba(home, lerp(.0, .32, fly) + .0);
+    if (fly > 0 && fly < 1) fill = rgba(home, .25 + .25 * fly);
+    if (fly >= 1) fill = rgba(home, .3);
+    ctx.save(); ctx.globalAlpha *= gin;
+    rrect(x, y, sz, sz, 3); ctx.fillStyle = fill; ctx.fill();
+    if (fly <= 0) { ctx.strokeStyle = rgba(ASH, .25); ctx.lineWidth = 1; ctx.stroke(); }
+    if (isP && pickOn > 0 && (fly <= 0 || fly >= 1)) {
+      const col = fly >= 1 ? home : EMBER;
+      ctx.globalAlpha *= pickOn; rrect(x, y, sz, sz, 3); ctx.fillStyle = col; ctx.fill();
+      ctx.strokeStyle = BONE; ctx.lineWidth = 2; rrect(x - 3, y - 3, sz + 6, sz + 6, 4); ctx.stroke();
+    }
+    ctx.restore();
+  }
+  // H1: the six picks light, with a ring pulse; fan-out lines from the layer to the picks
+  const fanOn = t > H1 + 2.3 ? (t < H2 + .6 ? out3((t - H1 - 2.3) / .3) * (1 - io((t - H2 - .2) / .4)) : out3((t - H2 - 2.2) / .4) * (1 - io((t - H3 - .05) / .35))) : 0;
+  if (fanOn > 0) {
+    const lx = layerX(L);
+    for (const i of P) {
+      const c = CELLS[i], fly = io((t - H2 - .7 - hsh(i, 5) * .7) / .75);
+      const [gx, gy] = gridPos(i), [hx, hy] = homePos(c.h, c.k);
+      const x = lerp(gx, hx, fly) + 6, y = lerp(gy, hy, fly);
+      if (fly > 0 && fly < 1) continue;
+      ctx.save(); ctx.globalAlpha *= fanOn * .7; ctx.strokeStyle = fly >= 1 ? HOMES[c.h].col : EMBER; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(lx, STRIP.y + 44); ctx.bezierCurveTo(lx, y - 120, x, y - 160, x, y - 4); ctx.stroke(); ctx.restore();
+    }
+  }
+  if (t > H3 - .1) linkLoop(t);
+}
+
+function homesFrame(t, u) {
+  const e = out3(u);
+  // the workstation glass around card and RAM
+  ctx.save(); ctx.globalAlpha *= e;
+  ctx.strokeStyle = rgba(STEEL, .6); ctx.lineWidth = 2; rrect(48, HY - 32, 572, HH + 44, 14); ctx.stroke();
+  ctx.restore();
+  txt('the workstation', 66, HY - 44, font(500, 22), ASH, { alpha: e });
+  const labels = [
+    ['RTX A6000 · VRAM', 'the hottest ' + F.card_experts],
+    ['RAM', F.spark_host_gb + ' GB of experts'],
+    ['DGX Spark', 'unified memory · ~' + F.spark_node_gb + ' GB'],
+  ];
+  HOMES.forEach((Hm, h) => {
+    const uu = out3((u * 1.6) - h * .2);
+    if (uu <= 0) return;
+    ctx.save(); ctx.globalAlpha *= uu;
+    rrect(Hm.x, HY, Hm.w, HH - 10, 10); ctx.fillStyle = rgba(Hm.col, .05); ctx.fill();
+    ctx.strokeStyle = rgba(Hm.col, h === 2 ? .8 : .35); ctx.lineWidth = h === 2 ? 2.5 : 1.5; ctx.stroke();
+    ctx.restore();
+    const f1 = font(600, h === 1 ? 26 : 24), f2 = font(500, 22);
+    txt(labels[h][0], Hm.x + 16, HY + 38, f1, h === 2 ? EMBER : BONE, { alpha: uu });
+    txt(labels[h][1], Hm.x + 16, HY + 70, f2, ASH, { alpha: uu });
+  });
+  // the link
+  const lu = out3((u * 1.6) - .5);
+  if (lu > 0) {
+    const y = HY + 150;
+    ctx.save(); ctx.globalAlpha *= lu; ctx.strokeStyle = EMBER; ctx.lineWidth = 3; ctx.setLineDash([8, 6]);
+    ctx.beginPath(); ctx.moveTo(620, y); ctx.lineTo(620 + 132 * lu, y); ctx.stroke(); ctx.restore();
+    txt('TCP link', 686, y - 18, font(600, 22), EMBER, { alpha: lu, align: 'center' });
+  }
+}
+
+// H3: the q8_1 activation out, the Spark's rows back, the sum of the three homes; then quicker cycles
+function linkLoop(t) {
+  const y = HY + 150, x0 = 604, x1 = 768;
+  const cyc = [];
+  cyc.push({ t0: H3 + .3, d: 2.2, slow: true });
+  for (let k = 0; k < 6; k++) cyc.push({ t0: H3 + 2.8 + k * .42, d: .4, slow: false });
+  for (const c of cyc) {
+    const u = (t - c.t0) / c.d; if (u < 0 || u > 1.05) continue;
+    const go = clamp(u / .3), back = clamp((u - .45) / .3), sum = clamp((u - .78) / .22);
+    ctx.save();
+    // out packet
+    if (go > 0 && go < 1) {
+      const px = lerp(x0, x1, io(go));
+      rrect(px - 16, y - 9, 32, 18, 9); ctx.fillStyle = EMBER; ctx.fill();
+    }
+    // the Spark computes: its picked cells pulse
+    if (go >= 1 && back <= 0) {
+      const ph = (u - .3) / .15;
+      ctx.strokeStyle = rgba(EMBER, .8 * (1 - ph)); ctx.lineWidth = 3; rrect(756, HY + 4, 272, HH - 18, 10); ctx.stroke();
+    }
+    // back packet
+    if (back > 0 && back < 1) {
+      const px = lerp(x1, x0, io(back));
+      rrect(px - 22, y - 9, 44, 18, 9); ctx.fillStyle = CORE; ctx.fill();
+    }
+    // the sum: one row from each home rises to the sigma and merges
+    if (sum > 0) {
+      const sx = 540, sy = 470, src = [[197, HY], [471, HY], [892, HY]], cols = [CORE, BONE, EMBER];
+      src.forEach(([qx, qy], i) => {
+        const v = io(sum), x = lerp(qx, sx, v), yy = lerp(qy, sy, v);
+        ctx.globalAlpha = clamp(1.4 - v * 1.2); ctx.fillStyle = cols[i]; ctx.fillRect(x - 30, yy - 3, 60, 6);
+      });
+      ctx.globalAlpha = clamp(sum * 3) * (1 - clamp((u - .98) / .07));
+      ctx.fillStyle = BONE; ctx.font = font(300, 64, MONO); ctx.textAlign = 'center'; ctx.fillText('Σ', sx, sy + 22);
+    }
+    ctx.restore();
+    if (c.slow) {
+      const la = win(t, c.t0, c.t0 + c.d * .48, .2, .2), lb = win(t, c.t0 + c.d * .45, c.t0 + c.d * .8, .2, .2);
+      txt('out: ' + F.act_format + ' activations + the expert list', 1024, 590, font(600, 24), EMBER, { alpha: la, align: 'right' });
+      txt('a few KB a row, every layer', 1024, 622, font(500, 22), ASH, { alpha: la, align: 'right' });
+      txt('back: ' + F.row_format + ' rows from its resident experts', 1024, 590, font(600, 24), CORE, { alpha: lb, align: 'right' });
+      ctx.save(); ctx.strokeStyle = rgba(ASH, .45 * Math.max(la, lb)); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(686, 636); ctx.lineTo(686, y - 30); ctx.stroke(); ctx.restore();
+      txt('the host sums the three homes', 540, 548, font(500, 24), BONE, { alpha: win(t, c.t0 + c.d * .76, c.t0 + c.d + .3, .2, .3), align: 'center' });
+    }
+  }
+  const fast = H3 + 2.8;
+  txt('× ' + F.layers + ' layers, every token', 540, 548, font(500, 24), BONE, { alpha: win(t, fast + .1, H4 - .1, .3, .3), align: 'center' });
+}
+
+// H4: what the missing experts cost a step: the link flat, NVMe growing with the GB short
+function chart(t) {
+  const a = win(t, H4 - .2, H5 - .1, .45, .4); if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha *= a;
+  rise('~' + F.link_ms + ' ms a step over the link. Flat.', 56, 104, 48, 620, BONE, t, H4, H5 - .4);
+  wipe('From NVMe: ' + F.nvme_ms_per_gb + ' ms a step for every GB short.', 56, 150, font(500, 28), STEEL, t, H4 + .4, H5 - .2);
+  const X0 = 150, X1 = 960, Y0 = 860, Y1 = 330, xm = 100, ym = D.chart.y_max;
+  const X = g => lerp(X0, X1, g / xm), Y = m => lerp(Y0, Y1, m / ym);
+  const ax = out3((t - H4 - .1) / .5);
+  ctx.fillStyle = LINE; ctx.fillRect(X0, Y0, (X1 - X0) * ax, 2); ctx.fillRect(X0, Y0 - (Y0 - Y1) * ax, 2, (Y0 - Y1) * ax);
+  for (const g of D.chart.ticks_x) { txt(String(g), X(g), Y0 + 36, font(500, 22, MONO), ASH, { alpha: ax, align: 'center' }); ctx.fillStyle = rgba(ASH, .4 * ax); ctx.fillRect(X(g) - 1, Y0, 2, 10); }
+  for (const m of D.chart.ticks_y) { txt(String(m), X0 - 16, Y(m) + 8, font(500, 22, MONO), ASH, { alpha: ax, align: 'right' }); if (m) { ctx.fillStyle = rgba(ASH, .12 * ax); ctx.fillRect(X0, Y(m), X1 - X0, 1); } }
+  txt('GB of experts past the RAM', X1, Y0 + 70, font(500, 22), ASH, { alpha: ax, align: 'right' });
+  txt('ms a step', X0, Y1 - 24, font(500, 22), ASH, { alpha: ax });
+  // NVMe: the band between the two measured slopes, grown left to right
+  const [s0, s1] = F.nvme_ms_per_gb.split('–').map(Number);
+  const gx94 = F.past_arena_gb, g = out3((t - H4 - .5) / 1.2) * gx94;
+  if (g > 0) {
+    ctx.beginPath(); ctx.moveTo(X(0), Y(0)); ctx.lineTo(X(g), Y(s1 * g)); ctx.lineTo(X(g), Y(s0 * g)); ctx.closePath();
+    ctx.fillStyle = rgba(STEEL, .28); ctx.fill();
+    ctx.strokeStyle = STEEL; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(X(0), Y(0)); ctx.lineTo(X(g), Y((s0 + s1) / 2 * g)); ctx.stroke();
+  }
+  txt('NVMe', X(gx94) + 18, Y((s0 + s1) / 2 * gx94) + 8, font(600, 24), STEEL, { alpha: clamp((t - H4 - 1.5) / .3) });
+  // the two rooms, measured: the step alone minus the step that fits
+  const pts = [[F.past_arena_160_gb, F.step_160_ms - F.step_fits_ms, '160 GB room'], [F.past_arena_gb, F.step_128_ms - F.step_fits_ms, F.room_gb + ' GB room']];
+  pts.forEach(([gx, ms, lab], i) => {
+    const u = spring(t - H4 - .6 - gx / xm * 1.2); if (u <= 0) return;
+    ctx.save(); ctx.fillStyle = STEEL; ctx.globalAlpha *= clamp(u * 2); ctx.beginPath(); ctx.arc(X(gx), Y(ms), 9 * Math.min(u, 1.1), 0, 7); ctx.fill(); ctx.restore();
+    txt(lab, X(gx) - 16, Y(ms) - 18, font(500, 22), STEEL, { alpha: clamp(u * 2), align: 'right' });
+  });
+  // the link: flat
+  const l = out3((t - H4 - 1.5) / 1.0);
+  if (l > 0) {
+    ctx.save(); ctx.strokeStyle = EMBER; ctx.lineWidth = 5; ctx.shadowColor = EMBER; ctx.shadowBlur = 12;
+    ctx.beginPath(); ctx.moveTo(X(0), Y(F.link_ms)); ctx.lineTo(X(xm * l), Y(F.link_ms)); ctx.stroke(); ctx.restore();
+    txt('the Spark link: ~' + F.link_ms + ' ms, at any GB short', X(xm) , Y(F.link_ms) - 18, font(600, 24), EMBER, { alpha: clamp((l - .5) * 2), align: 'right' });
+  }
+  wipe('alone, the step went ' + F.step_story + ' ms at ' + D.chart.ticks_x.join(', ') + ' GB short', X0 - 94, Y0 + 116, font(500, 24), ASH, t, H4 + 2.0, H5 - .2);
+  ctx.restore();
+}
+
+// H5: prefill
+function prefill(t) {
+  const a = win(t, H5 - .2, B.how[1], .45, .45); if (a <= 0) return;
+  ctx.save(); ctx.globalAlpha *= a;
+  rise('A prompt touches nearly every expert.', 56, 104, 48, 620, BONE, t, H5);
+  wipe('prefill, P ' + F.P, 56, 150, font(500, 28), ASH, t, H5 + .4);
+  const X0 = 80, Wd = 900, sA = F.prefill_alone_s, sS = F.prefill_alone_s / Number(F.prefill_x);
+  const row = (y, lab, sub, col, secs, val, t0) => {
+    txt(lab, X0, y - 64, font(600, 30), col === STEEL ? BONE : EMBER, { alpha: out3((t - t0) / .3) });
+    txt(sub, X0, y - 30, font(500, 24), ASH, { alpha: out3((t - t0 - .1) / .3) });
+    const u = io((t - t0 - .2) / 1.0), w = Wd * secs / sA * u;
+    ctx.fillStyle = rgba(col, .2); ctx.fillRect(X0, y, Wd * secs / sA, 48);
+    ctx.fillStyle = col; ctx.fillRect(X0, y, w, 48);
+    txt(val, X0 + Wd * secs / sA + (secs < sA * .7 ? 18 : -18), y + 34, font(600, 26, MONO), secs < sA * .7 ? col : VOID, { alpha: out3((t - t0 - 1.0) / .3), align: secs < sA * .7 ? 'left' : 'right' });
+  };
+  row(520, 'alone', F.paged_gb + ' GB read from NVMe, once per prompt', STEEL, sA, sA + ' s', H5 + .5);
+  row(770, '+ one DGX Spark', 'the Spark computes its share of the prompt', EMBER, sS, F.prefill_x + '× faster', H5 + 1.1);
+  ctx.restore();
+}
+
+// ================================================ NUMBERS ======================================================
+function numbers(t) {
+  const [a0, a1] = B.num; if (t < a0 || t > a1) return;
+  const a = win(t, a0, a1, .5, .4);
+  ctx.save(); ctx.globalAlpha = a;
+  const t0 = a0 + .1;
+  // headline: the configuration in one line, the Spark in ember
+  const h1 = F.room_gb + ' GB workstation ', h2 = '+ one DGX Spark';
+  rise(h1, 56, 112, 48, 620, BONE, t, t0);
+  rise(h2, 56 + width(h1, font(620, 48)), 112, 48, 620, EMBER, t, t0 + .25);
+  // the two heroes
+  const hx = [[56, F.decode_x + '×', 'decode'], [560, F.prefill_x + '×', 'prefill, P ' + F.P]];
+  hx.forEach(([x, v, lab], i) => {
+    rise(v, x, 284, 150, 300, EMBER, t, t0 + .6 + i * .25, 1e9, { fam: MONO, ls: -10 });
+    wipe(lab, x + 6, 334, font(600, 26), BONE, t, t0 + .9 + i * .25);
+  });
+  wipe('each against the same workstation alone', 62, 370, font(500, 24), ASH, t, t0 + 1.2);
+  // the table
+  const rows = D.rows.filter(r => ['alone', 'spark', 'ref'].includes(r.key));
+  const C1 = 700, C2 = 1024, y0 = 446, rh = 104;
+  txt('decode tok/s', C1, y0, font(600, 22), ASH, { alpha: out3((t - t0 - 1.2) / .3), align: 'right' });
+  txt('prefill tok/s', C2, y0, font(600, 22), ASH, { alpha: out3((t - t0 - 1.2) / .3), align: 'right' });
+  const dMax = Math.max(...rows.map(r => r.decode_span[1])), pMax = Math.max(...rows.map(r => r.pp_span[1]));
+  rows.forEach((r, i) => {
+    const y = y0 + 64 + i * rh, u = out3((t - t0 - 1.3 - i * .18) / .4);
+    if (u <= 0) return;
+    const col = r.key === 'spark' ? EMBER : r.key === 'alone' ? STEEL : ASH;
+    ctx.save(); ctx.globalAlpha *= u; ctx.translate(0, 16 * (1 - u));
+    ctx.fillStyle = LINE; ctx.fillRect(56, y - 46, W - 112, 1.5);
+    txt(r.short, 56, y, font(600, 28), r.key === 'ref' ? ASH : BONE);
+    txt(r.key === 'ref' ? 'the model fits · reference' : r.sub, 56, y + 32, font(500, 22), r.key === 'spark' ? EMBER : ASH);
+    txt(r.decode, C1, y, font(400, 34, MONO), col === ASH ? BONE : col, { align: 'right' });
+    txt(r.pp, C2, y, font(400, 34, MONO), col === ASH ? BONE : col, { align: 'right' });
+    // bars under the values, each column on its own scale
+    const bu = io((t - t0 - 1.5 - i * .18) / .8), bw = 200;
+    const bar = (xr, [lo, hi], mx) => {
+      ctx.fillStyle = rgba(col, .18); ctx.fillRect(xr - bw, y + 20, bw, 8);
+      ctx.fillStyle = col; ctx.fillRect(xr - bw, y + 20, bw * lo / mx * bu, 8);
+      ctx.fillStyle = rgba(col, .5); ctx.fillRect(xr - bw + bw * lo / mx * bu, y + 20, bw * (hi - lo) / mx * bu, 8);
+    };
+    bar(C1, r.decode_span, dMax); bar(C2, r.pp_span, pMax);
+    ctx.restore();
+  });
+  // conditions
+  const cf = font(500, 22), cu = t0 + 1.9;
+  const cond = [
+    `${F.model} ${F.quant} (${F.file_gb} GB) · stage card ${F.card_full} · DGX Spark over TCP`,
+    `prose prompt P ${F.P} · depth ${F.depth} · n ${F.n} · ${F.rounds} rounds · each arm its own process · ${F.date}`,
+    `RAM capped by BLOOMERY_HOST_ROOM; CPU unchanged (${F.cpu_cores} cores)`,
+  ];
+  cond.forEach((s, i) => wipe(s, 56, 900 + i * 34, cf, ASH, t, cu + i * .1));
+  ctx.restore();
+}
+
+// ================================================ END ==========================================================
+function end(t) {
+  const [a0] = B.end; if (t < a0) return;
+  const a = clamp(out3((t - a0) / .5));
+  ctx.save(); ctx.globalAlpha = a;
+  rise('bloomery', W / 2, 520, 132, 650, BONE, t, a0 + .05, 1e9, { align: 'center', stagger: .03 });
+  const u = out3((t - a0 - .45) / .5);
+  ctx.fillStyle = EMBER; ctx.fillRect(W / 2 - 150 * u, 556, 300 * u, 4);
+  wipe('open source · Rust + CUDA', W / 2, 620, font(500, 30), ASH, t, a0 + .4, 1e9, { align: 'center' });
+  wipe(F.url, W / 2, 680, font(500, 32, MONO), EMBER, t, a0 + .55, 1e9, { align: 'center' });
+  ctx.restore();
+}
+
+// ================================================ frame ========================================================
+// Draws a Hangul line in the token stack, in Pretendard alone and in the system face, and counts differing pixels:
+// the stack must match Pretendard exactly and the system face must differ (else the check cannot tell them apart).
+window.hangulCheck = () => {
+  const s = '한국어토큰이그려진다', px = f => {
+    const c = document.createElement('canvas'); c.width = 360; c.height = 48; const g = c.getContext('2d');
+    g.fillStyle = '#000'; g.fillRect(0, 0, 360, 48); g.fillStyle = '#fff'; g.font = f; g.fillText(s, 4, 36);
+    return g.getImageData(0, 0, 360, 48).data;
+  };
+  const a = px(font(500, TPX, TOK)), b = px(font(500, TPX, 'Pretendard')), c = px(font(500, TPX, 'sans-serif'));
+  let ab = 0, bc = 0; for (let i = 0; i < a.length; i += 4) { if (a[i] !== b[i]) ab++; if (b[i] !== c[i]) bc++; }
+  return { stack_vs_pretendard: ab, pretendard_vs_system: bc };
+};
+window.seek = t => {
+  t = clamp(t, 0, T);
+  ctx.save(); ctx.globalAlpha = 1; ctx.fillStyle = VOID; ctx.fillRect(0, 0, W, H);
+  hook(t); race(t); how(t); numbers(t); end(t);
+  ambience(t); watermark();
+  ctx.restore();
+};
+
+(async () => {
+  D = await (await fetch('data.json', { cache: 'no-store' })).json();
+  F = D.facts; RACE = D.race;
+  await Promise.all([document.fonts.load('48px Geist', 'Ag'), document.fonts.load('48px GeistMono', '0'),
+                     document.fonts.load('28px Pretendard', '한글')]);
+  for (const fam of ['Geist', 'GeistMono', 'Pretendard']) {
+    const ok = [...document.fonts].some(f => f.family.replace(/"/g, '') === fam && f.status === 'loaded');
+    if (!ok) throw new Error('font not loaded: ' + fam + ' (a system face would stand in silently)');
+  }
+  NOISE = makeNoise(); setupCells();
+  RACE.layout = RACE.arms.map(layoutArm);
+  window.seek(0); window.ready = true;
+})().catch(e => { document.title = 'ERROR'; console.error(e); throw e; });
+</script>
+</body></html>
