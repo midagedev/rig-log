@@ -2,6 +2,20 @@
 
 여기는 **아직 할 일만** 있다. 2026-09-25 새벽에 다시 썼다 — 그 전 판(라운드 보고 절 스무 개와 09-23 GPU 선 목록의 원문, 155 KB)은 [`plan-ledger.md`](plan-ledger.md) 「plan-triage.md 2026-09-25 이전 판」에 원문 그대로 있고, 항목의 근거·수치·기제가 필요하면 거기서 찾는다. 항목은 받을 라운드별로 한 줄씩이고 크기는 XS·S·M·L이다. 착륙한 줄은 지운다(원문은 장부, 결과는 커밋 메시지와 rig-log). 수치는 `[유도]`가 아니면 실측이다.
 
+## Open: the 11-06 file move left the refset identities and 20 paths behind (lead, 2026-11-07)
+
+- When nvme0 filled on 11-06, GLM-5.3-Flash-UD-Q4_K_XL, Muse-Spark-Open UD-IQ2_XXS, the clef files, the fixture variants
+  and others moved to `/data/moved/models/`, and Mistral Large 4 UD-IQ1_S to `/home/user/models/`. The 0.3.13 landing
+  re-pointed the path strings the gates and recipes read (two commits in k31rel) and copied the fixture variants back, but
+  every reference set names its model file's full path as its identity (`crates/refset/src/arch/*::MODEL`), so those
+  constants stayed: `gate-tokenizer` is red (three families' first shards are not at `/models/...`), and every real-tier set
+  of those families refuses by name until it is re-dumped at the new path. Close: re-point each family's `MODEL` and
+  re-dump its sets (`just dump-ref-tokenizer <family>` first, the node dumps after), one family per landing. The
+  movedpaths round also found 20 named paths that exist nowhere on the box (its report
+  `~/.cache/bloomery/specs/movedpaths/report.md`): each is a gate to re-point or a set to re-take, by name.
+- The AGENTS.md rule stands: a file a set names is never moved before the sets are re-dumped; 11-06 was the drive
+  emergency, and this item is its debt.
+
 ## Open: gate-gpu-qwen35moe-e2e red in the real tier since 1b289718d (lead, 2026-11-05, #1167)
 
 Real tier, 3090 and A6000: `prompt step 1024: worst l_out ratio 1.56–1.61 at layer 34 (band 1.5)` and the flips clause
