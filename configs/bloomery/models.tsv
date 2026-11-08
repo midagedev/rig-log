@@ -1,0 +1,87 @@
+# bloomery's model map for the box (two NVMe drives + the HDD). BLOOMERY_MODELS names this file.
+# key<TAB>absolute path; the keys are bloomery's tools/model-keys.tsv. A key not listed here is absent on this
+# machine: a reader that needs it ends by name (model_need / modelmap::path), an optional one (model_opt) stays unset.
+# Drives: /models = nvme0 (3.7 TB, the release real tier's files and the fixtures), / = nvme1 (980 PRO; /mirror holds
+# the K3.1 two-drive split, /home/user/models Mistral-Large-4), /data = the HDD (/data/moved/models: moved off NVMe,
+# never symlinked back; /data/models: HF checkpoints).
+# Installed as /root/bloomery-models.tsv; ~/bloomery-env.sh exports BLOOMERY_MODELS.
+deepseek2.model	/models/small/DeepSeek-V2-Lite-Chat.Q3_K_M.gguf
+deepseek41.model	/models/DeepSeek-V4.1-Flash-1017-Q3_K_M/DeepSeek-V4.1-Flash-1017-Q3_K_M-00001-of-00010.gguf
+deepseek41.draft	/models/DeepSeek-V4.1-Flash-DSpark/DeepSeek-V4.1-Flash-Fp8-128x742M-MXFP4_MOE.tl37.gguf
+deepseek41.fp8.dir	/models/DeepSeek-V4.1-Flash-fp8
+deepseek41.engram-upstream.dir	/data/moved/models/DeepSeek-V4.1-Flash-1017-UD-IQ3_XXS
+glm5next.model	/models/GLM-5.3-Flash-UD-Q4_K_XL/GLM-5.3-Flash-UD-Q4_K_XL-00001-of-00006.gguf
+glm5next.q2.model	/data/moved/models/GLM-5.3-Flash-UD-Q2_K_XL/GLM-5.3-Flash-UD-Q2_K_XL-00001-of-00004.gguf
+glm5next.mmproj	/models/mmproj/unsloth--GLM-5.3-Flash-GGUF/mmproj-BF16.gguf
+# glm5next.exl3.dir	(absent: no exl3 folder on any drive)
+qwen4exp.model	/models/Qwen3.8-Flash-Next/Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf
+qwen4exp.draft	/models/Qwen3.8-Flash-Next/mtp-Qwen3.8-Flash-Next-shared-Q8_0.gguf
+qwen4exp.draft-own	/models/Qwen3.8-Flash-Next/mtp-Qwen3.8-Flash-Next-Q8_0.gguf
+qwen4exp.q3.model	/data/moved/models/Qwen3.8-Flash-Next-UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00001-of-00003.gguf
+qwen4exp.mmproj	/models/mmproj/Qwen3.8-Flash-Next-GGUF/mmproj-BF16.gguf
+# qwen4exp-nvfp4.model	(absent: the NVFP4 GGUF was deleted; the HF folder key stays)
+qwen4exp-nvfp4.folder	/data/moved/models/nvidia__Qwen3.8-Flash-Next-NVFP4/fc694b54fb0174e0913e6adf86691ef85a4ead47
+qwen4exp-fp4l.model	/data/moved/models/nvidia__Qwen3.8-Flash-Next-FP4-Local/b9ce18a6887e18c089fdea8509a33e63429a3300
+qwen38d.model	/models/Qwen3.8-27B/Qwen3.8-27B-Q4_K_M.gguf
+qwen38nv.model	/models/fixtures/qwen38nv/twin/qwen38nv-twin.gguf
+qwen35.model	/data/moved/models/clef-27b/clef-27b-Q4_K_M.gguf
+qwen35.flash-q8	/data/moved/models/clef-flash/Cloudflare_clef-flash-Q8_0.gguf
+qwen35.flash-q5	/data/moved/models/clef-flash/Cloudflare_clef-flash-Q5_K_M.gguf
+qwen35.flash-q4	/data/moved/models/clef-flash/clef-flash-Q4_K_M.gguf
+qwen35.head	/data/moved/models/clef-flash/hf/joint_head.safetensors
+qwen35.hf.dir	/data/moved/models/clef-flash/hf
+qwen35.mmproj	/root/models/clef-flash/mmproj-Cloudflare_clef-flash-bf16.gguf
+qwen35.lev	/root/models/lev-4b/lev-Q4_K_M.gguf
+qwen35moe.model	/data/moved/models/Qwen3.6-35B-A3B/Qwen3.6-35B-A3B-Q4_K_M.gguf
+qwen35moe.ud.model	/data/moved/models/Qwen3.6-35B-A3B/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf
+qwen35moe.mmproj	/models/mmproj/lmstudio-community--Qwen3.6-35B-A3B-GGUF/mmproj-Qwen3.6-35B-A3B-BF16.gguf
+qwen35moe.mtp	/data/moved/models/qwen36-hf/unsloth-mtp/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf
+qwen35moe.unjoined	/data/moved/models/qwen36-hf/unsloth/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf
+qwen35moe.dspark	/data/moved/models/Qwen3.6-35B-A3B/dspark-redhat
+qwen35moe.ornith	/models/Ornith-1.5-35B-A3B/Ornith-1.5-35B-Q4_K_M.gguf
+qwen35moe.sage	/models/Sage-A1.5/Sage-A1.5-Q4_K_M.gguf
+qwen3moe.model	/data/moved/models/Qwen3-30B-A3B/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf
+qwen3moe.q8	/data/moved/models/Qwen3-30B-A3B/Qwen3-30B-A3B-Instruct-2507-Q8_0.gguf
+qwen3moe.q6	/data/moved/models/Qwen3-30B-A3B/Qwen3-30B-A3B-Instruct-2507-Q6_K.gguf
+qwen3moe.coder	/data/moved/models/qwen3-coder-hf/Qwen3-Coder-30B-A3B-Instruct-Q5_K_M.gguf
+lfm3.model	/models/LFM3-1.7B-GGUF/LFM3-1.7B-Q4_K_M.gguf
+lfm3.q8	/models/LFM3-1.7B-GGUF/LFM3-1.7B-Q8_0.gguf
+lfm3.bf16	/models/LFM3-1.7B-GGUF/LFM3-1.7B-BF16.gguf
+nemotron_h.model	/models/NVIDIA-Nemotron-3-Nano-4B-GGUF/NVIDIA-Nemotron3-Nano-4B-Q4_K_M.gguf
+nemotron_h_moe.model	/models/nemotron-3.5-bolt/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf
+nemotron_h_moe.mmproj	/models/nemotron-3.5-bolt/mmproj-NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB.gguf
+nemotron_h_moe.lightning.model	/models/Nemotron-3.5-Lightning/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-UD-Q4_K_XL.gguf
+nemotron_h_moe.lightning.nvfp4	/models/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4
+llama.model	/models/Nanbeige4.3-33B/Nanbeige_Nanbeige4.3-33B-Q4_K_M.gguf
+raon1.model	/models/Raon-1-mini-preview/raon-1-mini-preview-Q4_K_M.gguf
+raon1.dflash	/models/Raon-1-mini-preview/dflash-raon-1-mini-preview-Q8_0.gguf
+mimo2.model	/data/moved/models/MiMo-V2.6-Flash-MOPD/MiMo-V2.6-Flash-MOPD-MXFP4-00001-of-00002.gguf
+mimo2.mtp	/data/moved/models/MiMo-V2.6-Flash-MOPD/mtp-MiMo-V2.6-Flash-MOPD-Q8_0.gguf
+mimo2.rl.model	/data/moved/models/MiMo-V2.6-Flash-RL/MiMo-V2.6-Flash-RL-MXFP4-00001-of-00002.gguf
+mimo2.rl.mtp	/data/moved/models/MiMo-V2.6-Flash-RL/mtp-MiMo-V2.6-Flash-RL-MXFP4.gguf
+# mimo2.rl.mtp-q8	(absent: only the MXFP4 head exists (mimo2.rl.mtp))
+minicpmv47.model	/models/MiniCPM-V-4.7-35B-A3B/MiniCPM-V-4_7-35B-A3B-Q4_K_M.gguf
+minicpmv47.mmproj	/models/MiniCPM-V-4.7-35B-A3B/mmproj-model-f16.gguf
+minimax-m3.model	/data/moved/models/MiniMax-M3.1-Flash/model-00001-of-00048.safetensors
+# minimax-m3.m3.model	(absent: MiniMax-M3 UD-IQ4_XS was deleted)
+mistral-large4.model	/home/user/models/Mistral-Large-4-1T-A52B-UD-IQ1_S/Mistral-Large-4-1T-A52B-UD-IQ1_S-00001-of-00006.gguf
+mistral-large4.dspark	/home/user/models/Mistral-Large-4-1T-A52B-UD-IQ1_S/dspark-Mistral-Large-4-1T-A52B-Q8_0.gguf
+mistral-large4.mmproj	/home/user/models/Mistral-Large-4-1T-A52B-UD-IQ1_S/mmproj-BF16.gguf
+mistral-large4.mix256g.model	/data/moved/models/Mistral-Large-4-1T-A52B-Mix-256G/Mistral-Large-4-1T-A52B-Mix-256G-00001-of-00006.gguf
+muse-spark.model	/data/moved/models/Muse-Spark-Open-816B-A42B-UD-IQ2_XXS/Muse-Spark-Open-816B-A42B-UD-IQ2_XXS-00001-of-00006.gguf
+solar-open2.model	/data/moved/models/Solar-Open2-250B-Q4_K_M/Solar-Open2-250B-Q4_K_M-00001-of-00004.gguf
+kimi-k3.model	/data/moved/models/Kimi-K3-UD-IQ1_S/Kimi-K3-UD-IQ1_S-00001-of-00014.gguf
+kimi-k3.k31.model	/models/Kimi-K3.1-Pro-IQ1_S/Kimi-K3.1-Pro-IQ1_S-00001-of-00031.gguf
+kimi-k3.k31.mirror.dir	/mirror/Kimi-K3.1-Pro-IQ1_S
+kimi-k3.k31.hf.dir	/data/models/Kimi-K3.1-Pro
+kimi-k3.k31.work.dir	/models/qhf-work
+flint.model	/models/flint-GGUF/flint-UD-Q4_K_XL.gguf
+gemma-embedding.model	/models/embeddinggemma-300M/embeddinggemma-300M-Q8_0.gguf
+gemma-embedding2.model	/models/embeddinggemma-2/embeddinggemma-2-Q8_0.gguf
+gemma-embedding2.mmproj	/models/embeddinggemma-2/mmproj-embeddinggemma-2-BF16.gguf
+fixtures.root	/models/fixtures
+fixture-variants.root	/models/fixture-variants
+fixtures-mainline.root	/models/fixtures-mainline
+mmproj.root	/models/mmproj
+census-stubs.root	/models/census-stubs-a134239f
+data.root	/root/bloomery-data
