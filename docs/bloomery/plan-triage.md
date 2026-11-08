@@ -91,6 +91,19 @@ waits until no process of the previous server's pid tree exists and its CPU is g
 TERM path releases the host set before the grace runs out, or the grace is sized to the plan's bytes. Until then a
 sitting red on this tag is re-run. Evidence: `~/.cache/bloomery/specs/release-0.3.13/sitting2.log` (the lead's Mac).
 
+## Open: the imatrix gate's `bp` arm: the pass refuses a tier split as hosted (lead, 2026-11-08)
+
+`gate-gpu-kimik3-imatrix` runs the `a` arm alone by default since 997e5eb33 (`just gate-gpu-kimik3-imatrix a,bp` opts the
+`bp` arm in). The arm's new clause `precondition tier [bp]` is green: the card-budget window (`shared/kimi_k3_budget.rs`,
+lifted from the place gate) plans the fixture's experts on both cards and none on the host (stage 12, tier 12, host 0 at
+a budget of 1769193716 B, `--granule 4096`). The walk is red: `crates/gpu/src/arch/kimi_k3/pass.rs` refuses the
+collection with "layer 1 has experts on the host tier" because its check reads `Side::hosted`, which `placed.rs` sets to
+`on_card < n_expert` with `on_card` the stage card's count alone, so a tier layer is "hosted". Two pieces before the arm
+is green: the check tells the tier's experts from the host's (`SlotMap::on_tier`, `on_host`), and the collector is held
+to collect through the tier leg (`BatchLeg`) — the gate's `counts [bp]` clause against llama's file is the proof. Second
+item: with `arms='a'` the recipe still asks for both cards (`BLOOMERY_CARD=both`, solo lane) for a one-card arm — a
+`held` card for the run's length; the recipe should take both only when `bp` is in its arms.
+
 ## Open: Kimi K3's real file needs the placed two-card loader (lead, 2026-11-06)
 
 At 0.3.13 K3 runs end to end on the fixture only (#1178, #1179). The real UD-IQ1_S file (594 GB, 14 shards) is refused
