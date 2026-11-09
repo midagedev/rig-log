@@ -1,0 +1,8 @@
+[Unit]
+Description=Look for Qwen4 weights on Hugging Face; start their download when they appear (rig-log tools/qwen4-watch)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /root/qwen4-watch/watch.py
+StandardOutput=append:/root/qwen4-watch/watch.log
+StandardError=append:/root/qwen4-watch/watch.log

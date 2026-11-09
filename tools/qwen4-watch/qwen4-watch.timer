@@ -1,0 +1,9 @@
+[Unit]
+Description=Every 2 h: the Qwen4 watch
+
+[Timer]
+OnCalendar=*-*-* 00/2:17:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
