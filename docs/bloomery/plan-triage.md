@@ -13,13 +13,29 @@ k, precision and on/off), with its numbers from the release sitting. Decision po
 | **256k context by default** (floor + spill) | every main family serves 262,144 positions with ctx unset | ctxfloor R3 on main; kvhost (`BLOOMERY_KV_HOST`) and GLM-5.3's 262,144 oracle positions landing now (train1109 + kvhost2) | one A6000 sitting (off / floor+spill / all × depths 6, 4096, 65536, 262144), then the default flip for selecting-attention families | small; GLM-5.3's 16,384-a-slot cap and the K3.1 prompt rate are the off cells to state |
 | **LoRA by merge at quantization** | run a fine-tuned variant: `bloomery-quantize --lora` adds (α/r)·B·A to the bf16 weights before quantizing | none (no adapter support; the tree's `q_lora`/`kv_lora` are MLA ranks) | one round: read PEFT safetensors, merge per named tensor, a gate against a reference merge | small; one file per adapter, no hot swap |
 | LoRA at run time | hot swap, per-request adapters (llama-server's `/lora-adapters`) | no common projection owner: each family body calls its gemv | a common projection owner first, then A·x batched per shared input and B·(A·x) folded into the gemv epilogue (bytes +~2 % at r = 16, d = 5120 [유도]; the launch count is the cost) | large; later, on demand |
-| K3.1 speed (two NVMe dirs, xstream/residency/cold split on K3.1, the 3090 beside a node) | 1T-class decode and prompt rate | the plan of 11-07 (k31-speed); pass arena on main | several levers, each priced first | the gain splits over levers; box-bound |
+| K3.1 speed | 1T-class decode (0.3.13: bp 3.0 tok/s, with the Spark node 4.0 at D = 512) | what 0.3.13 scoped is in (DSA past top-k, prompt passes, pass arena); the 11-07 levers are not: the step is serial page-fault latency (305 ms, the drive at 1.46 of 6.4 GB/s) | the pick prefetch after the router (fadvise / explicit reads), k31mirror (WIP branch), residency + xstream on K3.1 (its body refuses residency today), lookup drafts with a k-row verify, the node-side paged tier (~8 tok/s alone [유도]) | each gain predicted, none measured; box- and Spark-bound |
 
 Riding regardless (not headlines): no model path in the tree (nopaths train), the imatrix collector and safetensors
 input of `bloomery-quantize`, `just sweep`.
 
 Lead's recommendation: DSpine as the headline with 256k-by-default beside it; if c_v(8) reads above 1.5, swap them and
 move DSpine to the release after. The c_v rows go here when they land.
+
+## Open: glm256 held off the 11-09 landing — GLM-5.3 at its default ctx 262,144 runs out of card memory (lead, 2026-11-09)
+
+Branch `glm256-hold` (a6670549c) keeps ORACLE_POSITIONS 262,144 and the d256kdsa sets. On the real file the serve gate's
+unset plan reads `ctx=262144 place=bp card_experts=2222 card_free=50668240896`, loads, captures 1,421 nodes, then
+`DriverError(2, "out of memory")` (gate-gpu-glm5next-serve, batch 20261109-102217): the plan's card bytes miss a term
+that grows with ctx (first suspects: the DSA index cache and the pool per position, the graph's own allocations). Also
+`unset_place_follows_the_census` FAIL on the same run. The real `ref_glm5next_d256kdsa` set was never dumped (only the
+fixture one), so gate-gpu-glm-sel's real tier refuses by name. Next: a reading round on the byte terms at 262,144 against
+the measured free bytes, then the real dump (hours [유도]) and the landing.
+
+## Open: gate-gpu-qwen4exp-iqleg times out on the HDD copy (lead, 2026-11-09)
+
+The gate reads `Qwen3.8-Flash-Next-UD-Q3_K_XL`, which lives only on /data (sda, rotational) since the 11-06 move; clause 3
+passes, the engine children then exceed the 900 s bound (rc 124). Not a code regression. Fix: copy the file to /models
+(1.78 TB free) and point the gate there, through the model map once nopaths lands.
 
 ## Open: the 11-06 file move left the refset identities and 20 paths behind (lead, 2026-11-07)
 
