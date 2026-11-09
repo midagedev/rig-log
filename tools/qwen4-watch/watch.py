@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Watch Hugging Face for Qwen4 weights and start their download the moment they appear (the box, one run a tick).
 
-Run by qwen4-watch.timer every 2 h. A repo counts when its id is Qwen/Qwen4… or unsloth/Qwen4… (the official weights and
+Run by qwen4-watch.timer every 2 h. A repo counts when its id is Qwen4… or Qwhen4… (either spelling, a hyphen allowed) under Qwen, Qwhen or unsloth (the official weights and
 the GGUF quants that usually follow within hours). For each repo not seen before it writes a MANIFEST through
 configs/hf-fetch/hf-manifest.py into /models/<repo name>, keeps the rows this box should fetch (below), and starts
 hf-worker.sh under ionice/nice in the background (its log and pid beside the MANIFEST). FOUND lists every repo seen,
@@ -20,8 +20,9 @@ HOME = os.environ.get("QWEN4_WATCH_HOME", "/root/qwen4-watch")
 FETCH = os.environ.get("QWEN4_HF_FETCH", "/root/qwen4-watch/hf-fetch")
 MODELS = os.environ.get("QWEN4_MODELS", "/models")
 FREE_RESERVE = 400 * 10**9   # bytes /models keeps free after every fetch this watcher starts
-ID = re.compile(os.environ.get("QWEN4_ID_RE", r"^(Qwen|unsloth)/Qwen4([-.]|$)"))
-SEARCH = os.environ.get("QWEN4_SEARCH", "Qwen4")
+ID = re.compile(os.environ.get("QWEN4_ID_RE", r"^(Qwen|Qwhen|unsloth)/(Qwen|Qwhen)-?4([-.]|$)"), re.I)
+SEARCH = os.environ.get("QWEN4_SEARCH", "Qwen4,Qwhen")
+AUTHORS = ("Qwen", "Qwhen", "unsloth")
 NO_FETCH = os.environ.get("QWEN4_NO_FETCH") == "1"   # the self-test: the MANIFEST and its cut, no download
 META = re.compile(r"(\.json|\.md|\.txt|\.py|\.jinja|tokenizer\.model|\.tiktoken)$")
 QUANT_SUFFIX = re.compile(r"-(FP8|AWQ|GPTQ|GGUF|MLX|Int4|Int8|NVFP4|MXFP4)", re.I)
@@ -39,10 +40,11 @@ def get(url):
 
 def candidates():
     out = set()
-    for author in ("Qwen", "unsloth"):
-        for m in get(f"https://huggingface.co/api/models?author={author}&search={SEARCH}&limit=200"):
-            if ID.match(m["id"]):
-                out.add(m["id"])
+    for author in AUTHORS:
+        for term in SEARCH.split(","):
+            for m in get(f"https://huggingface.co/api/models?author={author}&search={term}&limit=200"):
+                if ID.match(m["id"]):
+                    out.add(m["id"])
     return sorted(out)
 
 def keep(repo, path, size, total, free):
