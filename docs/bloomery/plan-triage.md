@@ -35,6 +35,26 @@ Read: on the M1 Pro the verify is compute-bound, each 2-row verify costing 1.35 
 device-picks rule turns DSpine off. The headline still waits on the CUDA reading (`bench_verify_rows` on the A6000,
 after the kcover box batch); a Metal win needs a wide verify kernel first, which is a separate round.
 
+CUDA reading (`bench_verify_rows`, the A6000 under the lease, `/models/Qwen3.8-27B/Qwen3.8-27B-Q4_K_M.gguf`, branch
+`dspine` card outcome 19dca8ee1, medians of 5, spread ≤ 0.61 %):
+
+| depth | step ms | c_v(2) | c_v(4) | c_v(8) captured pass | c_v(9) wide | c_v(16) wide |
+|---|---|---|---|---|---|---|
+| 6 | 27.564 | 1.6627 | 2.9974 | 5.6750 | 1.8279 | 1.8367 |
+| 1024 | 27.813 | 1.6617 | 2.9915 | 5.6707 | 1.8493 | 1.8560 |
+| 4096 | 28.205 | 1.6702 | 3.0106 | 5.7106 | 1.9116 | 1.9121 |
+
+Read: the captured pass (k ≤ 8) is out of its 1.0–1.3 band and linear in k (about 0.67 step a row); the wide GEMM arm is
+flat at 1.83–1.91 for 9 to 16 rows. With block 16 on the wide arm, decode ×τ(16)/c_v(16) is prose 2.71/1.84 ≈ ×1.47,
+code 4.45/1.84 ≈ ×2.42, gsm8k 6.17/1.84 ≈ ×3.35 before the drafter's own cost c_d [유도]. Clock-event mask 0x400 at
+five of six witnesses (the card's condition asked 0x0); the ratios are interleaved in one window.
+
+**Decision (lead, 2026-11-09, by the rule above):** c_v(8) reads above 1.5 on both devices, so **256k context by
+default is the 0.3.14 headline** (its A6000 sitting next) and DSpine moves to the release after. DSpine's next rounds,
+in order: (1) read which of Body35's `enqueue_rows` launches repeat per row and make the k ≤ 8 pass read the weights
+once (target c_v(8) ≤ 1.3); (2) the drafter's own cost c_d on the A6000; (3) the engine's block-16 path on the wide
+arm. Metal needs a wide verify kernel before any of it pays there.
+
 ## Open: glm256 held off the 11-09 landing — GLM-5.3 at its default ctx 262,144 runs out of card memory (lead, 2026-11-09)
 
 Branch `glm256-hold` (a6670549c) keeps ORACLE_POSITIONS 262,144 and the d256kdsa sets. On the real file the serve gate's
