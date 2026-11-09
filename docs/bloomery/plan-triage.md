@@ -21,6 +21,20 @@ input of `bloomery-quantize`, `just sweep`.
 Lead's recommendation: DSpine as the headline with 256k-by-default beside it; if c_v(8) reads above 1.5, swap them and
 move DSpine to the release after. The c_v rows go here when they land.
 
+c_v readings (`metal_verify_time`, branch `dspine` ac4e962d6, the second Mac, 2026-11-09):
+
+| Device | Model | depth | c_v(2) | c_v(4) | c_v(8) | c_v(16) pass / chain | step ms (k = 1) |
+|---|---|---|---|---|---|---|---|
+| Apple M1 Pro, macOS 27.0.1 | Qwen3.8-27B-4bit (MLX) | 6 | 1.350 | 2.701 | 5.409 | 9.079 / 10.840 | 91.046 |
+| Apple M1 Pro, macOS 27.0.1 | Qwen3.8-27B-4bit (MLX) | 1024 | 1.337 | 2.670 | 5.333 | 8.894 / 10.714 | 93.842 |
+| Apple M1 Pro, macOS 27.0.1 | Qwen3.8-27B-4bit (MLX) | 4096 | 1.355 | 2.703 | 5.445 | 9.107 / 10.997 | 94.403 |
+
+Medians of 5; k ≤ 8 is `via=chain` (k/2 verifies of 2 rows: Metal has no wider verify), k = 16 also one GEMM pass.
+Read: on the M1 Pro the verify is compute-bound, each 2-row verify costing 1.35 steps, so DSpine loses there: prose
+τ(8)/c_v(8) = 2.65 / 5.33 ≈ ×0.50, code 4.04 / 5.33 ≈ ×0.76, before the draft's own cost [유도]. On this device the
+device-picks rule turns DSpine off. The headline still waits on the CUDA reading (`bench_verify_rows` on the A6000,
+after the kcover box batch); a Metal win needs a wide verify kernel first, which is a separate round.
+
 ## Open: glm256 held off the 11-09 landing — GLM-5.3 at its default ctx 262,144 runs out of card memory (lead, 2026-11-09)
 
 Branch `glm256-hold` (a6670549c) keeps ORACLE_POSITIONS 262,144 and the d256kdsa sets. On the real file the serve gate's

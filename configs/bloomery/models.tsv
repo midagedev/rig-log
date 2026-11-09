@@ -5,23 +5,50 @@
 # the K3.1 two-drive split, /home/user/models Mistral-Large-4), /data = the HDD (/data/moved/models: moved off NVMe,
 # never symlinked back; /data/models: HF checkpoints).
 # Installed as /root/bloomery-models.tsv; ~/bloomery-env.sh exports BLOOMERY_MODELS.
+# Every row is on NVMe (tools/bloomery-models-check.py refuses one on /data) except the keys an hdd-ok line names:
+# hdd-ok deepseek41.engram-upstream.dir: the source `just fixture-engram-upstream` cuts its fixture variant from, once; no gate reads it (2026-11-09)
+# hdd-ok qwen35.model: an `other` family: landings and its rotation run its fixture; this real file is read only by a real-tier gate its own change owes (kcover R5, 2026-11-09)
+# hdd-ok qwen35.flash-q8: an `other` family: landings and its rotation run its fixture; this real file is read only by a real-tier gate its own change owes (kcover R5, 2026-11-09)
+# hdd-ok qwen35.flash-q5: an `other` family: landings and its rotation run its fixture; this real file is read only by a real-tier gate its own change owes (kcover R5, 2026-11-09)
+# hdd-ok qwen35.flash-q4: an `other` family: landings and its rotation run its fixture; this real file is read only by a real-tier gate its own change owes (kcover R5, 2026-11-09)
+# hdd-ok qwen35.head: an `other` family: landings and its rotation run its fixture; this real file is read only by a real-tier gate its own change owes (kcover R5, 2026-11-09)
+# hdd-ok qwen35.hf.dir: an `other` family: landings and its rotation run its fixture; this real file is read only by a real-tier gate its own change owes (kcover R5, 2026-11-09)
+# hdd-ok qwen35moe.model: an `other` family: landings and its rotation run its fixture; this real file is read only by a real-tier gate its own change owes (kcover R5, 2026-11-09)
+# hdd-ok qwen35moe.ud.model: an `other` family: landings and its rotation run its fixture; this real file is read only by a real-tier gate its own change owes (kcover R5, 2026-11-09)
+# hdd-ok qwen35moe.mtp: an `other` family: landings and its rotation run its fixture; this real file is read only by a real-tier gate its own change owes (kcover R5, 2026-11-09)
+# hdd-ok qwen35moe.unjoined: an `other` family: landings and its rotation run its fixture; this real file is read only by a real-tier gate its own change owes (kcover R5, 2026-11-09)
+# hdd-ok qwen35moe.dspark: an `other` family: landings and its rotation run its fixture; this real file is read only by a real-tier gate its own change owes (kcover R5, 2026-11-09)
+# hdd-ok qwen3moe.model: an `other` family: landings and its rotation run its fixture; this real file is read only by a real-tier gate its own change owes (kcover R5, 2026-11-09)
+# hdd-ok qwen3moe.q8: an `other` family: landings and its rotation run its fixture; this real file is read only by a real-tier gate its own change owes (kcover R5, 2026-11-09)
+# hdd-ok qwen3moe.q6: an `other` family: landings and its rotation run its fixture; this real file is read only by a real-tier gate its own change owes (kcover R5, 2026-11-09)
+# hdd-ok qwen3moe.coder: an `other` family: landings and its rotation run its fixture; this real file is read only by a real-tier gate its own change owes (kcover R5, 2026-11-09)
+# hdd-ok mimo2.model: an `other` family: landings and its rotation run its fixture; this real file is read only by a real-tier gate its own change owes (kcover R5, 2026-11-09)
+# hdd-ok mimo2.mtp: an `other` family: landings and its rotation run its fixture; this real file is read only by a real-tier gate its own change owes (kcover R5, 2026-11-09)
+# hdd-ok mimo2.rl.model: an `other` family: landings and its rotation run its fixture; this real file is read only by a real-tier gate its own change owes (kcover R5, 2026-11-09)
+# hdd-ok mimo2.rl.mtp: an `other` family: landings and its rotation run its fixture; this real file is read only by a real-tier gate its own change owes (kcover R5, 2026-11-09)
+# hdd-ok minimax-m3.model: an `other` family: landings and its rotation run its fixture; this real file is read only by a real-tier gate its own change owes (kcover R5, 2026-11-09)
+# hdd-ok mistral-large4.mix256g.model: an `other` family: landings and its rotation run its fixture; this real file is read only by a real-tier gate its own change owes (kcover R5, 2026-11-09)
+# hdd-ok muse-spark.model: an `other` family: landings and its rotation run its fixture; this real file is read only by a real-tier gate its own change owes (kcover R5, 2026-11-09)
+# hdd-ok solar-open2.model: an `other` family: landings and its rotation run its fixture; this real file is read only by a real-tier gate its own change owes (kcover R5, 2026-11-09)
+# hdd-ok kimi-k3.model: an `other` family: landings and its rotation run its fixture; this real file is read only by a real-tier gate its own change owes (kcover R5, 2026-11-09)
+# hdd-ok kimi-k3.k31.hf.dir: the released safetensors the quantizer reads, once per requant; no gate reads it (2026-11-09)
 deepseek2.model	/models/small/DeepSeek-V2-Lite-Chat.Q3_K_M.gguf
 deepseek41.model	/models/DeepSeek-V4.1-Flash-1017-Q3_K_M/DeepSeek-V4.1-Flash-1017-Q3_K_M-00001-of-00010.gguf
 deepseek41.draft	/models/DeepSeek-V4.1-Flash-DSpark/DeepSeek-V4.1-Flash-Fp8-128x742M-MXFP4_MOE.tl37.gguf
 deepseek41.fp8.dir	/models/DeepSeek-V4.1-Flash-fp8
 deepseek41.engram-upstream.dir	/data/moved/models/DeepSeek-V4.1-Flash-1017-UD-IQ3_XXS
 glm5next.model	/models/GLM-5.3-Flash-UD-Q4_K_XL/GLM-5.3-Flash-UD-Q4_K_XL-00001-of-00006.gguf
-glm5next.q2.model	/data/moved/models/GLM-5.3-Flash-UD-Q2_K_XL/GLM-5.3-Flash-UD-Q2_K_XL-00001-of-00004.gguf
+glm5next.q2.model	/models/GLM-5.3-Flash-UD-Q2_K_XL/GLM-5.3-Flash-UD-Q2_K_XL-00001-of-00004.gguf
 glm5next.mmproj	/models/mmproj/unsloth--GLM-5.3-Flash-GGUF/mmproj-BF16.gguf
 # glm5next.exl3.dir	(absent: no exl3 folder on any drive)
 qwen4exp.model	/models/Qwen3.8-Flash-Next/Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf
 qwen4exp.draft	/models/Qwen3.8-Flash-Next/mtp-Qwen3.8-Flash-Next-shared-Q8_0.gguf
 qwen4exp.draft-own	/models/Qwen3.8-Flash-Next/mtp-Qwen3.8-Flash-Next-Q8_0.gguf
-qwen4exp.q3.model	/data/moved/models/Qwen3.8-Flash-Next-UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00001-of-00003.gguf
+qwen4exp.q3.model	/models/Qwen3.8-Flash-Next-UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00001-of-00003.gguf
 qwen4exp.mmproj	/models/mmproj/Qwen3.8-Flash-Next-GGUF/mmproj-BF16.gguf
 # qwen4exp-nvfp4.model	(absent: the NVFP4 GGUF was deleted; the HF folder key stays)
-qwen4exp-nvfp4.folder	/data/moved/models/nvidia__Qwen3.8-Flash-Next-NVFP4/fc694b54fb0174e0913e6adf86691ef85a4ead47
-qwen4exp-fp4l.model	/data/moved/models/nvidia__Qwen3.8-Flash-Next-FP4-Local/b9ce18a6887e18c089fdea8509a33e63429a3300
+qwen4exp-nvfp4.folder	/models/nvidia__Qwen3.8-Flash-Next-NVFP4/fc694b54fb0174e0913e6adf86691ef85a4ead47
+qwen4exp-fp4l.model	/models/nvidia__Qwen3.8-Flash-Next-FP4-Local/b9ce18a6887e18c089fdea8509a33e63429a3300
 qwen38d.model	/models/Qwen3.8-27B/Qwen3.8-27B-Q4_K_M.gguf
 qwen38nv.model	/models/fixtures/qwen38nv/twin/qwen38nv-twin.gguf
 qwen35.model	/data/moved/models/clef-27b/clef-27b-Q4_K_M.gguf
