@@ -1,0 +1,3 @@
+# /etc/exports.d/spark-data.exports on the box: the box's /data (sda, 17 TB HDD) to the Spark only, over the direct
+# point-to-point link (box enp37s0f1 10.41.0.1/30 <-> Spark enP7s7 10.41.0.2/30). root on the Spark is root here.
+/data 10.41.0.2(rw,sync,no_subtree_check,no_root_squash)
