@@ -2,6 +2,25 @@
 
 여기는 **아직 할 일만** 있다. 2026-09-25 새벽에 다시 썼다 — 그 전 판(라운드 보고 절 스무 개와 09-23 GPU 선 목록의 원문, 155 KB)은 [`plan-ledger.md`](plan-ledger.md) 「plan-triage.md 2026-09-25 이전 판」에 원문 그대로 있고, 항목의 근거·수치·기제가 필요하면 거기서 찾는다. 항목은 받을 라운드별로 한 줄씩이고 크기는 XS·S·M·L이다. 착륙한 줄은 지운다(원문은 장부, 결과는 커밋 메시지와 rig-log). 수치는 `[유도]`가 아니면 실측이다.
 
+## Release 0.3.14 — headline undecided (lead, 2026-11-09; the user: "다음 릴리즈 피쳐로 뭘 할지 고민되네")
+
+The rule a headline meets: a visible gain in one line, on others' machines too (portable by default: the device picks
+k, precision and on/off), with its numbers from the release sitting. Decision point: the two c_v readings below.
+
+| Candidate | User-visible gain | State | What is left | Risk |
+|---|---|---|---|---|
+| **DSpine block drafter** (Qwen3.8-27B dense; CUDA and Metal) | decode ×τ/(c_v+c_d): τ(8) prose 2.65, code 4.04, gsm8k 5.11 (block 16: 2.71 / 4.45 / 6.17) [offline sim, our Q4_K_M taps, 20 prompts × 512, greedy]; at c_v(8) = 1.0–1.3 (the card's prediction) prose ≈ ×2, code ≈ ×3 [유도] | branch `dspine`: taps, the simulator (any machine), exact-k, Q8_0 drafter (τ within 0.5 %, so ship Q8_0), the seeded width chooser (#1151's incumbent rule), `bench_verify_rows`, `metal_verify_time` | c_v(k) on a card and on the second Mac (today); R1 reader + pairing check; R2–R7 (engine path, chooser wiring, serve) | c_v(8) > 1.5 drops the gain to ×1.5–2 [유도]; the chooser turns it off where it loses |
+| **256k context by default** (floor + spill) | every main family serves 262,144 positions with ctx unset | ctxfloor R3 on main; kvhost (`BLOOMERY_KV_HOST`) and GLM-5.3's 262,144 oracle positions landing now (train1109 + kvhost2) | one A6000 sitting (off / floor+spill / all × depths 6, 4096, 65536, 262144), then the default flip for selecting-attention families | small; GLM-5.3's 16,384-a-slot cap and the K3.1 prompt rate are the off cells to state |
+| **LoRA by merge at quantization** | run a fine-tuned variant: `bloomery-quantize --lora` adds (α/r)·B·A to the bf16 weights before quantizing | none (no adapter support; the tree's `q_lora`/`kv_lora` are MLA ranks) | one round: read PEFT safetensors, merge per named tensor, a gate against a reference merge | small; one file per adapter, no hot swap |
+| LoRA at run time | hot swap, per-request adapters (llama-server's `/lora-adapters`) | no common projection owner: each family body calls its gemv | a common projection owner first, then A·x batched per shared input and B·(A·x) folded into the gemv epilogue (bytes +~2 % at r = 16, d = 5120 [유도]; the launch count is the cost) | large; later, on demand |
+| K3.1 speed (two NVMe dirs, xstream/residency/cold split on K3.1, the 3090 beside a node) | 1T-class decode and prompt rate | the plan of 11-07 (k31-speed); pass arena on main | several levers, each priced first | the gain splits over levers; box-bound |
+
+Riding regardless (not headlines): no model path in the tree (nopaths train), the imatrix collector and safetensors
+input of `bloomery-quantize`, `just sweep`.
+
+Lead's recommendation: DSpine as the headline with 256k-by-default beside it; if c_v(8) reads above 1.5, swap them and
+move DSpine to the release after. The c_v rows go here when they land.
+
 ## Open: the 11-06 file move left the refset identities and 20 paths behind (lead, 2026-11-07)
 
 - When nvme0 filled on 11-06, GLM-5.3-Flash-UD-Q4_K_XL, Muse-Spark-Open UD-IQ2_XXS, the clef files, the fixture variants
