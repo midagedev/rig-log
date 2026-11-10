@@ -9,7 +9,7 @@ serves is copied to its own `/models`, not read through this mount.
 ## Taildrive and the tailnet link (the box's /data for every tailnet device)
 
 - Taildrive: `tailscale drive share data /data` on the box (the tailnet policy gives every member `drive:share` and
-  `drive:access` and an rw grant on every share). In Finder: Go → Connect to Server, `http://100.100.100.100:8080`, Guest;
+  `drive:access` and an rw grant on every share). In Finder: Go → Connect to Server, Tailscale's Quad100 address on port 8080 (Taildrive's WebDAV), Guest;
   the share is at `<tailnet>/ws/data`. It serves as root, so a file written there is root's.
 - Read-only link: `tailscale serve --bg --set-path /data /data` on the box (beside netdata on `/` and :8443), so
   `https://ws.<tailnet>/data/` lists and downloads in a browser. Off: `tailscale serve --set-path /data off`.
