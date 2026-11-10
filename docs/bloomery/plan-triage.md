@@ -55,6 +55,36 @@ in order: (1) read which of Body35's `enqueue_rows` launches repeat per row and 
 once (target c_v(8) ≤ 1.3); (2) the drafter's own cost c_d on the A6000; (3) the engine's block-16 path on the wide
 arm. Metal needs a wide verify kernel before any of it pays there.
 
+## Open: what train2 (card-byte invariant) left (lead, 2026-11-10)
+
+train2 (main e64353b3f, #1191) landed the made ≤ planned invariant with terms for pass heads, graphs (Qwen3.8 seat only), the ring floor and the
+prompt batch parts. Left, each a small round:
+- **Graphs term for the other seats.** glm, ds41, qwen3, mistrallarge4, minimaxm3 and mimo2 capture after their card
+  reading with no term (`placement::graphs::CaptureRule`, one rule per seat like `shared/qwen38_captures.rs`).
+- **`GRAPH_NODE_BYTES` sizes a pass at 8 driver steps, the box measured 7 at most.** A two-slot MTP load gives up about
+  190 card experts [유도]. Counting nodes a layer exactly would tighten it.
+- **Qwen3.5/3.6 ring floor is 0.** Needs a route trace on the box and its constants.
+- **`plan_ring_last` does not refuse a half under `MIN_HALF`.** Four test fixtures use floors under 8; rescale them first.
+- **`Plan::violations` does not count the ring.**
+- **`--plan` prints no per-term card bytes.** So V4.1 plan (a)'s −53 card experts (892 MB) is not attributed; the
+  likely cause is the parts rounded per buffer at the granule [유도].
+- **The planner's granule model and the fill's page model differ** (90 vs 88 a layer on the fixture); the gate's twin
+  works around it with `BLOOMERY_CARD_EXPERTS_CAP`.
+- **Card rooms are unbudgeted** (`crates/gpu/src/room/mod.rs` `new_page`, `elastic.rs` `with_room`).
+- **deepseek41 and kimi_k3 have no `fill_held`**, so a K/V fit past the margin has no fill to take back there.
+- The fill_first test's provenance comment is stale (read under the old `free_under`).
+- **A drafted tier plan reserves the stage card's pass heads on every card** (`plan_mtp_with_rows`, planner.rs:395,455),
+  so a 3090 tier gives up 2 experts (7,236 → 7,234); `place.rs` ~1371 "the tier plans as without the draft" is no
+  longer true. Conservative, never past the plan.
+- **Gates that pass `plan_levers(mtp.card_bytes(..))` as a drafted load's extra** miss the heads and graphs terms the
+  same way clause (d) did (gate_qwen4exp_mtp.rs:2878,4036,4110,5010,5852,7217,7448, gate_qwen38_serve.rs:6118,
+  generate_qwen3moe.rs:1452,3164); green today, wrong if a count is ever pinned there.
+- qwen4exp_meta's 16 drafted rows stay literals (PIN 2026-11-10); a spread twin in `placement` would let the Mac derive them.
+- **The review bot could not approve #1191** (2026-11-11): GLM ran out of turns on the 40k-line diff, the Claude reviewer's
+  API key had no credit, and Codex's login token had expired (refresh_token_reused). The user chose a maintainer fast-forward of main.
+  The bot needs the credit and `CODEX_AUTH_JSON` renewed before the next landing.
+- `.mutants/kcover26-mimo2-no-window-layer.patch` no longer applies to `crates/model/src/arch/mimo2/fixture.rs`.
+
 ## Open: glm256 held off the 11-09 landing — GLM-5.3 at its default ctx 262,144 runs out of card memory (lead, 2026-11-09)
 
 Branch `glm256-hold` (a6670549c) keeps ORACLE_POSITIONS 262,144 and the d256kdsa sets. On the real file the serve gate's
