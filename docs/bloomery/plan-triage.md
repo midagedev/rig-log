@@ -79,6 +79,17 @@ arm. Metal needs a wide verify kernel before any of it pays there.
   (`Names::mamba`/`attn` for the MoE, `mamba_of`/`attn_of` for Nemotron-H); `crates/chain/src/hybrid/**` is owned
   only by the nemotron_h family glob and by no `tools/owners.tsv` row. The node tier's launch protocol, unreachable
   since #1177, is round `tierdead`. Round `census` looks for other seams of the same kind (report only).
+- **Census of transitional seams (2026-11-11, round census, report `~/.cache/bloomery/specs/census/report.md`).**
+  Verified by the lead against the code. In round `seams`: `crates/gpu/src/model.rs` `hosted_hybrid` has no caller
+  (its `_tiered`/`_at` siblings carry all six); `crates/chain/src/arch/qwen3moe/plan.rs` `head64_gqa` is test-only;
+  `crates/gpu/src/arch/{rows_kit,routed_ffn,step_order}.rs` and `crates/gpu/src/token_major.rs` are shared by
+  several families and named by no owners/families/gate-paths row. Open after `nemomoe` lands (its files overlap):
+  the prompt pass-walk `prefill`/`prefill_with` is kept three times line for line
+  (`crates/gpu/src/arch/{nemotron_h,nemotron_h_moe}/prefill.rs`, `musespark/body/prefill.rs`) though `owners.tsv`
+  names `prompt_walks` common: one helper on `GpuModel<B>`, musespark's streaming wrapper family-side (a round).
+  Ask first: `crates/chain/src/residual.rs` `sandwich_add` and `ResidualKind::Sandwich` (LFM3 C1's host twin) have
+  no consumer; delete only if no planned LFM3 host leg needs them. Not cleared: `crates/runtime/src/swaprule.rs`
+  test-only methods (maybe the elastic series' staged API).
 - **A round's "load flake" is a hypothesis.** Both of #1177's flakes were real defects. Before a landing, rerun a
   claimed flake alone on a quiet box.
 
