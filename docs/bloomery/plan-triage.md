@@ -67,6 +67,12 @@ arm. Metal needs a wide verify kernel before any of it pays there.
   the PR claims no speed. `send_enqueue` waits for the previous reply before each send (a possible round trip per
   sent layer): price it in that A/B. `TierNode::launch`/`capture` and the server's Launch/Capture arms are now
   unreachable: delete them in a cleanup round.
+- **`weekly-gpu-ds41-flowcounts` was red on main from 518c109d8 (11-04) to 2eb8899f7** (bisected on the box). The
+  engine gave layers 0-1 card experts and the flow model still placed none there. Fixed at 2eb8899f7
+  (`card_first_layer_tree`, `SHADOW_Q5_CHUNK`). Left: `tools/flow/routes-idprefix.tsv` still holds plan (a)'s
+  placement for prose/code/korean (a `routes.py build` refresh), the imma floor prices layers 0-1's down at
+  `expert_down_bytes` (~9 % low), and `n_card_total` (2668) wants a new anchored row before a CW timing row is scored.
+  A weekly that does not run for a week hides a red: `just rotation-due` names it.
 - **A round's "load flake" is a hypothesis.** Both of #1177's flakes were real defects. Before a landing, rerun a
   claimed flake alone on a quiet box.
 
