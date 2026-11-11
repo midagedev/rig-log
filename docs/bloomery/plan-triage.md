@@ -87,8 +87,9 @@ arm. Metal needs a wide verify kernel before any of it pays there.
   the prompt pass-walk `prefill`/`prefill_with` is kept three times line for line
   (`crates/gpu/src/arch/{nemotron_h,nemotron_h_moe}/prefill.rs`, `musespark/body/prefill.rs`) though `owners.tsv`
   names `prompt_walks` common: one helper on `GpuModel<B>`, musespark's streaming wrapper family-side (a round).
-  Ask first: `crates/chain/src/residual.rs` `sandwich_add` and `ResidualKind::Sandwich` (LFM3 C1's host twin) have
-  no consumer; delete only if no planned LFM3 host leg needs them. Not cleared: `crates/runtime/src/swaprule.rs`
+  Decided (the user did not know of a need): `crates/chain/src/residual.rs` `sandwich_add` goes in `seams` (no
+  caller and no gate reads it, unlike its siblings `short_conv` and `out_gate`); `ResidualKind::Sandwich` stays (LFM3's
+  layer kind, an architecture fact). Not cleared: `crates/runtime/src/swaprule.rs`
   test-only methods (maybe the elastic series' staged API).
 - **A round's "load flake" is a hypothesis.** Both of #1177's flakes were real defects. Before a landing, rerun a
   claimed flake alone on a quiet box.
