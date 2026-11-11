@@ -55,17 +55,18 @@ in order: (1) read which of Body35's `enqueue_rows` launches repeat per row and 
 once (target c_v(8) ≤ 1.3); (2) the drafter's own cost c_d on the A6000; (3) the engine's block-16 path on the wide
 arm. Metal needs a wide verify kernel before any of it pays there.
 
-## Open: PR review 2026-11-11 (#1176 landed, #1177 held) (lead, 2026-11-11)
+## Open: PR review 2026-11-11 (#1176 and #1177 landed) (lead, 2026-11-11)
 
 - **`gate-model-host` is flaky on main.** `crates/model/tests/alloc.rs`: one of the zero-allocator tests (a different
   one each run) counts 1 allocator call over 8 calls. It failed 1 of 2 runs alone on main at e64353b3f. The counter is
   process-wide, so another test thread's allocation lands in the window. Fix the counter's scope (per thread, or every
   alloc test under `ONE_AT_A_TIME`), not the bound.
-- **#1177 (nodeskip) is held** on `gate-gpu-qwen38-nodes`: three loss clauses assume the launch protocol. Under
-  per-layer enqueue frames, node 1 cannot tell a stalled node 0 mid-step from an idle one. Round `nodeskip-loss`
-  (spec `~/.cache/bloomery/specs/nodeskip/loss-spec.md`) chooses the rule and ports the clauses. Review found and fixed
-  on the branch: the one-pick mutant left in `send_layer`, a node hook that failed every load without a tier, and a
-  refusal test whose parked stream hung `gate-gpu-lib`. The round had read each one as a load flake.
+- **#1177 (nodeskip) landed** at main bde0145ef. Node 0 ends each pass that sent the node a layer with one `End`
+  frame, and node 1 loses node 0 only while a pass is open. Fixture batch 150/150 green; the old-rule and one-pick
+  mutants red. Left: the Spark A/B (`just depth-gpu-ds41` at the #1175 node arm, with a prediction card) is not run, so
+  the PR claims no speed. `send_enqueue` waits for the previous reply before each send (a possible round trip per
+  sent layer): price it in that A/B. `TierNode::launch`/`capture` and the server's Launch/Capture arms are now
+  unreachable: delete them in a cleanup round.
 - **A round's "load flake" is a hypothesis.** Both of #1177's flakes were real defects. Before a landing, rerun a
   claimed flake alone on a quiet box.
 
