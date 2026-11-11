@@ -73,6 +73,12 @@ arm. Metal needs a wide verify kernel before any of it pays there.
   placement for prose/code/korean (a `routes.py build` refresh), the imma floor prices layers 0-1's down at
   `expert_down_bytes` (~9 % low), and `n_card_total` (2668) wants a new anchored row before a CW timing row is scored.
   A weekly that does not run for a week hides a red: `just rotation-due` names it.
+- **#1192 (nemolift) landed** at main 8d247478e: Nemotron-H's walk, plans and reader live in `crates/chain`
+  (`chain::hybrid`). It left three seams, all in round `nemomoe` (spec `~/.cache/bloomery/specs/nemomoe/task.md`):
+  Nemotron-H-MoE still orders its own layers; `crates/gpu/src/arch/hybrid.rs` holds two name resolvers for one job
+  (`Names::mamba`/`attn` for the MoE, `mamba_of`/`attn_of` for Nemotron-H); `crates/chain/src/hybrid/**` is owned
+  only by the nemotron_h family glob and by no `tools/owners.tsv` row. The node tier's launch protocol, unreachable
+  since #1177, is round `tierdead`. Round `census` looks for other seams of the same kind (report only).
 - **A round's "load flake" is a hypothesis.** Both of #1177's flakes were real defects. Before a landing, rerun a
   claimed flake alone on a quiet box.
 
