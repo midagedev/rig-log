@@ -73,24 +73,23 @@ arm. Metal needs a wide verify kernel before any of it pays there.
   placement for prose/code/korean (a `routes.py build` refresh), the imma floor prices layers 0-1's down at
   `expert_down_bytes` (~9 % low), and `n_card_total` (2668) wants a new anchored row before a CW timing row is scored.
   A weekly that does not run for a week hides a red: `just rotation-due` names it.
-- **#1192 (nemolift) landed** at main 8d247478e: Nemotron-H's walk, plans and reader live in `crates/chain`
-  (`chain::hybrid`). It left three seams, all in round `nemomoe` (spec `~/.cache/bloomery/specs/nemomoe/task.md`):
-  Nemotron-H-MoE still orders its own layers; `crates/gpu/src/arch/hybrid.rs` holds two name resolvers for one job
-  (`Names::mamba`/`attn` for the MoE, `mamba_of`/`attn_of` for Nemotron-H); `crates/chain/src/hybrid/**` is owned
-  only by the nemotron_h family glob and by no `tools/owners.tsv` row. The node tier's launch protocol, unreachable
-  since #1177, is round `tierdead`. Round `census` looks for other seams of the same kind (report only).
-- **Census of transitional seams (2026-11-11, round census, report `~/.cache/bloomery/specs/census/report.md`).**
-  Verified by the lead against the code. In round `seams`: `crates/gpu/src/model.rs` `hosted_hybrid` has no caller
-  (its `_tiered`/`_at` siblings carry all six); `crates/chain/src/arch/qwen3moe/plan.rs` `head64_gqa` is test-only;
-  `crates/gpu/src/arch/{rows_kit,routed_ffn,step_order}.rs` and `crates/gpu/src/token_major.rs` are shared by
-  several families and named by no owners/families/gate-paths row. Open after `nemomoe` lands (its files overlap):
-  the prompt pass-walk `prefill`/`prefill_with` is kept three times line for line
-  (`crates/gpu/src/arch/{nemotron_h,nemotron_h_moe}/prefill.rs`, `musespark/body/prefill.rs`) though `owners.tsv`
-  names `prompt_walks` common: one helper on `GpuModel<B>`, musespark's streaming wrapper family-side (a round).
-  Decided (the user did not know of a need): `crates/chain/src/residual.rs` `sandwich_add` goes in `seams` (no
-  caller and no gate reads it, unlike its siblings `short_conv` and `out_gate`); `ResidualKind::Sandwich` stays (LFM3's
-  layer kind, an architecture fact). Not cleared: `crates/runtime/src/swaprule.rs`
-  test-only methods (maybe the elastic series' staged API).
+- **#1193 landed** at main 4ffb965b4 (rounds nemomoe, tierdead, seams, and the review's trunk lift): Nemotron-H-MoE
+  runs `chain::hybrid`'s walk with one name resolver; both Nemotron-H programs share `hybrid::Trunk`; the node tier's
+  launch protocol is gone (tags 4 and 5 refused by name); `hosted_hybrid`, `head64_gqa` (now test-only) and
+  `sandwich_add` are gone; `tools/owners.tsv` names `chain_hybrid`, `rows_kit`, `ffn_situ`, `token_major` and
+  `fault_step_order`. Left open:
+  - the prompt pass-walk `prefill`/`prefill_with` is kept three times line for line
+    (`crates/gpu/src/arch/{nemotron_h,nemotron_h_moe}/prefill.rs`, `musespark/body/prefill.rs`) though `owners.tsv`
+    names `prompt_walks` common: one helper on `GpuModel<B>`, musespark's streaming wrapper family-side (a round,
+    now unblocked);
+  - the rounds' small reports: `enqueue_eager`'s `TierSide::Node` arm is unreachable; `run_block`'s doc sits on the
+    wrong item; the Nemotron-H-MoE load reads `Hparams` twice; `tools/gate-class.tsv` names none of the four new
+    owners (the check does not require it);
+  - not cleared: `crates/runtime/src/swaprule.rs` test-only methods (maybe the elastic series' staged API).
+- **A fixture batch on a shared box is not evidence while another job holds the cards.** #1193's first union batch had
+  20 reds: rc 75 lock waits, out-of-memory and refused loads, all from another user's job on both cards, and one
+  plan that moved 74 experts to the host because the card's free bytes shrank. All were green on an idle box. Read
+  `nvidia-smi --query-compute-apps` before reading a red.
 - **A round's "load flake" is a hypothesis.** Both of #1177's flakes were real defects. Before a landing, rerun a
   claimed flake alone on a quiet box.
 
