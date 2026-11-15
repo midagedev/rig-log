@@ -55,6 +55,20 @@ in order: (1) read which of Body35's `enqueue_rows` launches repeat per row and 
 once (target c_v(8) ≤ 1.3); (2) the drafter's own cost c_d on the A6000; (3) the engine's block-16 path on the wide
 arm. Metal needs a wide verify kernel before any of it pays there.
 
+## Landed 2026-11-15: the V4.1 prompt batch's unjoined Q3_K arms, the launch-queue default (lead)
+
+- **q3kgroups (bloomery 57fdf551a).** 1dd382876 (the batch reads every attention format) ran a Q3_K q_b with no indexer
+  query and the Q3_K kv of a ratio-1 source through the step's m-column launcher a chunk at a time: +124 route entries a
+  full layer-batch on the default 1017 Q3_K_M, which `weekly-gpu-ds41-flowcounts` caught (route +124 on 30 layers,
+  +63/+32/+1 on the tail). Back on one column-group launch a sub-block (bit for bit by the launcher's contract). Same
+  lease, A6000, place a, P = 4096 prose, both arms at `CUDA_SCALE_LAUNCH_QUEUES=2x`: pp +0.43 % +- 0.21 % over the 6 warm
+  rounds (card `docs/cards/q3kgroups.card`, predicted +0.4..+1.0), decode unmoved. flowcounts green on main 0bfa53cbf.
+- **lqdefault (a912e9b3e).** `bloomery_levers::at_main` sets `CUDA_SCALE_LAUNCH_QUEUES=2x` when unset (written only
+  while the process has one thread, Linux), keeps NVIDIA's documented values, refuses any other by name. Measured
+  earlier the same day: pp +1.55 % (card `enqthread-lq2.card`).
+- **enqthread (4ba7a02d1).** The shadow copies the q8_1 planes only on the tile path: 2 entries fewer a card chunk.
+- The train's fixture batch: 151 gates green, none skipped, on the committed tree.
+
 ## Open: PR review 2026-11-11 (#1176 and #1177 landed) (lead, 2026-11-11)
 
 - **`gate-model-host` is flaky on main.** `crates/model/tests/alloc.rs`: one of the zero-allocator tests (a different
@@ -161,7 +175,14 @@ FAIL at 1.61/layer 34; b17e44a69, 35a7e8e52 and main f83a69dea FAIL. The fixture
 landing batches never saw it: a fixture gap to close by clause name (the real-tier prompt-step clause at 1024 needs a
 fixture twin that reads the same layer). juliankang4 asked on #1167; the band stays.
 
-## Open: two lanes of one gate-batch rsync into one remote dir (lead, 2026-11-05)
+## Closed 2026-11-15: two lanes of one gate-batch rsync into one remote dir (lead, 2026-11-05)
+
+**Closed by bloomery db0c502a3 (2026-11-15).** It recurred in the q3kgroups train's batch (`gate-qdot rc=1 0s`, the same
+`mv: cannot stat .sync-id.new`) after the tree was edited mid-batch. A direct box.sh call whose sync fails now reads the
+remote `.sync-id` once and goes on when it is this tree's (another call of the same tree put it there), as the queued
+path already did. Self-test clauses: a sibling's sync (rc 1, then the id) goes on; rc 1 with no id still ends 1;
+FAIL-first on a mutant copy (3 clauses red).
+
 
 The train's pass-1 batch (f83a69dea's union, fixture tier) ended `gate-gpu-qwen4exp-e2e rc=1 1s try=1`: `mv: cannot stat
 '/root/repo/bloomery-train/.sync-id.new'` and `rsync error (code 1)` — lane B's box.sh sync raced lane A's in the same
