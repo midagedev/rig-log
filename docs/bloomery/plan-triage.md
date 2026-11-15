@@ -3061,6 +3061,15 @@ chain at m = 2 (the same term as the recentlit "verify m-rows" line above).
   PPL +217 %, top-1 52 % 로 무너진다 — prose+code 순위의 꼬리가 곧 한국어가 쓰는 전문가라 번역 피벗 안은 이 순위로는 성립하지
   않는다. 한국어 트레이스를 넣은 순위는 미시험. 엔진 레버 없음, 보류 유지.
 
+**ggml v1.0.0** (the user 링크, 2026-11-15; 릴리스 노트와 llama.cpp PR 열 개의 본문을 읽고 우리 코드와 대조, 박스 없음). ik 트리를 링크하는 우리 하네스(`tools/ref/build-qdot-ref.sh`)는 삭제된 API(`DIAG_MASK`, deprecated 함수)를 쓰지 않아 API 정리는 영향 없음 — 공개 비교 엔진(llama.cpp) 빌드만 다음 핀에서 따라간다.
+- **few-row MMQ, 2–24 열 int8 MMA (llama/31533): 다음, 측정 한 항 먼저.** 가중치를 한 번 읽고 한 번 풀어 int8 MMA 조각으로 모든 열을 텐서코어에서 곱한다. warp 별 K 슬라이스, cp.async 링, K 루프에 `__syncthreads` 없음, 끝에서 고정 순서 합(결정적). 저자 측 3090 Ti 8 열 패스 ×1.42(그쪽 MMVQ 대비 — 우리와 직접 비교 금지). 우리 `q8f32.rs` `blocks_gemv_mcol_staged`(4–8 열)는 열마다 m = 1 walk 의 dot 을 항 순서 그대로 반복한다(열 c 의 합이 m = 1 과 비트 동일이 계약). 그래서 열 수만큼 ALU 일이 는다. [유도] Q4_K, 3090: 936 GB/s 에서 dp4a 하나당 가중치 2 B, 8 열이면 ~3.7 T dp4a/s 필요, sm_86 피크 ~8.9 T/s(82 SM × 64/clk × 1.7 GHz)의 ~40 %, nibble·scale 명령 3–4 배를 얹으면 ALU 포화권 → 8 열 검증 패스는 대역폭이 아니라 명령 한계일 가능성. 잴 항 하나: 카드 위 밀집 모델 검증 경로(Qwen3.8 27B MTP, EXAONE MTP)에서 같은 행렬의 m = 8 staged 시간 ÷ m = 1 시간. ≥ 1.4 면 MMA 판의 상한은 (t8 − t1)/t8; ~1.0 이면 기각. 바꾸면 합 순서 변경 클래스(오차 모델 + `gate-gpu-e2e` 카운트 핀 + 시간 A/B 한 번)이고, verify 행 = decode 행 비트 동일을 핀하는 MTP 절은 다시 써야 한다. V4.1 DSpark 의 두 행 패스(스텝의 1.61 배)는 호스트 H 항(행당 13–15 ms)이 지배해 카드 GEMV 몫은 작다[유도].
+- **MoE: 빈 stream-k 타일 건너뛰기 (32067): 이미 닫힘.** 그쪽 버그는 빈 전문가 타일이 `ids_dst` 를 한 칸 넘어 읽는 것. 우리 `q4k_sel.rs` `grouped_tiles` 는 전문가마다 ⌈run/8⌉ 타일이라 빈 전문가는 타일 0 개, 범위 밖 run 은 `FaultSite::ExpertId`. stream-k fixup 은 없다.
+- **MoE: 바이어스 뒤 NaN 정화 (31005): 우리 규칙과 반대, 받지 않음.** 그쪽은 NaN 을 −FLT_MAX 로 바꿔 계속 간다. 우리 `gpu-deepseek41/src/router.rs` 는 점수·바이어스가 유한하지 않으면 `FaultSite::Router` 로 스텝을 거부한다(침묵 실패 금지). 동률은 큰 id(ds41)·작은 id(`gpu/src/router.rs`)로 고정.
+- **radix Top-K 동률 결정화 (31084): 확인만(XS).** 그쪽 KLD 가 실행마다 0.0004–0.011 로 흔들린 원인. 우리 라우터는 동률 규칙이 명시돼 있다. DSA 인덱서 top-k(`gpu/src/indexer.rs`, ds41 `chain/attn.rs`)의 동률 규칙 한 줄 확인은 다음 인덱서 라운드에 붙인다.
+- **MoE cache 가 미스 일부를 CPU 에서 계산 (30966): 비교만.** 우리 호스트 티어 + 적응 residency 가 이미 같은 일을 하고, 몫은 플래너가 유도한다. 그쪽 튜닝 스크립트의 기계 모델(업로드 GiB/s, CPU 전문가 GiB/s, 겹침 ms/GiB, 나머지 ms)은 우리 흐름 모델과 같은 꼴 — 가져올 항 없음.
+- **FP8 KV 캐시 (28392), OCP FP8 (28413), NVFP4 gate/up+GLU 융합 (31296): 기각/이미 있음.** sm_86 은 FP8 연산이 없고, 저장 전용 e4m3 KV 는 우리 `q8_0` KV(17/16 B)와 바이트가 같아 이득 ≈ 0[유도]. E4M3 GEMV(`autotune.rs`)와 NVFP4(`gate_qwen4exp_nvfp4`)는 이미 있다. NVFP4 융합은 sm_120 기여자 메뉴감.
+- **나머지: 해당 없음.** 스케줄러의 안 읽는 입력 업로드 생략(31419, 32100 — 우리는 범용 스케줄러 없음), CUDA 그래프 클러스터 차원 재인스턴스(31284 — sm_86 클러스터 없음), YaRN truncate=false(30206 — gpt-oss·PLaMo-3 용, 우리 패밀리 아님), CPU FA V f32 누적(29810 — 오라클은 ik), Vulkan/SYCL/OpenCL/WebGPU/Hexagon 항목.
+
 ### 재판정 잔여 (revisit)
 
 R2 Q3_K 밀집 m ≤ 8 대역(m=6이 m=1 GB/s의 90 % 밑이면 m > 1 명령 레버 카드 — DSpark 패스 +4.7 ms 위험; uniongroup 앞); R5 0·1층 Q5_K `_sel`을 카드로(순 −0.15…−0.4 ms); R6 목록 주장 확인·R7 DSpark 재유도(합집합 0.753로)·R8 rows % 4(plainfile이 덮었는지); N1·N2·N3·N4·N5는 시팅 큐와 사용자 결정.
