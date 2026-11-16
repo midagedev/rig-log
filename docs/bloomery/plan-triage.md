@@ -55,6 +55,27 @@ in order: (1) read which of Body35's `enqueue_rows` launches repeat per row and 
 once (target c_v(8) ≤ 1.3); (2) the drafter's own cost c_d on the A6000; (3) the engine's block-16 path on the wide
 arm. Metal needs a wide verify kernel before any of it pays there.
 
+## Landed 2026-11-16: the V4.1 default is bq3km; the 27B verify reads its weights once (lead)
+
+- **dsdefault (bloomery f1113a3f5).** The catalog's DeepSeek-V4.1-Flash default is `midagedev/DeepSeek-V4.1-Flash-1017-GGUF`
+  `bq3km` (revision 480bb14b, 347.4 GB, public on the hub): the Q3_K_M layout quantized by `bloomery-quantize` with the
+  engine's own imatrix. KLD against UD-Q4_K_XL, 4 x 2,048 tokens: wikitext 0.215 (Q3_K_M 0.259), Korean 0.1191 (0.1345),
+  code 0.0651 (0.0758); same types as the Q3_K_M, so the same bytes a token (pp4096 +4.0 %, decode equal, card
+  `docs/cards/bq3km-ship.card`). The vcruz305 Q3_K_M stays an explicit, unverified row. Fixture batch 42 green.
+- **imxdown (dd2ddedb1).** The imatrix collector counts the routed downs of host-served experts too (down count = up
+  count). The v2 file it made measures the same as v1 (wiki 0.215 vs 0.212, ko 0.1191 vs 0.1178, code equal): the missing
+  downs did not matter. Named miss: the collecting walk took 45 s a chunk against the 22.9 s plain walk; the round had
+  derived x1.00..1.01. Open (S): read where the tap's per-expert mutex or the f64 sums cost, before the next collection.
+- **q35ro (d3fab0eac).** A Qwen3.5-body dense FFN past one row (`site_gemv` m columns) and a verify's head read their
+  weights once for every row. 27B Q4_K_M, A6000, `bench_verify_rows`: c_v(2/4/8) 1.662/2.987/5.664 -> 1.209/1.620/2.401
+  steps at depth 6, 1.670/3.003/5.695 -> 1.223/1.660/2.495 at depth 4096 (card `q35ro-cv.card`, decide-in). The serve
+  A/B of the same card was undecidable: `bloomery-serve` served the 27B plain under `BLOOMERY_DRAFT=mtp` (the gap q35mtp
+  closes).
+- In flight: q35mtp (the 27B's in-file MTP draft on `bloomery-serve`, prediction +21..+35 % at a 0.60..0.80), q35fit (the
+  unset draft yields to the context through `draft_yield`; the 35B routed fit prices its draft), q35skip (the draft's
+  refresh runs the head only on the row a token is read from, +2.3..+3.8 % [derived]); qoutdir (bloomery-quantize refuses
+  a missing output directory by name) rides the q35mtp train.
+
 ## Landed 2026-11-15: the V4.1 prompt batch's unjoined Q3_K arms, the launch-queue default (lead)
 
 - **q3kgroups (bloomery 57fdf551a).** 1dd382876 (the batch reads every attention format) ran a Q3_K q_b with no indexer
@@ -3084,6 +3105,10 @@ chain at m = 2 (the same term as the recentlit "verify m-rows" line above).
 
 **ggml v1.0.0** (the user 링크, 2026-11-15; 릴리스 노트와 llama.cpp PR 열 개의 본문을 읽고 우리 코드와 대조, 박스 없음). ik 트리를 링크하는 우리 하네스(`tools/ref/build-qdot-ref.sh`)는 삭제된 API(`DIAG_MASK`, deprecated 함수)를 쓰지 않아 API 정리는 영향 없음 — 공개 비교 엔진(llama.cpp) 빌드만 다음 핀에서 따라간다.
 - **few-row MMQ, 2–24 열 int8 MMA (llama/31533): 다음, 측정 한 항 먼저.** 가중치를 한 번 읽고 한 번 풀어 int8 MMA 조각으로 모든 열을 텐서코어에서 곱한다. warp 별 K 슬라이스, cp.async 링, K 루프에 `__syncthreads` 없음, 끝에서 고정 순서 합(결정적). 저자 측 3090 Ti 8 열 패스 ×1.42(그쪽 MMVQ 대비 — 우리와 직접 비교 금지). 우리 `q8f32.rs` `blocks_gemv_mcol_staged`(4–8 열)는 열마다 m = 1 walk 의 dot 을 항 순서 그대로 반복한다(열 c 의 합이 m = 1 과 비트 동일이 계약). 그래서 열 수만큼 ALU 일이 는다. [유도] Q4_K, 3090: 936 GB/s 에서 dp4a 하나당 가중치 2 B, 8 열이면 ~3.7 T dp4a/s 필요, sm_86 피크 ~8.9 T/s(82 SM × 64/clk × 1.7 GHz)의 ~40 %, nibble·scale 명령 3–4 배를 얹으면 ALU 포화권 → 8 열 검증 패스는 대역폭이 아니라 명령 한계일 가능성. 잴 항 하나: 카드 위 밀집 모델 검증 경로(Qwen3.8 27B MTP, EXAONE MTP)에서 같은 행렬의 m = 8 staged 시간 ÷ m = 1 시간. ≥ 1.4 면 MMA 판의 상한은 (t8 − t1)/t8; ~1.0 이면 기각. 바꾸면 합 순서 변경 클래스(오차 모델 + `gate-gpu-e2e` 카운트 핀 + 시간 A/B 한 번)이고, verify 행 = decode 행 비트 동일을 핀하는 MTP 절은 다시 써야 한다. V4.1 DSpark 의 두 행 패스(스텝의 1.61 배)는 호스트 H 항(행당 13–15 ms)이 지배해 카드 GEMV 몫은 작다[유도].
+  - **2026-11-16, measured term: read-once first, MMA after.** The 27B's verify did not take the MMA path's term: its dense
+    FFN and head re-read the weights per column. q35ro (bloomery d3fab0eac) made them read once: c_v(2/4/8) 1.66/2.99/5.66
+    -> 1.21/1.62/2.40 steps (A6000, depth 6). c_v(8) = 2.40 against an ideal ~1.0 is now the MMA lever's term; an ncu pass
+    of `q4k_gemv_mcol` at m = 8 (issue vs DRAM share) comes before any MMA round.
 - **MoE: 빈 stream-k 타일 건너뛰기 (32067): 이미 닫힘.** 그쪽 버그는 빈 전문가 타일이 `ids_dst` 를 한 칸 넘어 읽는 것. 우리 `q4k_sel.rs` `grouped_tiles` 는 전문가마다 ⌈run/8⌉ 타일이라 빈 전문가는 타일 0 개, 범위 밖 run 은 `FaultSite::ExpertId`. stream-k fixup 은 없다.
 - **MoE: 바이어스 뒤 NaN 정화 (31005): 우리 규칙과 반대, 받지 않음.** 그쪽은 NaN 을 −FLT_MAX 로 바꿔 계속 간다. 우리 `gpu-deepseek41/src/router.rs` 는 점수·바이어스가 유한하지 않으면 `FaultSite::Router` 로 스텝을 거부한다(침묵 실패 금지). 동률은 큰 id(ds41)·작은 id(`gpu/src/router.rs`)로 고정.
 - **radix Top-K 동률 결정화 (31084): 확인만(XS).** 그쪽 KLD 가 실행마다 0.0004–0.011 로 흔들린 원인. 우리 라우터는 동률 규칙이 명시돼 있다. DSA 인덱서 top-k(`gpu/src/indexer.rs`, ds41 `chain/attn.rs`)의 동률 규칙 한 줄 확인은 다음 인덱서 라운드에 붙인다.
