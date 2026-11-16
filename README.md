@@ -21,18 +21,17 @@
 | CPU | AMD Ryzen Threadripper PRO 5975WX, 32 cores / 64 threads. Boost disabled, no clock cap |
 | Memory | 256 GB DDR4-3600 at DRAM 1.30 V — 32 GB × 8, all 8 channels, Samsung M378A4G43AB2-CWE 2Rx8 UDIMM, **non-ECC** |
 | Measured memory read | **147.7 GB/s** (32-thread, 8 GiB read probe); 230.4 GB/s theoretical. A second probe reads 144.8, the one toktape's host percentages use |
-| GPU 0 | NVIDIA RTX A6000, 48 GB, bus 61 |
-| GPU 1 | NVIDIA GeForce RTX 3090, 24 GB, bus 41 |
-| Device order | **By UUID, never by slot.** Runners source [`configs/gpu-order.env`](configs/gpu-order.env) so CUDA0 is the 48 GB card; `nvidia-smi` ignores it and takes `-i <UUID>` |
+| GPU | NVIDIA GeForce RTX 5090, 32 GB, bus 01, 600 W default limit (since 2026-11-16; the A6000 and 3090 before it are in [`docs/machine-changes.md`](docs/machine-changes.md)) |
+| Device order | **By UUID, never by slot**, one card or several. Runners source [`configs/gpu-order.env`](configs/gpu-order.env), which names the 5090; `nvidia-smi` ignores it and takes `-i <UUID>` |
 | Board | ASUS Pro WS WRX80E-SAGE SE WIFI |
 | Storage | Samsung 980 PRO 2 TB NVMe (root) + Phison E18 4 TB NVMe (`/models`) + Seagate Exos X18 18 TB 7200 rpm SATA HDD (`/data`, used: 28,870 power-on hours at install) |
 | Case / Power | 3RSYS T840 / Super Flower Leadex Platinum SF-2000F14HP, 2000 W |
 | Cooling | ARCTIC Freezer 4U-M on CPU_FAN. Case fans are wired to the PSU, so all six `CHA_FAN` channels read `Disabled`; fan RPM and slot temperatures only via the BMC (`ipmitool sdr type fan`, `sdr type temperature`) |
 | OS | Ubuntu 24.04, kernel parameter `pci=realloc=off` |
 
-지금도 유효한 함정이 넷 있다. `pci=realloc=off`가 없으면 칩셋 USB가 `xhci init -16`으로 죽고 10GbE 포트가 내려간다(`pci=nocrs`는 USB를 살리는 대신 NVIDIA 드라이버를 깨뜨린다). X550 10GbE 포트는 GRO·TSO·GSO·LRO를 끄기 전에는 지속 부하에서 `Tx Unit Hang`을 낸다. 섀시 팬은 커브를 걸 수 없고, 하나가 죽어도 보이지 않는다. PSU 공개 스펙은 ATX12V 2.2 / EPS12V라 네이티브 12V-2x6 커넥터가 없다(벤더 시트에서 읽은 것이다).
+지금도 유효한 함정이 넷 있다. `pci=realloc=off`가 없으면 칩셋 USB가 `xhci init -16`으로 죽고 10GbE 포트가 내려간다(`pci=nocrs`는 USB를 살리는 대신 NVIDIA 드라이버를 깨뜨린다). X550 10GbE 포트는 GRO·TSO·GSO·LRO를 끄기 전에는 지속 부하에서 `Tx Unit Hang`을 낸다. 섀시 팬은 커브를 걸 수 없고, 하나가 죽어도 보이지 않는다. PSU 공개 스펙은 ATX12V 2.2 / EPS12V라 네이티브 12V-2x6 커넥터가 없다(벤더 시트에서 읽은 것이다). 그래서 5090은 카드 동봉 어댑터(8핀 4개 → 12V-2x6)로 물렸고, 카드는 이를 600 W 한도로 읽었다(2026-11-17).
 
-~~지속 부하에서 A6000이 86–87 °C를 유지하고 `SW Thermal Slowdown`이 약 100% 시간 켜져 있으니, duty cycle 100%인 작업은 시작하기도 전에 스로틀링 상태다.~~ 2026-09-16 선 그음: 팬 속도를 증인에 넣지 않고 쓴 문장이었다. 87 °C는 카드 자체 목표 84 °C보다 5 °C 위일 뿐이고, 원인은 카드 팬 커브가 100%에 닿기까지 3.7분 걸리는 데 있다. GPU 팬은 NVML로 제어한다([`tools/gpu-fan-curve.py`](tools/gpu-fan-curve.py), [측정](log/2026-09-16.md#diffusion-first-run-and-three-regimes)).
+~~지속 부하에서 A6000이 86–87 °C를 유지하고 `SW Thermal Slowdown`이 약 100% 시간 켜져 있으니, duty cycle 100%인 작업은 시작하기도 전에 스로틀링 상태다.~~ 2026-09-16 선 그음: 팬 속도를 증인에 넣지 않고 쓴 문장이었다. 87 °C는 카드 자체 목표 84 °C보다 5 °C 위일 뿐이고, 원인은 카드 팬 커브가 100%에 닿기까지 3.7분 걸리는 데 있다. ~~GPU 팬은 NVML로 제어한다([`tools/gpu-fan-curve.py`](tools/gpu-fan-curve.py), [측정](log/2026-09-16.md#diffusion-first-run-and-three-regimes)).~~ 2026-11-16 정정: 카드 교체와 함께 NVML 팬 커브 서비스를 내렸고, 5090은 카드 자체 곡선으로 돈다. 2분 gpu_burn에서 최고 70 °C, 팬 40 %였다.
 
 ### DGX Spark
 
