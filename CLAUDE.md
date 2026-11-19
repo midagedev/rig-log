@@ -32,7 +32,8 @@ log/        하루 한 파일(2026-MM-DD.md), 실험은 그 안의 절. 측정�
 docs/       긴 글: 업스트림 버그 서류, 방법, 하드웨어 노트
 docs/bloomery/  bloomery 작업 문서: 계획, 트리아지, 원장, 사실, research, 업스트림 초안 (2026-10-11 bloomery에서 이동)
 configs/    기계에서 실제로 돌아가는 스크립트, 그대로 복사
-tools/      기록 수단: 러너, 게이트, VHS 테이프
+tools/      기록 수단: 러너, 게이트, VHS 테이프 (tools/film/: 릴리즈 영상 kit)
+skills/     에이전트 스킬 (~/.claude/skills/에 심볼릭 링크): release-film = docs/release-film.md의 입구
 assets/     클립과 시트
 ```
 

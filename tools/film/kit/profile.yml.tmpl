@@ -1,0 +1,32 @@
+# dsh's provider profile for one model (record.sh fills @ID@, @BASE@, @CTX@, @MAXTOK@): docs/dsh.md's, the same for both
+# models. Thinking off: dsh sends chat_template_kwargs.enable_thinking=false, and the kit's proxy adds the OpenAI
+# top-level reasoning_effort "none" when a request has none (Hy4-flash turns thinking off only by that in 0.3.15; the
+# server resolves both, "none" winning). Images in: read_image needs the server's --mmproj.
+- id: llm-pi-ai
+  config:
+    providers:
+      bloomery:
+        apiKeyEnv: BLOOMERY_DSH_KEY
+        api: openai-completions
+        baseURL: @BASE@
+        reasoning: off
+        compat:
+          thinkingFormat: chat-template
+          chatTemplateKwargs:
+            enable_thinking:
+              $var: thinking.enabled
+            reasoning_effort:
+              $var: thinking.effort
+              omitWhenOff: true
+        models:
+          - id: @ID@
+            contextWindow: @CTX@
+            maxTokens: @MAXTOK@
+            input: [text, image]
+            reasoningEfforts:
+              off: none
+              high: high
+- id: agent-default-model
+  config:
+    provider: bloomery
+    model: @ID@

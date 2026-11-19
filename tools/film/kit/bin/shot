@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# shot <page.html> <seconds> [out.png]: a 1280x720 screenshot of the page at that second of its own clock (kit/shot.mjs)
+exec "${NODE:-/home/user/.local/bin/node}" "$(dirname "$(readlink -f "$0")")/../shot.mjs" "$@"
