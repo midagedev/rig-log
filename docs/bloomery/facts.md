@@ -65,6 +65,8 @@ expert 64개 중 6개 사용, 임베딩 2048, 헤드 16.
 
 **PCIe 링크 (2026-09-25 sysfs `current/max_link_speed·width`).** 두 카드 모두 PCIe 4.0(16 GT/s) ×16이다 — 3090 `41:00.0`(부모 `40:01.1`), A6000 `61:00.0`(부모 `60:01.1`). ~~각자 다른 루트 포트에 붙어 있다. 그러니 두 카드의 H2D는 서로 다른 링크를 쓴다.~~ 정정 2026-09-28: 부모 브리지가 다르다는 것만 읽었고, 그 위에서 한 홉을 나누는지는 읽지 않았다. `nvidia-smi topo -m`과 동시 복사 합(`pcie-a6000.card` step 4, 예측 48–53 GB/s[유도])이 가른다. 동시 합 대역은 아직 안 쟀다. 유휴 카드는 2.5 GT/s로 내려가 있다(링크 절전) — 링크 속도는 부하 중에 읽는다. 두 카드 사이 P2P는 없다(`gpu-design.md`). ~~H2D 실효는 pinned 26.2·pageable 14.4 GB/s가 기록돼 있으나 어느 카드인지 안 적혀 있다(`research/v41-ports.md:38`) — A6000 세 경로는 `ringstage`의 M2 프로브가 잰다.~~ A6000의 H2D는 pinned(`cuMemAllocHost`) 26.28, pageable(따뜻한 읽기 전용 mmap) 21.16 GB/s이고, 같은 매핑의 `cuMemHostRegister(READ_ONLY)`는 801로 거부된다(1 GiB × 8회, rig-log 09-25#m2-h2d-a6000; 3090도 등록 거부). 14.4는 어느 카드 값인지 모르므로 쓰지 않는다.
 
+**RTX 5090 (2026-11-16부터 워크스테이션의 카드 한 장; 2026-11-20 `cuDeviceGetAttribute`, 드라이버 615.71.09).** sm_120a, SM 170개, SM당 shared memory 102,400 B, **L2 100,663,296 B(96 MiB)**, 상주(persisting) L2 최대 62,914,560 B(60 MiB), 메모리 클럭 14,001 MHz × 512비트 버스(≈ 1.79 TB/s), SM 클럭 2,655 MHz(속성 값; 증인은 최대 3,210 MHz). 빈 그래프 노드 `c_node` 0.50 µs, 실제 그래프 재생의 경계당 빈틈 0.18 µs(plan.md 「모델」). 3090(L2 6 MB)의 L2 근거로 닫힌 항목은 `research/sm86-closures-2026-11-20.md`가 다시 읽었다. sm_120a에는 FP8·FP6·FP4와 block-scaled `mma.sync`, TMA, PDL(`griddepcontrol`), `setmaxnreg`가 있고 wgmma·tcgen05는 없다.
+
 GPU 쪽도 같은 원칙이다. sm_86은 `dp4a`(int8 내적)와 int8 텐서 코어(IMMA)를 갖고 있고 FP8은 없다. M=1 gemv는 대역폭에, M=8 이상 배치는 IMMA에 거는 것이 이 카드의 형태다. 0단계 2라운드의 q8_1 선택지가 그 첫 걸음이다.
 
 ## 툴체인 (2026-09-19 박스에서 확인)
