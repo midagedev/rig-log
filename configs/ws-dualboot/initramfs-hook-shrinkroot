@@ -1,0 +1,7 @@
+#!/bin/sh
+# /etc/initramfs-tools/hooks/shrinkroot: the tools the one-shot shrink needs inside the initramfs.
+PREREQ=""
+prereqs() { echo "$PREREQ"; }
+case "$1" in prereqs) prereqs; exit 0;; esac
+. /usr/share/initramfs-tools/hook-functions
+for b in /usr/sbin/e2fsck /usr/sbin/resize2fs /usr/sbin/sfdisk /usr/sbin/blockdev /usr/bin/partx /usr/sbin/dumpe2fs; do copy_exec "$b" /sbin; done

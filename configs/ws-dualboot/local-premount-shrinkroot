@@ -1,0 +1,28 @@
+#!/bin/sh
+# /etc/initramfs-tools/scripts/local-premount/shrinkroot: one-shot root shrink, run only when the kernel line carries
+# shrinkroot=1 (a grub-reboot entry). Every step that fails stops before the partition is touched, and boot goes on.
+# D, P, UUID, SECT (the new partition size in 512-byte sectors) and the 490G filesystem target are this machine's.
+PREREQ=""
+prereqs() { echo "$PREREQ"; }
+case "$1" in prereqs) prereqs; exit 0;; esac
+grep -q "shrinkroot=1" /proc/cmdline || exit 0
+D=/dev/nvme1n1; P=/dev/nvme1n1p2; SECT=1048576000; L=/run/shrinkroot.log
+UUID=70e19345-b303-4954-a97d-c974fd8d500b
+log() { echo "[shrinkroot] $*"; echo "[shrinkroot] $*" >> $L; }
+log "start $(date)"
+[ "$(dumpe2fs -h $P 2>/dev/null | sed -n "s/^Filesystem UUID: *//p")" = "$UUID" ] || { log "STOP: $P is not the root filesystem"; exit 0; }
+cur=$(cat /sys/class/block/nvme1n1p2/size)
+if [ "$cur" -gt "$SECT" ]; then
+  e2fsck -f -y $P; rc=$?; log "e2fsck rc=$rc"; [ $rc -le 1 ] || { log "STOP: e2fsck"; exit 0; }
+  resize2fs -p $P 490G; rc=$?; log "resize2fs shrink rc=$rc"; [ $rc -eq 0 ] || { log "STOP: shrink failed, partition unchanged"; exit 0; }
+  bc=$(dumpe2fs -h $P 2>/dev/null | sed -n "s/^Block count: *//p"); bs=$(dumpe2fs -h $P 2>/dev/null | sed -n "s/^Block size: *//p")
+  fsb=$((bc * bs)); log "fs bytes $fsb, new partition bytes $((SECT * 512))"
+  [ "$fsb" -le $((SECT * 512)) ] || { log "STOP: fs larger than the new partition"; exit 0; }
+  echo ", $SECT" | sfdisk --no-reread -N 2 $D; rc=$?; log "sfdisk rc=$rc"; [ $rc -eq 0 ] || { log "STOP: sfdisk"; exit 0; }
+  blockdev --rereadpt $D 2>/dev/null || partx -u $D; sleep 2
+  log "partition sectors now $(cat /sys/class/block/nvme1n1p2/size)"
+fi
+[ "$(cat /sys/class/block/nvme1n1p2/size)" -le $SECT ] || { log "STOP: partition still large, no grow"; exit 0; }
+resize2fs -p $P; log "resize2fs grow rc=$?"
+e2fsck -f -y $P; log "final e2fsck rc=$?"
+log "done $(date)"

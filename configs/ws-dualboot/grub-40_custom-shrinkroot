@@ -1,0 +1,8 @@
+# Appended to /etc/grub.d/40_custom; armed for one boot by `grub-reboot shrinkroot` (needs GRUB_DEFAULT=saved).
+menuentry "shrinkroot" --id shrinkroot {
+	insmod part_gpt
+	insmod ext2
+	search --no-floppy --fs-uuid --set=root 70e19345-b303-4954-a97d-c974fd8d500b
+	linux /boot/vmlinuz-6.8.0-149-generic root=UUID=70e19345-b303-4954-a97d-c974fd8d500b ro pci=realloc=off iommu=pt mitigations=off amd_pstate=active shrinkroot=1
+	initrd /boot/initrd.img-6.8.0-149-generic
+}
