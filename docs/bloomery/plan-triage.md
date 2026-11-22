@@ -2765,6 +2765,34 @@ V4.1 `--place gate` 게이트는 카드 이름 "3090"이 박혀 `BLOOMERY_GATE_C
 
 ### 아이디어 원장 (외부 레포·조사에서 얻은 것 — 한 줄에 처분과 근거)
 
+**엔진 커밋 스캔** (조사 라운드 10개와 코드 대조 라운드 5개, 2026-11-22. 대상은 llama.cpp, ik_llama.cpp, vLLM, SGLang, MLX/mlx-lm, exllamav3, mistral.rs, ktransformers/fastllm, FlashInfer/TensorRT-LLM, 신생 엔진 ninfer·imp·infr의 11-01~11-22 커밋. 보고 원문은 리드 세션 사본):
+- **Inkling 2 루프 컨트롤러 폭(vLLM #69168, 5090 small-M GEMM, 디코드 스텝 −6.5…−7.5 %): 채택, R4 입력.** 우리 `loop_control`은 그리드가 m 블록(`loop_control.rs:376`)이다. 그래서 M = 1에서는 SM 하나가 f32 가중치 2.36 MB를 읽고, launch당 30–220 µs가 든다. 토큰당 96 launch면 2.4–20 ms다[유도, 측정 없음]. down 출력을 여러 블록에 나누고 마지막 블록이 gain/forget을 합치면 3–5 µs다[유도]. 잴 항은 m = 1, 8에서의 nsys 한 번이다. 세 컨트롤러를 한 launch로 묶는 것과 attention 투영 6개를 1–3 launch로 줄이는 것(토큰당 0.16–0.5 ms[유도])도 R4에 넣는다. short conv N = 32의 split-K는 토큰당 ≤ 16 µs[유도]라 기각한다. 가중치를 bf16으로 저장하는 안은 체크포인트 dtype을 읽어서 정한다.
+- **MoE 캐시 CRF 축출(llama.cpp #31233, +6–7 %)과 CPU share·프롬프트 상주 재사용(ik #2883/#2915, ik #2938): 이미 있음.** 카드 캐시인 `SwapRule`이 감쇠 빈도(패스마다 ×0.9)다. HOST 슬롯만 호스트로 간다(`host/batch.rs`). 다른 정책은 `tools/flow/resplay.py`에 정책 단어로 더해 Mac에서 값을 매긴다.
+- **핀 실패의 조용한 퇴화(imp #3170, 63.8 → 102.6 tok/s): 해당 없음.** mlock과 cudaHostRegister가 실패하면 이름 붙은 오류가 난다(`host_lock.rs:651`, `graph.rs:737`).
+- **few-row int8 MMA 검증(llama.cpp #31533/#32065, 5090 0.99–1.10×): 새것 없음.** dense m열 GEMV는 가중치 타일을 한 번만 디코드한다. routed expert의 행 간 중복 제거는 위 「Qwen3 검증 m행의 expert 묶기」와 같은 항목이다.
+- **Metal few-row `qmv_mma`(MLX #4787/#4890, M2 Pro b8 70 → 202 tok/s): 보류, 측정 먼저.** 우리 M = 3..16은 가중치를 한 번만 읽는 64행 타일 GEMM이다. MLX의 기준선은 행마다 다시 읽는 `qmv`라 우리와 다르다. 잴 항은 `metal_matvec_time` mrow R = 4·8 대 R = 1이다. Metal verify는 A4 전용이고 `MROWS = 2`이므로 Q4_K/Q8_0 verify 커버리지와 함께 연다.
+- **draft head 경량화(SGLang #49595 MXFP8, FlashInfer #9780 picked-row, TRT #22058 lm_head+argmax 융합): 기각.** draft head는 이미 Q8_0에 picked-row 리스트(`HeadSet::List`)다. 확률에 행 전체가 필요하니 argmax 융합은 맞지 않는다. 09-28 어휘 축소 기각과 같은 근거다.
+- **DSpark tap의 위치마다 D2H→H2D 왕복(`draft_taps.rs:197`): 보류.** 잴 항은 nsys에서의 `to_host_vec` 시간 하나다.
+- **Qwen3.8 MTP KV가 262k 전체 f16을 dense로 읽음(`mtp38.rs:395`): 보류, 설계.** 윈도우로 자르면 제안이 바뀐다.
+- **MXFP4 → NVFP4 W4A4 prefill(ik #2880, GB10 pp512 +32 %): 이미 있음(`nvfp4mma.rs`).** ik의 공유 활성 양자화와 SWIGLU 에필로그 비교는 트래커의 sm_121 FP4 MMA 항목으로 보낸다.
+- **실행 중 CPU 재탐침(fastllm e2c82c220): 해당 없음.** 실행 중 피드백 루프가 없고, 비용은 로드 때의 프로브와 저장소에서 온다. **graph 안 D2H expert mailbox(fastllm bc723395c): 보류, 설계.** callstream과 비교한다.
+- **launch_bounds 2 blocks/SM(exllamav3 #590): 보류.** `gate-ptx-spill` 표의 regs 열로 sm_120a의 웨이브 수를 Mac에서 계산한다.
+- **버그 클래스 대조.**
+  - 빈틈 4개는 수정 라운드 `gapfix1`로 보낸다(조용한 실패 금지).
+    - DSA indexer의 NaN 무신호(vLLM #66839 계열)
+    - `gpu-gemma4a` u32 곱
+    - Metal attention uint 인덱스에 호스트 경계가 없음(MLX #4807 계열)
+    - topology가 오프라인 CPU에서 잘림
+  - 나머지는 안전하다.
+    - router NaN과 bias 순서(llama.cpp #31005)
+    - 0×NaN tail 마스크(FlashInfer f0031919b)
+    - router f32
+    - PDL 미사용
+    - Metal 0 크기
+    - mmap wire(MLX #4883)
+    - 업로드 실패 슬롯
+    - verify 수치(imp #3190)
+
 **vllm-project/Kimi-K3.1-Pro-pruned75** (사용자 링크, 2026-11-06; 모델 카드만 읽음): Kimi-K3.1-Pro(K3 가 아닌 `kimi_k31`, 비전 포함, 원본 ~1.5 TB)의 라우팅 전문가를 층당 896 → 224 로 잘라낸 vLLM 스모크 테스트용 체크포인트 — 랭킹은 보정 데이터 없이 라우터 행의 부호 합(`sum(router.weight[i])`), MXFP4 safetensors 443–476 GB, GGUF 없음, GSM8K 5-shot 43.7 %(원본 수치 미기재), 카드 스스로 "큰 품질 회귀"를 경고.
 - **지원 대상: 기각.** 다른 아키텍처·GGUF 없음·박스에 안 들어가는 크기·스모크 테스트용 품질.
 - **라우터 가중치 부호 합 = 데이터 없는 핫/콜드 프록시: 비교만.** k3trace 의 실제 트레이스(`kimi-k3-rank.tsv`)가 나오면 GGUF 의 `ffn_gate_inp` 행 합 순위와 층별 겹침을 한 줄로 잰다(XS). 겹치면 트레이스 없이 콜드 블록을 노드로 보내는 플랜 B. 75 % 제거에서 43 % 는 "제거" 대신 "콜드 전문가를 느린 티어에"라는 우리 방향의 근거.
