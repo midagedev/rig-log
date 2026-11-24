@@ -88,6 +88,32 @@ approximation; the exact number stays bloomery's.
 (toktape tapes, published as `[recorded on tape]` links the way headline numbers are now). Every number names its machine
 and conditions; no ratio against another engine is stated (the README's rule).
 
+## 4a. Multilingual (the user, 2026-11-24: "다국어 능력 테스트도 추가하고 싶고")
+
+Two kinds, both API-only, so both in toktape:
+
+**Parallel suites (the same item in many languages).** The figure is the gap to English on the same items, judged by
+McNemar per language, which says more than a bare per-language accuracy: a model (or an engine's tokenizer or
+template) that loses a language shows a gap on items it answers in English.
+- MMLU-ProX ([HF](https://huggingface.co/datasets/li-lab/MMLU-ProX), [paper](https://arxiv.org/html/2503.10497v2)):
+  MMLU-Pro translated, 29 languages; it pairs with the MMLU-Pro suite modelbench already runs. License: the dataset card
+  says MIT, the paper CC BY 4.0 — check the card at the pinned revision.
+- Global-MMLU ([paper](https://arxiv.org/pdf/2412.03304)): 42 languages, released "under a fully permissive license",
+  with a Lite split and culturally sensitive / agnostic labels.
+- MGSM (grade-school math, 10 languages) and Belebele (reading comprehension, 122 languages): parallel, small. Licenses
+  not yet read.
+Local-knowledge suites beside them (not parallel; each is its own language's exam): KMMLU (in modelbench), and per
+language as wanted (INCLUDE, MultiLoKo, JMMLU, CMMLU), each only after its license is read.
+
+**Generation checks (`toktape check`, deterministic).** Language fidelity: asked in Korean / Japanese / Chinese / …,
+the reply is in that language (script share of the content above a line the case states, no switch to English
+mid-answer), with thinking on and off; the non-ASCII echo pair already in ttcheck0 covers byte integrity.
+
+Default language set: en, ko, ja, zh, plus `--langs`; sample counts per language small by default (cost multiplies by
+languages). Every dataset is fetched at run time at a pinned revision with its sha256 and license recorded on the tape;
+nothing is bundled. Round: **tteval2** (after tteval1's tool-call and long-context suites), and the language-fidelity
+cases in **ttcheck1**.
+
 ## 5. Open decisions (the user's)
 
 1. toktape owns `check` and `eval` (the proposal above), or both live in bloomery's tools and toktape only records.
