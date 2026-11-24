@@ -27,6 +27,7 @@
 | Storage | Samsung 980 PRO 2 TB NVMe (root) + Phison E18 4 TB NVMe (`/models`) + Seagate Exos X18 18 TB 7200 rpm SATA HDD (`/data`, used: 28,870 power-on hours at install) |
 | Case / Power | 3RSYS T840 / Super Flower Leadex Platinum SF-2000F14HP, 2000 W |
 | Cooling | ARCTIC Freezer 4U-M on CPU_FAN. Case fans are wired to the PSU, so all six `CHA_FAN` channels read `Disabled`; fan RPM and slot temperatures only via the BMC (`ipmitool sdr type fan`, `sdr type temperature`) |
+| Network | Intel X550 10GbE 포트 f0이 LAN, f1은 비어 있다. ConnectX-5 Ex(MCX516A-CDAT, Gen4 x16) 포트 1이 Spark와 100GbE 직결, 커널 내장 `mlx5_core`(2026-11-24, [측정](log/2026-11-24.md#cx-link)) |
 | OS | Ubuntu 24.04, kernel parameter `pci=realloc=off` |
 
 지금도 유효한 함정이 넷 있다. `pci=realloc=off`가 없으면 칩셋 USB가 `xhci init -16`으로 죽고 10GbE 포트가 내려간다(`pci=nocrs`는 USB를 살리는 대신 NVIDIA 드라이버를 깨뜨린다). X550 10GbE 포트는 GRO·TSO·GSO·LRO를 끄기 전에는 지속 부하에서 `Tx Unit Hang`을 낸다. 섀시 팬은 커브를 걸 수 없고, 하나가 죽어도 보이지 않는다. PSU 공개 스펙은 ATX12V 2.2 / EPS12V라 네이티브 12V-2x6 커넥터가 없다(벤더 시트에서 읽은 것이다). 그래서 5090은 카드 동봉 어댑터(8핀 4개 → 12V-2x6)로 물렸고, 카드는 이를 600 W 한도로 읽었다(2026-11-17).
@@ -44,10 +45,10 @@
 | Measured memory read | GPU **259.0 GB/s** (16 GiB, 스펙 273의 95 %), CPU 20스레드 105.8 GB/s. 둘이 같이 읽으면 합이 GPU 혼자일 때와 같다([점검](log/2026-11-03.md#spark-health)) |
 | GEMM | cuBLAS 8192³ BF16 105.2 / FP16 105.8 / TF32 44.4 TFLOP/s |
 | Storage | Samsung MZALC4T0HBL1 4 TB NVMe, PCIe Gen5 x4. fio 순차 읽기 **14.89 GB/s**, 4K QD32 585k IOPS([측정](log/2026-11-03.md#spark-nvme-read)) |
-| Network | Realtek 10GbE가 **1 Gb/s로 링크**(HF 다운로드 실측 101–117 MB/s). ConnectX-7 두 포트는 케이블이 없어 내려가 있다 |
+| Network | 인터넷은 Realtek 10GbE 유선(공유기에 1 Gb/s로 링크, HF 다운로드 실측 101–117 MB/s), Wi-Fi는 예비. ConnectX-7 포트 0이 워크스테이션과 100GbE 직결(2026-11-24, ws → Spark 98 Gb/s, Spark → ws 14 Gb/s, [측정](log/2026-11-24.md#cx-link)). 포트 1은 케이블이 없다 |
 | OS | DGX OS 7.6.0, Ubuntu 24.04.4, 커널 7.0.0-1024-nvidia, 드라이버 580.178.04, CUDA 13.0. 헤드리스(`multi-user.target`), 절전 타깃 mask |
 
-함정이 셋 있다. 케이블 없는 ConnectX-7은 부팅 직후 `cx7-pcie-hotplug`가 버스에서 내리고 그때 PCIe 정정 오류 8건이 찍힌다(부하로 늘지 않는다). unified memory라 페이지 캐시가 GPU 할당과 다투므로 모델 로드 전에 `drop_caches`를 한다. 드라이버는 공식 업데이트 경로상 580이고, bloomery의 Spark 문서 수치는 595.84에서 쟀다.
+함정이 넷 있다. 케이블 없는 ConnectX-7은 부팅 직후 `cx7-pcie-hotplug`가 버스에서 내리고 그때 PCIe 정정 오류 8건이 찍힌다(부하로 늘지 않는다). NVIDIA의 OTA 펌웨어 점검이 부른 `mstflint`가 `mstflint_access` 모듈에서 커널 oops를 내 Spark가 재부팅된 적이 있다([기록](log/2026-11-24.md#spark-mstflint-oops)). unified memory라 페이지 캐시가 GPU 할당과 다투므로 모델 로드 전에 `drop_caches`를 한다. 드라이버는 공식 업데이트 경로상 580이고, bloomery의 Spark 문서 수치는 595.84에서 쟀다.
 
 ## 속도
 
@@ -103,6 +104,9 @@
 | [10-13](log/2026-10-13.md) | Qwen3.8 MTP 드래프트를 강제 id 스트림으로 A/B: 페이지드 16 GiB 플랜에서 폭 선택기 +5.6 %, 고정 4행 +0.9 %, 흐름 모델 두 번 닫힘. churn 풀을 호스트에 안 올리는 규칙은 −37.5 % |
 | [10-25](log/2026-10-25.md) | M4 Pro Mac 한 시팅에서 bloomery Metal이 같은 가중치로 mlx-lm보다 프롬프트 +3.7 %·디코드 +8.8 %, llama.cpp보다 +26.6 %·+29 %(`[dev]`) |
 | [11-03](log/2026-11-03.md) | DGX Spark(중고) 도착. GPU 읽기 259 GB/s, CPU와 GPU가 한 대역폭을 나눈다. NVMe 순차 읽기 14.89 GB/s로 워크스테이션의 2.1–2.5배. 워크스테이션에 18 TB HDD |
+| [11-04](log/2026-11-04.md) | Spark 엔진 비교의 밤: Qwen3.6·3.8 MTP가 bloomery를 늦추는 자리를 nsys로 나눴다. 워크스테이션–Spark 10GbE 직결의 64 B 왕복은 busy-poll로 512 → 26.5 µs |
+| [11-05](log/2026-11-05.md) | Spark를 V4.1 전문가 티어 노드로 붙였다. 같은 128 GB 호스트 룸에서 ws 단독 decode 19·pp 29가 Spark를 붙이면 35·106, 가장 차가운 전문가를 Spark에 주면 49·211 |
+| [11-24](log/2026-11-24.md) | 워크스테이션–Spark를 ConnectX 100GbE로 직결: ws → Spark 98 Gb/s, Spark → ws는 14 Gb/s에 묶인다(원인 미확정). RDMA 64 B 왕복 1.31 µs. Spark가 NVIDIA 펌웨어 점검 도구의 커널 oops로 한 번 죽었다 |
 
 09-22까지는 실험당 한 파일이었고, 날짜 파일로 합치며 줄였다. 옛 파일명과 새 위치의 대응은 [`log/moved.tsv`](log/moved.tsv)에 있고, 옛 원문은 커밋 `c27c3a7`(09-11–09-21)과 `d62f650`(09-22)에 그대로 남아 있다. 새 기록의 형식은 커밋 훅 [`tools/check-log.py`](tools/check-log.py)가 잰다.
 

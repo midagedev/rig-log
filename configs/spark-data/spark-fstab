@@ -1,3 +1,4 @@
 # The line /etc/fstab on the Spark carries: the box's /data at /data, mounted on first use (automount), never blocking
-# a boot when the box is down (nofail, _netdev), 1 MiB transfers over the 10.41.0.0/30 link.
-10.41.0.1:/data  /data  nfs4  _netdev,nofail,noatime,x-systemd.automount,x-systemd.idle-timeout=0,rsize=1048576,wsize=1048576,hard,timeo=600  0  0
+# a boot when the box is down (nofail, _netdev), 1 MiB transfers over the 10.42.0.0/30 ConnectX link (the 10.41.0.0/30
+# 10GbE cable until 2026-11-24).
+10.42.0.1:/data  /data  nfs4  _netdev,nofail,noatime,x-systemd.automount,x-systemd.idle-timeout=0,rsize=1048576,wsize=1048576,hard,timeo=600  0  0

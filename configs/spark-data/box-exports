@@ -1,3 +1,4 @@
 # /etc/exports.d/spark-data.exports on the box: the box's /data (sda, 17 TB HDD) to the Spark only, over the direct
-# point-to-point link (box enp37s0f1 10.41.0.1/30 <-> Spark enP7s7 10.41.0.2/30). root on the Spark is root here.
-/data 10.41.0.2(rw,sync,no_subtree_check,no_root_squash)
+# point-to-point ConnectX link (box enp2s0f1np1 10.42.0.1/30 <-> Spark enp1s0f0np0 10.42.0.2/30; the 10.41.0.0/30
+# 10GbE cable it used until 2026-11-24 is gone). root on the Spark is root here.
+/data 10.42.0.2(rw,sync,no_subtree_check,no_root_squash)

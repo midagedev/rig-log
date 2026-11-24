@@ -1,0 +1,48 @@
+# The DGX Spark's end of the ConnectX link to the workstation (its ConnectX-7 port 0; the workstation's end is
+# spark-cx in configs/01-lan.yaml). Made on 2026-11-24 by `nmcli con mod` of the two auto-made profiles that sat in
+# DHCP on a link with no server:
+#   nmcli con mod "<auto profile of enp1s0f0np0>" connection.id spark-ws-cx ipv4.method manual \
+#     ipv4.addresses <.2>/30 ipv4.gateway "" ipv4.never-default yes ipv6.method link-local 802-3-ethernet.mtu 9000
+#   nmcli con mod "<auto profile of enP2p1s0f0np0>" connection.id spark-ws-cx-twin ipv4.method disabled \
+#     ipv6.method link-local 802-3-ethernet.mtu 9000
+# The Spark shows each physical CX-7 port as two netdevs, one per PCIe Gen5 x4 link (bus 0000:01 and 0002:01); both
+# report the same 100G link. The address sits on the bus-0000 half; the twin gets no IPv4 so it stops asking DHCP.
+# nmcli can time out ("Timeout was reached", then "NetworkManager is not running") while NM runs `netplan generate`;
+# the change is saved anyway, so wait for that process and read the profile back before repeating it.
+# NM keeps profiles as netplan files: these are /etc/netplan/90-NM-<uuid>.yaml (mode 600) as it wrote them, joined
+# into one file here; the /30 is redacted (y.y.y.2, the workstation is .1; configs/spark-data/ names it, since NFS needs it) and the uuids are left out.
+network:
+  version: 2
+  ethernets:
+    NM-spark-ws-cx:
+      renderer: NetworkManager
+      match:
+        name: "enp1s0f0np0"
+      addresses:
+      - "y.y.y.2/30"
+      mtu: 9000
+      wakeonlan: true
+      networkmanager:
+        name: "spark-ws-cx"
+        passthrough:
+          connection.autoconnect-priority: "-999"
+          ipv4.never-default: "true"
+          ipv6.addr-gen-mode: "default"
+          ipv6.method: "link-local"
+          ipv6.ip6-privacy: "-1"
+          proxy._: ""
+    NM-spark-ws-cx-twin:
+      renderer: NetworkManager
+      match:
+        name: "enP2p1s0f0np0"
+      mtu: 9000
+      wakeonlan: true
+      networkmanager:
+        name: "spark-ws-cx-twin"
+        passthrough:
+          connection.autoconnect-priority: "-999"
+          ipv4.method: "disabled"
+          ipv6.addr-gen-mode: "default"
+          ipv6.method: "link-local"
+          ipv6.ip6-privacy: "-1"
+          proxy._: ""
