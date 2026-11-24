@@ -45,10 +45,10 @@
 | Measured memory read | GPU **259.0 GB/s** (16 GiB, 스펙 273의 95 %), CPU 20스레드 105.8 GB/s. 둘이 같이 읽으면 합이 GPU 혼자일 때와 같다([점검](log/2026-11-03.md#spark-health)) |
 | GEMM | cuBLAS 8192³ BF16 105.2 / FP16 105.8 / TF32 44.4 TFLOP/s |
 | Storage | Samsung MZALC4T0HBL1 4 TB NVMe, PCIe Gen5 x4. fio 순차 읽기 **14.89 GB/s**, 4K QD32 585k IOPS([측정](log/2026-11-03.md#spark-nvme-read)) |
-| Network | 인터넷은 Realtek 10GbE 유선(공유기에 1 Gb/s로 링크, HF 다운로드 실측 101–117 MB/s), Wi-Fi는 예비. ConnectX-7 포트 0이 워크스테이션과 100GbE 직결(2026-11-24, ws → Spark 98 Gb/s, Spark → ws 14 Gb/s, [측정](log/2026-11-24.md#cx-link)). 포트 1은 케이블이 없다 |
+| Network | 인터넷은 Realtek 10GbE 유선(공유기에 1 Gb/s로 링크, HF 다운로드 실측 101–117 MB/s), Wi-Fi는 예비. ConnectX-7 포트 0이 워크스테이션과 100GbE 직결(2026-11-24, 양방향 98–99 Gb/s, RDMA 64 B 왕복 1.25 µs, [측정](log/2026-11-24.md#spark-cx7-hotplug)). 포트 1은 케이블이 없다 |
 | OS | DGX OS 7.6.0, Ubuntu 24.04.4, 커널 7.0.0-1024-nvidia, 드라이버 580.178.04, CUDA 13.0. 헤드리스(`multi-user.target`), 절전 타깃 mask |
 
-함정이 넷 있다. 케이블 없는 ConnectX-7은 부팅 직후 `cx7-pcie-hotplug`가 버스에서 내리고 그때 PCIe 정정 오류 8건이 찍힌다(부하로 늘지 않는다). NVIDIA의 OTA 펌웨어 점검이 부른 `mstflint`가 `mstflint_access` 모듈에서 커널 oops를 내 Spark가 재부팅된 적이 있다([기록](log/2026-11-24.md#spark-mstflint-oops)). unified memory라 페이지 캐시가 GPU 할당과 다투므로 모델 로드 전에 `drop_caches`를 한다. 드라이버는 공식 업데이트 경로상 580이고, bloomery의 Spark 문서 수치는 595.84에서 쟀다.
+함정이 넷 있다. 케이블 없는 ConnectX-7은 부팅 직후 `cx7-pcie-hotplug`가 버스에서 내리고 그때 PCIe 정정 오류 8건이 찍힌다(부하로 늘지 않는다). NVIDIA의 OTA 펌웨어 점검이 부른 `mstflint`가 `mstflint_access` 모듈에서 커널 oops를 내 Spark가 재부팅된 적이 있다([기록](log/2026-11-24.md#spark-mstflint-oops)). 실행 중에 케이블을 꽂아 hot-add된 CX-7은 송신이 14 Gb/s에 묶였다. 케이블을 꽂거나 바꾼 뒤에는 재부팅한다([기록](log/2026-11-24.md#spark-cx7-hotplug)). unified memory라 페이지 캐시가 GPU 할당과 다투므로 모델 로드 전에 `drop_caches`를 한다. 드라이버는 공식 업데이트 경로상 580이고, bloomery의 Spark 문서 수치는 595.84에서 쟀다.
 
 ## 속도
 
@@ -106,7 +106,7 @@
 | [11-03](log/2026-11-03.md) | DGX Spark(중고) 도착. GPU 읽기 259 GB/s, CPU와 GPU가 한 대역폭을 나눈다. NVMe 순차 읽기 14.89 GB/s로 워크스테이션의 2.1–2.5배. 워크스테이션에 18 TB HDD |
 | [11-04](log/2026-11-04.md) | Spark 엔진 비교의 밤: Qwen3.6·3.8 MTP가 bloomery를 늦추는 자리를 nsys로 나눴다. 워크스테이션–Spark 10GbE 직결의 64 B 왕복은 busy-poll로 512 → 26.5 µs |
 | [11-05](log/2026-11-05.md) | Spark를 V4.1 전문가 티어 노드로 붙였다. 같은 128 GB 호스트 룸에서 ws 단독 decode 19·pp 29가 Spark를 붙이면 35·106, 가장 차가운 전문가를 Spark에 주면 49·211 |
-| [11-24](log/2026-11-24.md) | 워크스테이션–Spark를 ConnectX 100GbE로 직결: ws → Spark 98 Gb/s, Spark → ws는 14 Gb/s에 묶인다(원인 미확정). RDMA 64 B 왕복 1.31 µs. Spark가 NVIDIA 펌웨어 점검 도구의 커널 oops로 한 번 죽었다 |
+| [11-24](log/2026-11-24.md) | 워크스테이션–Spark를 ConnectX 100GbE로 직결, 양방향 98–99 Gb/s, RDMA 64 B 왕복 1.25 µs. 케이블을 늦게 꽂은 CX-7은 송신 14 Gb/s였고 펌웨어 점검 도구의 커널 oops를 냈다. 재부팅이 둘 다 풀었다 |
 
 09-22까지는 실험당 한 파일이었고, 날짜 파일로 합치며 줄였다. 옛 파일명과 새 위치의 대응은 [`log/moved.tsv`](log/moved.tsv)에 있고, 옛 원문은 커밋 `c27c3a7`(09-11–09-21)과 `d62f650`(09-22)에 그대로 남아 있다. 새 기록의 형식은 커밋 훅 [`tools/check-log.py`](tools/check-log.py)가 잰다.
 

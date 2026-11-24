@@ -32,7 +32,7 @@ set_mtu(){ ssh "$WS" "sudo -n ip link set $WS_IF mtu $1" && ssh "$SPARK" "sudo -
 remote_bg(){ # host pidfile cmd...  start a server, record its pid on the remote end
   local h=$1 pf=$2; shift 2
   ssh "$h" "nohup $* >$pf.log 2>&1 </dev/null & echo \$! > $pf"
-  sleep 2
+  sleep 4  # 2 s lost the race to perftest's rdma_cm listener twice in one run
 }
 remote_stop(){ ssh "$1" "[ -f $2 ] && kill \$(cat $2) 2>/dev/null; rm -f $2; true"; }
 
