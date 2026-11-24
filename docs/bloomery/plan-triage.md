@@ -55,6 +55,16 @@ in order: (1) read which of Body35's `enqueue_rows` launches repeat per row and 
 once (target c_v(8) ≤ 1.3); (2) the drafter's own cost c_d on the A6000; (3) the engine's block-16 path on the wide
 arm. Metal needs a wide verify kernel before any of it pays there.
 
+## Open: a quality benchmark for every model we add (the user, 2026-11-24: "속도뿐 아니라"; lead)
+
+Design: [`research/model-quality-bench-2026-11-24.md`](research/model-quality-bench-2026-11-24.md). Our own tools, three
+layers: **fidelity** (full-vocabulary KLD / top-1 / PPL against a reference, bloomery-side, a base writer without ik),
+**template** (gBench-style template pairs through the API) and **tasks** (modelbench grown: KMMLU, MMLU-Pro, HumanEval+,
+tool calls, long context; McNemar against the reference engine on the same items). Open: whether template and tasks move
+into toktape (`check`, `eval`) — the user's call. First rounds: fid0, tt-check0, tt-eval0. modelbench (`tools/modelbench/`)
+is uncommitted and not machine-specific: it moves to its owner with tt-eval0. ERNIE 5.5 is the first model to carry all
+three.
+
 ## Landed 2026-11-16: the V4.1 default is bq3km; the 27B verify reads its weights once (lead)
 
 - **dsdefault (bloomery f1113a3f5).** The catalog's DeepSeek-V4.1-Flash default is `midagedev/DeepSeek-V4.1-Flash-1017-GGUF`
